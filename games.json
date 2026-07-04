@@ -67,6 +67,16 @@
       "inspiration": "Magic Sort!",
       "desc": "貓是液體！把同色貓湯倒進同一罐，集滿凝固成貓",
       "ai_score": 38
+    },
+    {
+      "id": "2026-07-04-006",
+      "title": "肉球相撲",
+      "emoji": "🐱",
+      "genre": "動作",
+      "date": "2026-07-04",
+      "inspiration": "Smash Fest!",
+      "desc": "拖曳蓄力衝撞，把貓咪全撞下布丁擂台，活到最後就是橫綱喵！",
+      "ai_score": 43
     }
   ]
 }
