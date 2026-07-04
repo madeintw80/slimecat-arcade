@@ -45,6 +45,11 @@
   .ratebtns button{flex:1;cursor:pointer;padding:10px 0;border-radius:10px;font-family:inherit;font-size:15px;font-weight:700;border:1px solid var(--line);background:transparent;color:var(--sub)}
   .ratebtns .go{background:var(--acc);border-color:var(--acc);color:#10250a}
   #ratemsg{margin-top:10px;font-size:13px;color:var(--acc);min-height:18px;text-align:center}
+  #ratefb{margin-top:14px;max-height:180px;overflow-y:auto}
+  .fbtitle{font-size:12.5px;color:var(--sub);margin-bottom:8px}
+  .fbitem{border-top:1px solid var(--line);padding:8px 2px}
+  .fbnote{font-size:13px;color:var(--txt);line-height:1.5}
+  .fbreply{font-size:12.5px;color:var(--acc);margin-top:4px;line-height:1.5}
 </style>
 </head>
 <body>
@@ -66,6 +71,7 @@
       <button class="go" id="ratesend">送出</button>
     </div>
     <div id="ratemsg"></div>
+    <div id="ratefb"></div>
   </div>
 </div>
 <script src="sc_config.js"></script>
@@ -145,6 +151,13 @@ function openRate(gid, title) {
   document.getElementById("ratetitle").textContent = "⭐ 評分《" + title + "》";
   document.getElementById("ratenote").value = "";
   document.getElementById("ratemsg").textContent = "";
+  // 最近回饋＋工廠回覆（工廠每天讀留言：能改的直接改款、回覆「已更新」）
+  const fb = ((games.find(x => x.id === gid) || {}).feedback || []).slice().reverse();
+  document.getElementById("ratefb").innerHTML = fb.length
+    ? '<div class="fbtitle">💬 最近回饋（工廠每天讀，改完會回覆）</div>' + fb.map(f =>
+        `<div class="fbitem"><div class="fbnote">「${esc(f.note)}」</div>` +
+        `<div class="fbreply">🏭 ${esc(f.reply)}</div></div>`).join("")
+    : "";
   drawStars();
   rateov.classList.add("show");
 }
