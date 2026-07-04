@@ -1,0 +1,673 @@
+<!--GAMEMETA {"title":"喵牌疊疊消","emoji":"🎴","genre":"配對","inspiration":"Vita 麻將","desc":"點兩張沒被壓住的同款貓牌爆漿消除，翻出下層藏的驚喜！"}-->
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>喵牌疊疊消</title>
+<style>
+html,body{margin:0;padding:0;height:100%;background:linear-gradient(#1b2340,#0e1428);overflow:hidden;
+ display:flex;align-items:center;justify-content:center;
+ font-family:'Microsoft JhengHei','PingFang TC','Noto Sans TC',sans-serif;}
+canvas{touch-action:none;display:block;border-radius:10px;box-shadow:0 8px 40px rgba(0,0,0,.5);}
+#backLink{position:fixed;top:10px;left:12px;color:#8fa8d8;text-decoration:none;font-size:14px;z-index:10;opacity:.85;}
+#backLink:hover{color:#cfe0ff;}
+</style>
+</head>
+<body>
+<a id="backLink" href="../../index.html">← 回遊戲區</a>
+<canvas id="game"></canvas>
+<script>
+'use strict';
+/* ===== 喵牌疊疊消 =====
+   點兩張「沒被壓住」的同款史萊姆貓牌就消除，翻出下層。
+   連擊疊倍率、金牌加時間，90 秒分數競賽。 */
+
+const W=400,H=600;               // 邏輯座標固定 400x600
+const UX=28,UY=34;               // 半格單位（牌佔 2x2 格）
+const TW=54,TH=66;               // 牌卡實際大小
+const BX=32,BY=170;              // 牌山左上角
+const ZX=5,ZY=7;                 // 每層往左上位移（立體感）
+const MAXT=120,STARTT=90;        // 時間上限 / 起始時間
+const COMBOWIN=4;                // 連擊窗口秒數
+const FACES=['🐟','🍡','🍙','🧶','⭐','🍓','🌙','🍩','🫐','🍀','🎏','🧀'];
+
+const cv=document.getElementById('game');
+const ctx=cv.getContext('2d');
+
+/* ---------- 音效：全部 WebAudio 合成 ---------- */
+const A={ctx:null,
+ ensure(){ // 第一次使用者操作才建立（瀏覽器規定）
+  if(!this.ctx){try{const AC=window.AudioContext||window.webkitAudioContext;if(AC)this.ctx=new AC();}catch(e){this.ctx=null;}}
+  if(this.ctx&&this.ctx.state==='suspended'){this.ctx.resume().catch(()=>{});}
+ },
+ tone(f,dur,type,vol,when,slide){const c=this.ctx;if(!c)return;
+  try{const t0=c.currentTime+(when||0);
+   const o=c.createOscillator(),g=c.createGain();
+   o.type=type||'sine';o.frequency.setValueAtTime(f,t0);
+   if(slide)o.frequency.exponentialRampToValueAtTime(Math.max(slide,1),t0+dur);
+   g.gain.setValueAtTime(vol||0.2,t0);
+   g.gain.exponentialRampToValueAtTime(0.0001,t0+dur);
+   o.connect(g).connect(c.destination);o.start(t0);o.stop(t0+dur+0.03);}catch(e){}
+ },
+ noise(dur,vol,when){const c=this.ctx;if(!c)return;
+  try{const t0=c.currentTime+(when||0);const n=Math.floor(c.sampleRate*dur);
+   const buf=c.createBuffer(1,n,c.sampleRate);const d=buf.getChannelData(0);
+   for(let i=0;i<n;i++)d[i]=(Math.random()*2-1)*(1-i/n);
+   const s=c.createBufferSource();s.buffer=buf;const g=c.createGain();
+   g.gain.setValueAtTime(vol||0.2,t0);g.gain.exponentialRampToValueAtTime(0.0001,t0+dur);
+   s.connect(g).connect(c.destination);s.start(t0);}catch(e){}
+ }};
+const SCALE_ST=[0,2,4,7,9,12,14,16,19];  // 連擊音階（五聲音階往上爬）
+function sfxSelect(v){A.tone(660,0.07,'triangle',0.14*(v||1));}
+function sfxMatch(cb){const st=SCALE_ST[Math.min(cb-1,SCALE_ST.length-1)];
+ const f=523*Math.pow(2,st/12);
+ A.tone(f,0.13,'triangle',0.25);A.tone(f*2,0.1,'sine',0.1,0.02);A.noise(0.07,0.12);
+ if(cb>=4)A.tone(f*1.5,0.12,'sine',0.1,0.05);}
+function sfxBad(){A.tone(150,0.13,'sawtooth',0.1);}
+function sfxGold(){[880,1108,1318].forEach((f,i)=>A.tone(f,0.12,'triangle',0.18,i*0.06));}
+function sfxClear(){[523,659,784,1046].forEach((f,i)=>A.tone(f,0.16,'triangle',0.22,i*0.09));A.noise(0.25,0.1,0.1);}
+function sfxOver(){[420,300,210].forEach((f,i)=>A.tone(f,0.22,'sine',0.18,i*0.16));}
+function sfxRecord(){[660,880,1108,1318,1760].forEach((f,i)=>A.tone(f,0.14,'triangle',0.2,i*0.07));}
+function sfxShuffle(){A.noise(0.3,0.18);A.tone(300,0.3,'sine',0.12,0,700);}
+function sfxTick(){A.tone(880,0.05,'square',0.07);}
+function sfxStart(){A.tone(523,0.1,'triangle',0.2);A.tone(784,0.14,'triangle',0.2,0.09);}
+
+/* ---------- 全域狀態 ---------- */
+let state='title';           // title / play / over
+let tiles=[],drawOrder=[];   // 牌陣
+let freeSet=new Set(),freeList=[];
+let sel=null;                // 目前選中的牌
+let score=0,best=0,boardNum=0,timeLeft=STARTT;
+let combo=1,comboT=0,maxCombo=1,totalPairs=0,boardsCleared=0;
+let shuffleFreeLeft=1,stuck=false,transitionT=0;
+let dying=[],parts=[],pops=[];
+let shake=0,timeFlash=0,lastTickS=99,countPulse=0;
+let paused=false,overT=0,isRecord=false,gTime=0;
+let kActive=false,kIdx=0;    // 鍵盤游標
+const rnd=Math.random;
+
+function loadBest(){try{return +localStorage.getItem('sc_tilepair_best')||0;}catch(e){return 0;}}
+function saveBest(v){try{localStorage.setItem('sc_tilepair_best',v);}catch(e){}}
+best=loadBest();
+
+/* ---------- 牌山佈局（半格座標，牌佔 2x2）---------- */
+function buildLayout(){
+ const L=[];
+ for(let r=0;r<4;r++)for(let c=0;c<6;c++)L.push({x:c*2,y:r*2,z:0});   // 底層 6x4
+ for(let r=0;r<3;r++)for(let c=0;c<4;c++)L.push({x:2+c*2,y:1+r*2,z:1});// 中層 4x3（跨縫壓疊）
+ for(let r=0;r<2;r++)for(let c=0;c<2;c++)L.push({x:4+c*2,y:2+r*2,z:2});// 頂層 2x2
+ return L; // 共 40 張 = 20 對
+}
+function overlap(a,b){return a.x<b.x+2&&a.x+2>b.x&&a.y<b.y+2&&a.y+2>b.y;}
+// 自由牌 = 沒被上層壓住，且左右至少一側空
+function isFree(t,arr){
+ let L=false,R=false;
+ for(const u of arr){
+  if(u===t)continue;
+  if(u.z===t.z+1&&overlap(u,t))return false;
+  if(u.z===t.z&&u.y<t.y+2&&u.y+2>t.y){
+   if(u.x+2===t.x)L=true;
+   if(u.x===t.x+2)R=true;
+  }
+ }
+ return !(L&&R);
+}
+// 用「模擬拆山」產生保證有解的消除順序（拆的順序就是一組解）
+function trySolveOrder(posArr){
+ const act=new Set(posArr.map((p,i)=>i));
+ const order=[];
+ function freeIdx(i){
+  const t=posArr[i];let L=false,R=false;
+  for(const j of act){
+   if(j===i)continue;const u=posArr[j];
+   if(u.z===t.z+1&&overlap(u,t))return false;
+   if(u.z===t.z&&u.y<t.y+2&&u.y+2>t.y){
+    if(u.x+2===t.x)L=true;
+    if(u.x===t.x+2)R=true;
+   }
+  }
+  return !(L&&R);
+ }
+ while(act.size){
+  const fr=[];
+  for(const i of act)if(freeIdx(i))fr.push(i);
+  if(fr.length<2)return null;
+  const a=fr.splice(Math.floor(rnd()*fr.length),1)[0];
+  const b=fr[Math.floor(rnd()*fr.length)];
+  order.push([a,b]);act.delete(a);act.delete(b);
+ }
+ return order;
+}
+function shuffleArr(a){for(let i=a.length-1;i>0;i--){const j=Math.floor(rnd()*(i+1));const t=a[i];a[i]=a[j];a[j]=t;}return a;}
+
+/* ---------- 發牌 / 洗牌 ---------- */
+function newBoard(){
+ boardNum++;
+ const nF=Math.min(7+boardNum,FACES.length); // 山越後面花色越多（越難找對）
+ const lay=buildLayout();
+ let order=null;
+ for(let k=0;k<80&&!order;k++)order=trySolveOrder(lay);
+ tiles=lay.map(p=>({x:p.x,y:p.y,z:p.z,face:'🐟',gold:false,alive:true,
+   age:0,spawn:0,flashT:0,shakeT:0,hintT:0}));
+ if(order){
+  const pf=[];for(let i=0;i<order.length;i++)pf.push(i%nF);
+  shuffleArr(pf);
+  order.forEach((pr,k)=>{tiles[pr[0]].face=FACES[pf[k]];tiles[pr[1]].face=FACES[pf[k]];});
+ }
+ // 埋 2 張金牌在底層（翻出來消掉 = 加時加分的驚喜）
+ const base=tiles.filter(t=>t.z===0);
+ shuffleArr(base);base[0].gold=true;base[1].gold=true;
+ drawOrder=tiles.slice().sort((a,b)=>(a.z-b.z)||(a.y-b.y)||(a.x-b.x));
+ drawOrder.forEach((t,i)=>{t.spawn=i*0.016;}); // 進場逐張彈出
+ sel=null;shuffleFreeLeft=1;stuck=false;kIdx=0;
+ recomputeFree(true);
+}
+function recomputeFree(silent){
+ const aliveT=tiles.filter(t=>t.alive);
+ const nf=new Set();
+ for(const t of aliveT)if(isFree(t,aliveT))nf.add(t);
+ if(!silent)for(const t of nf)if(!freeSet.has(t)&&t.age>0.4)t.flashT=0.45; // 新翻出來的牌閃一下
+ freeSet=nf;
+ freeList=[...nf].sort((a,b)=>(a.y-b.y)||(a.x-b.x)||(a.z-b.z));
+ if(kIdx>=freeList.length)kIdx=Math.max(0,freeList.length-1);
+}
+function anyMatchFree(){
+ const c={};
+ for(const t of freeSet){c[t.face]=(c[t.face]||0)+1;if(c[t.face]>=2)return true;}
+ return false;
+}
+function checkStuck(){stuck=tiles.some(t=>t.alive)&&!anyMatchFree();}
+function useShuffle(){
+ if(state!=='play'||transitionT>0)return;
+ const aliveT=tiles.filter(t=>t.alive);
+ if(aliveT.length<2)return;
+ if(shuffleFreeLeft>0)shuffleFreeLeft--;
+ else{timeLeft=Math.max(timeLeft-10,0);popup(200,120,'-10 秒','#ff8d8d',18);}
+ const posArr=aliveT.map(t=>({x:t.x,y:t.y,z:t.z}));
+ let order=null;
+ for(let k=0;k<120&&!order;k++)order=trySolveOrder(posArr);
+ if(!order){ // 剩下的位形無解（極罕見）→ 直接幫玩家搬走整座山
+  popup(200,300,'這座山無解了，直接搬走！✨','#ffe08a',18);
+  aliveT.forEach(t=>{t.alive=false;killAnim(t);});
+  recomputeFree();boardCleared();return;
+ }
+ const cnt={};
+ for(const t of aliveT)cnt[t.face]=(cnt[t.face]||0)+1;
+ const pairs=[];
+ for(const f in cnt)for(let i=0;i<cnt[f]/2;i++)pairs.push(f);
+ shuffleArr(pairs);
+ order.forEach((pr,k)=>{aliveT[pr[0]].face=pairs[k];aliveT[pr[1]].face=pairs[k];});
+ aliveT.forEach(t=>{t.flashT=0.4;});
+ sel=null;sfxShuffle();recomputeFree(true);checkStuck();
+}
+function useHint(){
+ if(state!=='play'||transitionT>0)return;
+ const byFace={};
+ for(const t of freeSet){(byFace[t.face]=byFace[t.face]||[]).push(t);}
+ for(const f in byFace){
+  if(byFace[f].length>=2){
+   timeLeft=Math.max(timeLeft-3,0);
+   byFace[f][0].hintT=1.6;byFace[f][1].hintT=1.6;
+   popup(200,120,'-3 秒','#8fd8ff',16);sfxSelect(0.7);
+   return;
+  }
+ }
+ popup(200,500,'沒有可消的對子，先洗牌吧','#ffb0b0',15);
+}
+
+/* ---------- 消除 ---------- */
+function tileCX(t){return BX+t.x*UX-t.z*ZX+TW/2;}
+function tileCY(t){return BY+t.y*UY-t.z*ZY+TH/2;}
+function killAnim(t){dying.push({cx:tileCX(t),cy:tileCY(t),face:t.face,gold:t.gold,t:0,rot:(rnd()-0.5)*1.6});}
+function doMatch(a,b){
+ a.alive=false;b.alive=false;
+ killAnim(a);killAnim(b);
+ spawnBurst(tileCX(a),tileCY(a),a.gold);
+ spawnBurst(tileCX(b),tileCY(b),b.gold);
+ combo=(comboT>0)?Math.min(combo+1,9):1;
+ comboT=COMBOWIN;
+ let gained=10*combo,bonusTime=0;
+ [a,b].forEach(t=>{if(t.gold){gained+=40*combo;bonusTime+=6;}});
+ if(bonusTime>0){
+  timeLeft=Math.min(timeLeft+bonusTime,MAXT);timeFlash=0.7;
+  popup((tileCX(a)+tileCX(b))/2,(tileCY(a)+tileCY(b))/2-34,'🌟 +'+bonusTime+' 秒','#ffd75e',20);
+  sfxGold();
+ }
+ score+=gained;totalPairs++;
+ if(combo>maxCombo)maxCombo=combo;
+ popup((tileCX(a)+tileCX(b))/2,(tileCY(a)+tileCY(b))/2,'+'+gained+(combo>1?'  x'+combo:''),combo>=4?'#ffce3a':'#c8ffc0',combo>=4?22:17);
+ sfxMatch(combo);
+ if(combo>=4)shake=Math.min(shake+1.5+combo*0.4,8);
+ recomputeFree();
+ if(!tiles.some(t=>t.alive))boardCleared();
+ else checkStuck();
+}
+function boardCleared(){
+ boardsCleared++;score+=200;
+ timeLeft=Math.min(timeLeft+20,MAXT);timeFlash=1;
+ popup(200,300,'🎉 全清！ +200 分 +20 秒','#ffe08a',24);
+ transitionT=1.5;stuck=false;sel=null;
+ sfxClear();confetti(200,300,50);shake=Math.min(shake+5,9);
+}
+
+/* ---------- 粒子 / 飄字 ---------- */
+function spawnBurst(x,y,gold){
+ const cols=gold?['#ffd75e','#ffbe2e','#fff3c0']:['#7ed957','#a5e88a','#5cbf3f','#d0ffc0'];
+ for(let i=0;i<14;i++){
+  const a=rnd()*Math.PI*2,sp=60+rnd()*160;
+  parts.push({x,y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp-60,g:340,t:0,life:0.5+rnd()*0.3,
+   col:cols[Math.floor(rnd()*cols.length)],r:2.5+rnd()*3.5,shape:'dot'});
+ }
+ for(let i=0;i<3;i++){
+  const a=rnd()*Math.PI*2,sp=40+rnd()*100;
+  parts.push({x,y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp-90,g:300,t:0,life:0.7,
+   col:'#fff7ae',r:8,shape:'star'});
+ }
+}
+function confetti(x,y,n){
+ const cols=['#ff6b8d','#ffd75e','#7ed957','#6fc3ff','#c79bff'];
+ for(let i=0;i<n;i++){
+  const a=rnd()*Math.PI*2,sp=90+rnd()*220;
+  parts.push({x,y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp-140,g:260,t:0,life:1+rnd()*0.7,
+   col:cols[i%cols.length],r:3+rnd()*3,shape:'conf',rot:rnd()*6,vr:(rnd()-0.5)*10});
+ }
+}
+function popup(x,y,txt,col,size){pops.push({x,y,txt,col,size:size||16,t:0,dur:1});}
+
+/* ---------- 遊戲流程 ---------- */
+function startGame(){
+ score=0;boardNum=0;timeLeft=STARTT;combo=1;comboT=0;
+ maxCombo=1;totalPairs=0;boardsCleared=0;transitionT=0;
+ dying=[];parts=[];pops=[];shake=0;lastTickS=99;paused=false;isRecord=false;gTime=0;
+ newBoard();state='play';sfxStart();
+}
+function gameOver(){
+ state='over';overT=0;sel=null;
+ isRecord=score>best;
+ if(isRecord){best=score;saveBest(best);sfxRecord();confetti(200,260,60);}
+ else sfxOver();
+ if(window.SC)try{SC.over(score);}catch(e){}
+}
+
+/* ---------- 輸入 ---------- */
+function toLogical(e){
+ const r=cv.getBoundingClientRect();
+ return {x:(e.clientX-r.left)*W/r.width,y:(e.clientY-r.top)*H/r.height};
+}
+const BTN_SH={x:24,y:530,w:160,h:44},BTN_HI={x:216,y:530,w:160,h:44};
+const BTN_RE={x:100,y:436,w:200,h:50};
+function inRect(p,r){return p.x>=r.x&&p.x<=r.x+r.w&&p.y>=r.y&&p.y<=r.y+r.h;}
+function handleTileTap(t){
+ if(!freeSet.has(t)){t.shakeT=0.3;sfxBad();return;} // 被壓住：抖一下告訴你為什麼
+ if(sel===t){sel=null;sfxSelect(0.8);return;}
+ if(sel&&sel.face===t.face){const a=sel;sel=null;doMatch(a,t);return;}
+ if(sel){sel=t;sfxBad();return;} // 不同款：換選這張
+ sel=t;sfxSelect(1);
+}
+cv.addEventListener('pointerdown',e=>{
+ e.preventDefault();A.ensure();
+ if(paused){paused=false;return;}
+ const p=toLogical(e);
+ if(state==='title'){startGame();return;}
+ if(state==='over'){
+  if(overT>0.8||(overT>0.35&&inRect(p,BTN_RE)))startGame();
+  return;
+ }
+ kActive=false;
+ if(transitionT>0)return;
+ if(inRect(p,BTN_SH)){useShuffle();return;}
+ if(inRect(p,BTN_HI)){useHint();return;}
+ // 由上層往下找被點到的牌
+ const hits=tiles.filter(t=>t.alive).sort((a,b)=>(b.z-a.z)||(b.y-a.y)||(b.x-a.x));
+ for(const t of hits){
+  const px=BX+t.x*UX-t.z*ZX,py=BY+t.y*UY-t.z*ZY;
+  if(p.x>=px&&p.x<=px+TW&&p.y>=py&&p.y<=py+TH){handleTileTap(t);return;}
+ }
+},{passive:false});
+cv.addEventListener('pointercancel',()=>{kActive=false;});
+window.addEventListener('blur',()=>{if(state==='play')paused=true;kActive=false;});
+document.addEventListener('visibilitychange',()=>{if(document.hidden&&state==='play')paused=true;});
+window.addEventListener('keydown',e=>{
+ A.ensure();
+ const k=e.key;
+ if(k===' '||k==='Enter'){
+  e.preventDefault();
+  if(paused){paused=false;return;}
+  if(state==='title'){startGame();return;}
+  if(state==='over'){if(overT>0.35)startGame();return;}
+  if(kActive&&freeList[kIdx])handleTileTap(freeList[kIdx]);
+  return;
+ }
+ if(state==='play'){
+  if(k==='ArrowLeft'||k==='ArrowUp'){e.preventDefault();kActive=true;
+   kIdx=(kIdx-1+Math.max(freeList.length,1))%Math.max(freeList.length,1);return;}
+  if(k==='ArrowRight'||k==='ArrowDown'){e.preventDefault();kActive=true;
+   kIdx=(kIdx+1)%Math.max(freeList.length,1);return;}
+  if(k==='s'||k==='S'){useShuffle();return;}
+  if(k==='h'||k==='H'){useHint();return;}
+  if(k==='Escape'){sel=null;return;}
+ }
+ if((k==='r'||k==='R')&&(state==='over'&&overT>0.35||state==='title'))startGame();
+});
+
+/* ---------- 縮放（高 DPI）---------- */
+function resize(){
+ const dpr=Math.min(window.devicePixelRatio||1,3);
+ const s=Math.min(window.innerWidth/W,(window.innerHeight-8)/H);
+ cv.style.width=(W*s)+'px';cv.style.height=(H*s)+'px';
+ cv.width=Math.round(W*s*dpr);cv.height=Math.round(H*s*dpr);
+ ctx.setTransform(s*dpr,0,0,s*dpr,0,0);
+}
+window.addEventListener('resize',resize);
+resize();
+
+/* ---------- 更新（固定時間步長，不吃螢幕刷新率）---------- */
+function update(dt){
+ gTime+=dt;
+ if(state==='play'&&!paused){
+  if(transitionT>0){
+   transitionT-=dt;
+   if(transitionT<=0){transitionT=0;newBoard();}
+  }else{
+   timeLeft-=dt;
+   comboT-=dt;
+   if(comboT<=0){comboT=0;combo=1;}
+   if(timeLeft<=10.5){
+    const s=Math.ceil(timeLeft);
+    if(s!==lastTickS&&s>0&&s<=10){lastTickS=s;sfxTick();countPulse=1;}
+   }
+   if(timeLeft<=0){timeLeft=0;gameOver();}
+  }
+ }
+ if(state==='over')overT+=dt;
+ for(const t of tiles){
+  t.age+=dt;
+  if(t.flashT>0)t.flashT-=dt;
+  if(t.shakeT>0)t.shakeT-=dt;
+  if(t.hintT>0)t.hintT-=dt;
+ }
+ for(let i=dying.length-1;i>=0;i--){dying[i].t+=dt;if(dying[i].t>0.38)dying.splice(i,1);}
+ for(let i=parts.length-1;i>=0;i--){
+  const p=parts[i];p.t+=dt;
+  if(p.t>p.life){parts.splice(i,1);continue;}
+  p.vy+=p.g*dt;p.x+=p.vx*dt;p.y+=p.vy*dt;
+  if(p.shape==='conf')p.rot+=p.vr*dt;
+ }
+ for(let i=pops.length-1;i>=0;i--){
+  const p=pops[i];p.t+=dt;p.y-=32*dt;
+  if(p.t>p.dur)pops.splice(i,1);
+ }
+ if(shake>0)shake=Math.max(0,shake-14*dt);
+ if(timeFlash>0)timeFlash-=dt;
+ if(countPulse>0)countPulse-=dt*2.2;
+}
+
+/* ---------- 繪圖 ---------- */
+function rr(x,y,w,h,r){
+ ctx.beginPath();ctx.moveTo(x+r,y);
+ ctx.arcTo(x+w,y,x+w,y+h,r);ctx.arcTo(x+w,y+h,x,y+h,r);
+ ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);ctx.closePath();
+}
+function setFont(px,bold){ctx.font=(bold?'bold ':'')+px+"px 'Microsoft JhengHei','PingFang TC','Noto Sans TC',sans-serif";}
+function drawCatHead(cx,cy,s){ // 小史萊姆貓頭（每張牌上都有）
+ ctx.fillStyle='#7ed957';ctx.strokeStyle='#4ca64c';ctx.lineWidth=1.5;
+ ctx.beginPath();ctx.ellipse(cx-9*s,cy-7*s,4*s,5*s,-0.4,0,Math.PI*2);ctx.fill();ctx.stroke();
+ ctx.beginPath();ctx.ellipse(cx+9*s,cy-7*s,4*s,5*s,0.4,0,Math.PI*2);ctx.fill();ctx.stroke();
+ ctx.beginPath();ctx.ellipse(cx,cy,14*s,9.5*s,0,0,Math.PI*2);ctx.fill();ctx.stroke();
+ ctx.fillStyle='#28502a';
+ ctx.beginPath();ctx.arc(cx-5*s,cy-1*s,1.4*s,0,Math.PI*2);ctx.fill();
+ ctx.beginPath();ctx.arc(cx+5*s,cy-1*s,1.4*s,0,Math.PI*2);ctx.fill();
+ ctx.strokeStyle='#28502a';ctx.lineWidth=1.1;
+ ctx.beginPath();ctx.arc(cx,cy+2.5*s,2*s,0.15*Math.PI,0.85*Math.PI);ctx.stroke();
+}
+function drawTile(t){
+ const s=Math.max(0,Math.min(1,(t.age-t.spawn)/0.22)); // 進場縮放
+ if(s<=0)return;
+ const free=freeSet.has(t),isSel=sel===t;
+ let px=BX+t.x*UX-t.z*ZX,py=BY+t.y*UY-t.z*ZY;
+ if(t.shakeT>0)px+=Math.sin(t.shakeT*45)*4;
+ const lift=isSel?-8:0;
+ ctx.save();
+ ctx.translate(px+TW/2,py+TH/2+lift);
+ const pop=1+(1-s)*0.4;
+ ctx.scale(s*pop,s*pop);
+ ctx.translate(-TW/2,-TH/2);
+ // 牌厚度陰影
+ rr(3,4,TW,TH,9);ctx.fillStyle='rgba(45,60,42,0.55)';ctx.fill();
+ // 牌面
+ if(free&&!isSel){ctx.shadowColor='rgba(255,244,170,0.75)';ctx.shadowBlur=9;}
+ rr(0,0,TW,TH,9);
+ if(t.gold){
+  const g=ctx.createLinearGradient(0,0,0,TH);
+  g.addColorStop(0,'#ffe9a3');g.addColorStop(1,'#f2b64a');ctx.fillStyle=g;
+ }else ctx.fillStyle='#fdf6e3';
+ ctx.fill();ctx.shadowBlur=0;
+ ctx.strokeStyle=t.gold?'#d99b1f':'#5a8f5a';ctx.lineWidth=2;ctx.stroke();
+ drawCatHead(TW/2,17,1); // 貓頭
+ setFont(26);ctx.textAlign='center';ctx.textBaseline='middle';
+ ctx.fillText(t.face,TW/2,45); // 花色
+ if(t.gold){setFont(11);ctx.fillStyle='#a86e00';ctx.fillText('✦',46,10);}
+ if(!free){rr(0,0,TW,TH,9);ctx.fillStyle='rgba(24,34,56,0.45)';ctx.fill();} // 被壓住變暗
+ if(t.flashT>0){rr(0,0,TW,TH,9);ctx.fillStyle='rgba(255,255,255,'+(t.flashT/0.45*0.75)+')';ctx.fill();} // 剛翻出來
+ if(t.hintT>0){ // 提示脈動
+  ctx.strokeStyle='rgba(80,225,255,'+(0.4+0.6*Math.abs(Math.sin(t.hintT*8)))+')';
+  ctx.lineWidth=3.5;rr(-2,-2,TW+4,TH+4,10);ctx.stroke();
+ }
+ if(isSel){ctx.strokeStyle='#ffce3a';ctx.lineWidth=3.5;
+  ctx.shadowColor='rgba(255,206,58,0.9)';ctx.shadowBlur=10;
+  rr(-1,-1,TW+2,TH+2,10);ctx.stroke();ctx.shadowBlur=0;}
+ if(kActive&&freeList[kIdx]===t){ // 鍵盤游標
+  ctx.strokeStyle='#ff9bd0';ctx.lineWidth=2.5;ctx.setLineDash([6,4]);
+  rr(-4,-4,TW+8,TH+8,11);ctx.stroke();ctx.setLineDash([]);
+ }
+ ctx.restore();
+}
+function drawHeader(){
+ setFont(12);ctx.textBaseline='alphabetic';
+ ctx.fillStyle='#93a9cf';ctx.textAlign='left';ctx.fillText('分數',16,22);
+ ctx.textAlign='right';ctx.fillText('最高',384,22);
+ ctx.textAlign='center';ctx.fillText('第 '+boardNum+' 座喵牌山',200,22);
+ setFont(26,true);ctx.fillStyle='#ffffff';ctx.textAlign='left';ctx.fillText(score,16,48);
+ setFont(18,true);ctx.fillStyle='#ffd75e';ctx.textAlign='right';ctx.fillText(best,384,46);
+ const left=tiles.filter(t=>t.alive).length;
+ setFont(15,true);ctx.fillStyle='#cfe0ff';ctx.textAlign='center';ctx.fillText('剩 '+left+' 張',200,47);
+ // 時間條
+ const bx=16,by=60,bw=368,bh=16,pct=Math.max(0,timeLeft/MAXT);
+ rr(bx,by,bw,bh,8);ctx.fillStyle='rgba(255,255,255,0.12)';ctx.fill();
+ let col=pct>0.35?'#7ed957':(pct>0.16?'#ffb347':'#ff5d5d');
+ if(timeLeft<=10&&Math.floor(gTime*4)%2===0)col='#ff8080';
+ if(pct>0){rr(bx,by,Math.max(bw*pct,10),bh,8);ctx.fillStyle=col;ctx.fill();}
+ if(timeFlash>0){rr(bx,by,bw,bh,8);ctx.fillStyle='rgba(180,255,150,'+(timeFlash*0.5)+')';ctx.fill();}
+ setFont(11,true);ctx.fillStyle='rgba(20,30,20,0.75)';ctx.textAlign='center';
+ ctx.fillText(Math.ceil(timeLeft)+' 秒',200,by+12);
+ // 連擊
+ if(combo>1){
+  const pul=1+Math.max(0,comboT-COMBOWIN+0.25)*1.2;
+  ctx.save();ctx.translate(56,96);ctx.scale(pul,pul);
+  setFont(17,true);ctx.fillStyle='#ffce3a';ctx.textAlign='center';ctx.fillText('連擊 x'+combo,0,0);
+  ctx.restore();
+  rr(104,88,110,7,3.5);ctx.fillStyle='rgba(255,255,255,0.12)';ctx.fill();
+  rr(104,88,110*(comboT/COMBOWIN),7,3.5);ctx.fillStyle='#ffce3a';ctx.fill();
+ }
+}
+function drawButtons(){
+ // 洗牌鈕（卡住時脈動提醒）
+ ctx.save();
+ if(stuck){const p=1+Math.sin(gTime*7)*0.04;
+  ctx.translate(BTN_SH.x+BTN_SH.w/2,BTN_SH.y+BTN_SH.h/2);ctx.scale(p,p);
+  ctx.translate(-BTN_SH.x-BTN_SH.w/2,-BTN_SH.y-BTN_SH.h/2);}
+ rr(BTN_SH.x,BTN_SH.y,BTN_SH.w,BTN_SH.h,10);
+ ctx.fillStyle=stuck?'#4a6b3a':'#2c3a5e';ctx.fill();
+ ctx.strokeStyle=stuck?'#a5e88a':'#4a5f92';ctx.lineWidth=2;ctx.stroke();
+ setFont(15,true);ctx.fillStyle='#eaf2ff';ctx.textAlign='center';ctx.textBaseline='middle';
+ ctx.fillText(shuffleFreeLeft>0?'🔀 洗牌（免費）':'🔀 洗牌（-10秒）',BTN_SH.x+BTN_SH.w/2,BTN_SH.y+23);
+ ctx.restore();
+ rr(BTN_HI.x,BTN_HI.y,BTN_HI.w,BTN_HI.h,10);
+ ctx.fillStyle='#2c3a5e';ctx.fill();ctx.strokeStyle='#4a5f92';ctx.lineWidth=2;ctx.stroke();
+ setFont(15,true);ctx.fillStyle='#eaf2ff';
+ ctx.fillText('💡 提示（-3秒）',BTN_HI.x+BTN_HI.w/2,BTN_HI.y+23);
+ ctx.textBaseline='alphabetic';
+}
+function drawMascot(cx,cy,s){ // 標題用大史萊姆貓
+ ctx.save();ctx.translate(cx,cy);ctx.scale(s,s);
+ const bob=Math.sin(gTime*2.4)*3;ctx.translate(0,bob);
+ ctx.fillStyle='rgba(0,0,0,0.25)';
+ ctx.beginPath();ctx.ellipse(0,44,46,9,0,0,Math.PI*2);ctx.fill();
+ ctx.fillStyle='#7ed957';ctx.strokeStyle='#4ca64c';ctx.lineWidth=3;
+ ctx.beginPath();ctx.ellipse(-26,-32,11,15,-0.45,0,Math.PI*2);ctx.fill();ctx.stroke();
+ ctx.beginPath();ctx.ellipse(26,-32,11,15,0.45,0,Math.PI*2);ctx.fill();ctx.stroke();
+ ctx.beginPath();ctx.ellipse(0,4,44,40,0,0,Math.PI*2);ctx.fill();ctx.stroke();
+ ctx.fillStyle='#28502a';
+ ctx.beginPath();ctx.arc(-15,-2,4.5,0,Math.PI*2);ctx.fill();
+ ctx.beginPath();ctx.arc(15,-2,4.5,0,Math.PI*2);ctx.fill();
+ ctx.strokeStyle='#28502a';ctx.lineWidth=2.5;
+ ctx.beginPath();ctx.arc(-5,9,5,0.1*Math.PI,0.9*Math.PI);ctx.stroke();
+ ctx.beginPath();ctx.arc(5,9,5,0.1*Math.PI,0.9*Math.PI);ctx.stroke();
+ ctx.fillStyle='rgba(255,150,160,0.5)';
+ ctx.beginPath();ctx.arc(-26,8,6,0,Math.PI*2);ctx.fill();
+ ctx.beginPath();ctx.arc(26,8,6,0,Math.PI*2);ctx.fill();
+ ctx.strokeStyle='#4ca64c';ctx.lineWidth=1.5;
+ [[-38,2,-52,-2],[-38,8,-52,10],[38,2,52,-2],[38,8,52,10]].forEach(w=>{
+  ctx.beginPath();ctx.moveTo(w[0],w[1]);ctx.lineTo(w[2],w[3]);ctx.stroke();});
+ ctx.restore();
+}
+function render(){
+ ctx.save();
+ const g=ctx.createLinearGradient(0,0,0,H);
+ g.addColorStop(0,'#233054');g.addColorStop(1,'#141d38');
+ ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
+ if(shake>0)ctx.translate((rnd()-0.5)*shake,(rnd()-0.5)*shake);
+
+ if(state==='title'){
+  drawMascot(200,180,1.15);
+  setFont(38,true);ctx.fillStyle='#ffffff';ctx.textAlign='center';
+  ctx.fillText('喵牌疊疊消',200,318);
+  setFont(15);ctx.fillStyle='#cfe0ff';
+  ctx.fillText('點兩張「沒被壓住」的同款貓牌就消除',200,352);
+  ctx.fillText('翻出下層、疊連擊、清光整座喵牌山！',200,374);
+  setFont(13);ctx.fillStyle='#8fa8d8';
+  ctx.fillText('👆 點牌配對　⌨ 方向鍵選牌＋Enter',200,410);
+  ctx.fillText('S 洗牌｜H 提示｜金牌 ✦ = 加時間',200,430);
+  setFont(15,true);ctx.fillStyle='#ffd75e';
+  ctx.fillText('🏆 最高分：'+best,200,470);
+  const p=0.6+0.4*Math.abs(Math.sin(gTime*2.6));
+  setFont(20,true);ctx.fillStyle='rgba(255,255,255,'+p+')';
+  ctx.fillText('點一下開始',200,520);
+ }else{
+  // 牌桌底板
+  rr(10,150,380,306,16);ctx.fillStyle='rgba(255,255,255,0.05)';ctx.fill();
+  ctx.strokeStyle='rgba(255,255,255,0.08)';ctx.lineWidth=1.5;ctx.stroke();
+  drawHeader();
+  // 牌（選中的最後畫）
+  for(const t of drawOrder)if(t.alive&&t!==sel)drawTile(t);
+  if(sel&&sel.alive)drawTile(sel);
+  // 消除中的牌飛出
+  for(const d of dying){
+   const k=d.t/0.38;
+   ctx.save();ctx.globalAlpha=1-k;
+   ctx.translate(d.cx,d.cy-36*k);ctx.rotate(d.rot*k);
+   const sc=1+k*0.9;ctx.scale(sc,sc);
+   rr(-TW/2,-TH/2,TW,TH,9);
+   ctx.fillStyle=d.gold?'#ffe08a':'#fdf6e3';ctx.fill();
+   setFont(26);ctx.textAlign='center';ctx.textBaseline='middle';
+   ctx.fillText(d.face,0,4);
+   ctx.restore();
+  }
+  // 粒子
+  for(const p of parts){
+   const a=1-p.t/p.life;
+   ctx.globalAlpha=Math.max(0,a);
+   if(p.shape==='conf'){
+    ctx.save();ctx.translate(p.x,p.y);ctx.rotate(p.rot);
+    ctx.fillStyle=p.col;ctx.fillRect(-p.r,-p.r*0.6,p.r*2,p.r*1.2);ctx.restore();
+   }else if(p.shape==='star'){
+    setFont(p.r*2);ctx.textAlign='center';ctx.textBaseline='middle';
+    ctx.fillStyle=p.col;ctx.fillText('✦',p.x,p.y);
+   }else{
+    ctx.fillStyle=p.col;
+    ctx.beginPath();ctx.arc(p.x,p.y,p.r*a,0,Math.PI*2);ctx.fill();
+   }
+  }
+  ctx.globalAlpha=1;
+  // 飄字
+  for(const p of pops){
+   const a=1-p.t/p.dur;
+   setFont(p.size,true);ctx.textAlign='center';ctx.textBaseline='alphabetic';
+   ctx.globalAlpha=Math.max(0,a);
+   ctx.fillStyle=p.col;ctx.fillText(p.txt,p.x,p.y);
+  }
+  ctx.globalAlpha=1;
+  drawButtons();
+  // 卡住提示
+  if(stuck&&state==='play'&&transitionT<=0){
+   const p=0.7+0.3*Math.sin(gTime*6);
+   rr(60,486,280,32,16);ctx.fillStyle='rgba(80,30,40,0.85)';ctx.fill();
+   setFont(15,true);ctx.textAlign='center';ctx.fillStyle='rgba(255,190,190,'+p+')';
+   ctx.fillText('😿 卡住了！按「洗牌」重新來過',200,507);
+  }
+  // 最後 10 秒倒數大字
+  if(state==='play'&&timeLeft<=10&&timeLeft>0&&transitionT<=0){
+   ctx.globalAlpha=0.2+Math.max(0,countPulse)*0.35;
+   setFont(120,true);ctx.textAlign='center';ctx.textBaseline='middle';
+   ctx.fillStyle='#ff6d6d';ctx.fillText(Math.ceil(timeLeft),200,310);
+   ctx.globalAlpha=1;ctx.textBaseline='alphabetic';
+  }
+  // 暫停遮罩
+  if(paused&&state==='play'){
+   ctx.fillStyle='rgba(10,15,30,0.72)';ctx.fillRect(0,0,W,H);
+   setFont(26,true);ctx.textAlign='center';ctx.fillStyle='#fff';
+   ctx.fillText('⏸ 已暫停',200,290);
+   setFont(15);ctx.fillStyle='#cfe0ff';ctx.fillText('點一下繼續',200,325);
+  }
+  // 結算面板
+  if(state==='over'){
+   ctx.fillStyle='rgba(10,15,30,0.72)';ctx.fillRect(0,0,W,H);
+   rr(44,140,312,370,18);ctx.fillStyle='#222f52';ctx.fill();
+   ctx.strokeStyle='#4a5f92';ctx.lineWidth=2;ctx.stroke();
+   setFont(24,true);ctx.textAlign='center';ctx.fillStyle='#ffffff';
+   ctx.fillText('⏰ 時間到！',200,184);
+   setFont(15);ctx.fillStyle='#93a9cf';ctx.fillText('最終分數',200,222);
+   setFont(46,true);ctx.fillStyle='#ffd75e';ctx.fillText(score,200,268);
+   setFont(17,true);
+   if(isRecord){
+    const p=1+Math.sin(gTime*5)*0.06;
+    ctx.save();ctx.translate(200,304);ctx.scale(p,p);
+    ctx.fillStyle='#7ed957';ctx.fillText('🎉 新紀錄！',0,0);ctx.restore();
+   }else{
+    const diff=best-score;
+    ctx.fillStyle='#ff9bd0';
+    ctx.fillText(diff===0?'追平紀錄！再一分就贏了':'差 '+diff+' 分就破紀錄！',200,304);
+   }
+   setFont(14);ctx.fillStyle='#cfe0ff';
+   ctx.fillText('消除 '+totalPairs+' 對　最高連擊 x'+maxCombo,200,340);
+   ctx.fillText('清空 '+boardsCleared+' 座喵牌山　疊到第 '+boardNum+' 座',200,362);
+   setFont(13);ctx.fillStyle='#93a9cf';ctx.fillText('🏆 最高分：'+best,200,392);
+   rr(BTN_RE.x,BTN_RE.y,BTN_RE.w,BTN_RE.h,12);
+   ctx.fillStyle='#7ed957';ctx.fill();
+   setFont(20,true);ctx.fillStyle='#173318';ctx.textBaseline='middle';
+   ctx.fillText('🐱 再來一局',200,BTN_RE.y+26);
+   ctx.textBaseline='alphabetic';
+   setFont(12);ctx.fillStyle='#8fa8d8';ctx.fillText('（或按空白鍵 / R）',200,506);
+  }
+ }
+ ctx.restore();
+}
+
+/* ---------- 主迴圈：固定步長 accumulator ---------- */
+const STEP=1/60;
+let last=performance.now(),acc=0;
+function frame(now){
+ let dt=(now-last)/1000;last=now;
+ if(dt>0.25)dt=0.25; // 切回視窗時不暴衝
+ acc+=dt;
+ while(acc>=STEP){update(STEP);acc-=STEP;}
+ render();
+ requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+<script src="../../sc_config.js"></script>
+<script src="../../stats.js"></script>
+</body>
+</html>
