@@ -1,0 +1,620 @@
+<!--GAMEMETA {"title":"手忙腳亂喵食堂","emoji":"🍔","genre":"反應","inspiration":"Family Style: Co-op Kitchen","desc":"照訂單由下往上疊出貓咪漢堡，限時出餐衝小費combo！"}-->
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>手忙腳亂喵食堂</title>
+<style>
+html,body{margin:0;padding:0;height:100%;background:#2b1c12;overflow:hidden}
+body{display:flex;align-items:center;justify-content:center}
+canvas{display:block;touch-action:none;border-radius:8px;box-shadow:0 8px 40px rgba(0,0,0,.5)}
+a.back{position:fixed;left:10px;top:8px;z-index:9;color:#e8c9a0;font:14px/1.6 system-ui,sans-serif;text-decoration:none;opacity:.85}
+a.back:hover{opacity:1}
+</style>
+</head>
+<body>
+<a class="back" href="../../index.html">← 回遊戲區</a>
+<canvas id="cv"></canvas>
+<script>
+'use strict';
+// ===== 基本常數 =====
+const W=400,H=600,STEP=1/60;              // 邏輯畫布尺寸與固定時間步長
+const KEY='slimecat_kitchen_best';
+const ALLKINDS=['🍞','🐟','🧀','🥬','🍅','🍳','🍤','🍄']; // 食材池（依進度解鎖）
+const NOTES=[262,294,330,392,440,523];     // 每疊一層音階遞升 Do Re Mi...
+const KEYS='QWERASDFZXCV';                 // 鍵盤對應 4x3 食材格
+const CARD_W=180,ORD_Y=58;                 // 訂單卡寬度與頂端 y
+const CCOLS=['#ff6b6b','#ffd93d','#6bcb77','#4d96ff','#ff9f1c','#f78fb3'];
+
+const cv=document.getElementById('cv'),ctx=cv.getContext('2d');
+let dpr=1,scl=1;
+// 高 DPI：實體緩衝 = 顯示尺寸 × devicePixelRatio(cap 3)，邏輯座標維持 400x600
+function resize(){
+  scl=Math.min(window.innerWidth/W,window.innerHeight/H);
+  dpr=Math.min(window.devicePixelRatio||1,3);
+  cv.style.width=(W*scl)+'px';cv.style.height=(H*scl)+'px';
+  cv.width=Math.round(W*scl*dpr);cv.height=Math.round(H*scl*dpr);
+}
+window.addEventListener('resize',resize);resize();
+
+// ===== localStorage 安全存取（無痕模式會 throw）=====
+function loadBest(){try{return parseInt(localStorage.getItem(KEY),10)||0}catch(e){return 0}}
+function saveBest(v){try{localStorage.setItem(KEY,String(v))}catch(e){}}
+
+// ===== WebAudio 合成音效 =====
+let actx=null;
+function initAudio(){
+  try{
+    if(!actx)actx=new (window.AudioContext||window.webkitAudioContext)();
+    if(actx&&actx.state==='suspended')actx.resume().catch(function(){});
+  }catch(e){actx=null}
+}
+function beep(freq,dur,type,vol,when,slide){
+  if(!actx)return;
+  try{
+    const o=actx.createOscillator(),g=actx.createGain();
+    const t=actx.currentTime+(when||0);
+    o.type=type||'sine';
+    o.frequency.setValueAtTime(freq,t);
+    if(slide)o.frequency.exponentialRampToValueAtTime(Math.max(40,freq+slide),t+dur);
+    g.gain.setValueAtTime(vol||0.15,t);
+    g.gain.exponentialRampToValueAtTime(0.001,t+dur);
+    o.connect(g);g.connect(actx.destination);
+    o.start(t);o.stop(t+dur+0.02);
+  }catch(e){}
+}
+function sndLayer(i){beep(NOTES[Math.min(i,NOTES.length-1)],0.13,'triangle',0.18)}
+function sndDone(){beep(660,0.09,'sine',0.15);beep(880,0.12,'sine',0.15,0.07);beep(1320,0.2,'triangle',0.12,0.14)}
+function sndWrong(){beep(140,0.18,'sawtooth',0.2);beep(100,0.18,'sawtooth',0.14,0.03)}
+function sndBurn(){beep(480,0.45,'sawtooth',0.18,0,-360)}
+function sndTick(){beep(950,0.05,'square',0.07)}
+function sndRush(){beep(720,0.08,'square',0.12);beep(720,0.08,'square',0.12,0.13)}
+function sndRecord(){[523,659,784,1047].forEach(function(f,i){beep(f,0.16,'triangle',0.16,i*0.11)})}
+
+// ===== 遊戲狀態 =====
+let state='title',score=0,best=loadBest(),hearts=3,combo=0,maxCombo=0,served=0;
+let orders=[],tiles=[],flights=[],parts=[],floats=[];
+let spawnCd=0,shakeT=0,shakeMag=0,flashT=0,overPending=-1,overT=0,tSec=0;
+let liveRecord=false,prevBest=0,newRecord=false;
+
+function rand(a,b){return a+Math.random()*(b-a)}
+function pick(a){return a[Math.floor(Math.random()*a.length)]}
+function addFloat(x,y,txt,col,size,dur){floats.push({x:x,y:y,txt:txt,col:col,size:size,t:0,dur:dur||0.9})}
+function shake(t,m){shakeT=Math.max(shakeT,t);shakeMag=m}
+
+// 依出餐數解鎖食材種類（4 → 8，視覺搜尋越來越難）
+function unlockedKinds(){return ALLKINDS.slice(0,Math.min(4+Math.floor(served/4),ALLKINDS.length))}
+
+// ===== 食材桌（4x3 格）=====
+function fillTable(){
+  tiles=[];
+  for(let r=0;r<3;r++)for(let c=0;c<4;c++){
+    tiles.push({x:8+c*97,y:300+r*94,kind:pick(unlockedKinds()),refillT:0,popT:0,pressT:0});
+  }
+}
+// 所有進行中訂單「下一個需要的食材」集合
+function neededSet(){
+  const s=new Set();
+  for(const o of orders)if(!o.done&&!o.burn&&o.prog<o.recipe.length)s.add(o.recipe[o.prog]);
+  return s;
+}
+// 補格時優先補「桌上缺貨的必需食材」，保證永遠有解
+function chooseRefillKind(){
+  const need=neededSet();
+  for(const k of need)if(!tiles.some(function(t){return t.kind===k}))return k;
+  const ks=unlockedKinds();
+  if(need.size&&Math.random()<0.3)return pick(Array.from(need));
+  return pick(ks);
+}
+// 保險絲：必需食材缺貨時，直接把一格非必需食材變成它
+function ensureNeeded(){
+  const need=neededSet();
+  need.forEach(function(k){
+    if(!tiles.some(function(t){return t.kind===k})){
+      const cands=tiles.filter(function(t){return t.kind&&!need.has(t.kind)});
+      if(cands.length){const t=pick(cands);t.kind=k;t.popT=0.3;}
+    }
+  });
+}
+
+// ===== 訂單 =====
+function layoutOrders(){
+  const live=orders.filter(function(o){return !o.done&&!o.burn});
+  if(live.length===1)live[0].tx=110;
+  else if(live.length>=2){live.sort(function(a,b){return a.x-b.x});live[0].tx=10;live[1].tx=210;}
+}
+function spawnOrder(){
+  const fillPool=unlockedKinds().slice(1);      // 麵包以外的餡料
+  let nf;                                        // 餡料層數 1→4（難度旋鈕一）
+  if(served<2)nf=1;else if(served<5)nf=2;else if(served<9)nf=3;else nf=3+(Math.random()<0.4?1:0);
+  const recipe=['🍞'];
+  for(let i=0;i<nf;i++)recipe.push(pick(fillPool));
+  recipe.push('🍞');                             // 上下都是麵包的貓咪漢堡
+  const L=recipe.length;
+  const rush=served>=8&&Math.random()<0.22;      // 急單：時間減半、小費雙倍
+  const pace=Math.max(0.6,1-served*0.018);       // 全域加壓（難度旋鈕二）
+  let tMax=(3+2.1*L)*pace*(rush?0.55:1);
+  if(served===0)tMax+=5;                         // 第一單超寬鬆：前 15 秒保證安全
+  const o={recipe:recipe,prog:0,tMax:tMax,tLeft:tMax,done:false,doneT:0,burn:false,burnT:0,
+           spawnT:0,rush:rush,pop:new Array(L).fill(-1),x:110,tx:110,tickLast:99};
+  orders.push(o);layoutOrders();o.x=o.tx;
+  if(rush){sndRush();addFloat(200,240,'⚡ 急單來了！時間減半、小費×2','#ff5a36',15,1.2);}
+  ensureNeeded();
+}
+function completeOrder(o){
+  if(o.done||o.burn)return;
+  o.done=true;o.doneT=0;
+  const near=o.tLeft<1.5;                        // 壓線出餐 near-miss 獎勵
+  const mult=Math.min(combo+1,5);                // 連續出餐小費倍率（最高×5）
+  let tip=o.recipe.length*10*mult;
+  if(o.rush)tip*=2;
+  if(near)tip=Math.round(tip*1.5);
+  score+=tip;served++;combo++;maxCombo=Math.max(maxCombo,combo);
+  spawnCd=Math.max(spawnCd,0.6);                 // 出餐後 0.6 秒喘息
+  sndDone();coinBurst(o.x+90,150);
+  addFloat(o.x+90,138,'+'+tip+' 💰','#e8930c',20);
+  if(near){addFloat(200,250,'⏱ 壓線出餐 ×1.5！','#ff5a36',18,1.1);flashT=0.25;}
+  if(combo>=2)addFloat(o.x+90,166,'🔥 連續 ×'+combo,'#ff7b2e',14);
+  if(best>0&&score>best&&!liveRecord){           // 局中破紀錄即時慶祝
+    liveRecord=true;addFloat(200,120,'🎉 突破最高紀錄！','#ff416d',20,1.4);
+    confetti(30);sndRecord();
+  }
+}
+function burnOrder(o){
+  o.burn=true;o.burnT=0;hearts--;combo=0;
+  sndBurn();shake(0.45,6);
+  addFloat(o.x+90,150,'🔥 燒單了！','#d33333',18);
+  addFloat(340,44,'-1 ❤️','#d33333',14);
+  spawnCd=Math.max(spawnCd,0.9);
+  if(hearts<=0)overPending=0.9;                  // 讓燒單演出播完再結束
+}
+
+// ===== 點食材 =====
+function serve(t,o){
+  const i=o.prog;o.prog++;
+  sndLayer(i);
+  flights.push({em:t.kind,sx:t.x+45.5,sy:t.y+40,t:0,dur:0.22,order:o,idx:i});
+  t.kind=null;t.refillT=0.28;t.pressT=0.12;
+}
+function wrongTap(t,k){
+  sndWrong();shake(0.25,4);
+  if(combo>=2)addFloat(200,250,'💔 COMBO 中斷','#c0576b',15);
+  combo=0;
+  // 放錯不清空、只扣時：扣最緊急那張訂單 1 秒（保底 0.4 秒不直接爆）
+  const live=orders.filter(function(o){return !o.done&&!o.burn&&o.spawnT>0.15&&o.prog<o.recipe.length});
+  if(live.length){
+    live.sort(function(a,b){return a.tLeft-b.tLeft});
+    const o=live[0];
+    o.tLeft=o.tLeft>1.4?o.tLeft-1:Math.min(o.tLeft,0.4);
+    addFloat(o.x+90,205,'-1 秒','#e04426',14);
+  }
+  // 錯的食材彈飛
+  parts.push({em:k,x:t.x+45,y:t.y+40,vx:rand(-80,80),vy:-200,g:600,rot:0,vr:rand(-8,8),t:0,dur:0.7});
+  t.kind=null;t.refillT=0.3;t.pressT=0.12;
+}
+function tapTile(t){
+  if(state!=='play'||!t||!t.kind)return;
+  const k=t.kind;
+  // 兩張訂單同時需要時，自動算給比較急的那張（排程策略由玩家選食材體現）
+  const cands=orders.filter(function(o){return !o.done&&!o.burn&&o.spawnT>0.15&&o.recipe[o.prog]===k});
+  if(cands.length){cands.sort(function(a,b){return a.tLeft-b.tLeft});serve(t,cands[0]);}
+  else wrongTap(t,k);
+}
+
+// ===== 粒子 =====
+function coinBurst(x,y){
+  for(let i=0;i<8;i++)parts.push({x:x,y:y,vx:rand(-120,120),vy:-rand(120,220),g:420,t:0,dur:0.6,col:'#f5c542',r:rand(3,5)});
+}
+function confetti(n){
+  for(let i=0;i<n;i++)parts.push({x:rand(40,360),y:rand(60,220),vx:rand(-70,70),vy:rand(-30,130),g:260,t:0,dur:rand(0.8,1.6),col:pick(CCOLS),r:rand(3,6),sq:true,rot:rand(0,6),vr:rand(-6,6)});
+}
+
+// ===== 流程 =====
+function startGame(){
+  state='play';score=0;hearts=3;combo=0;maxCombo=0;served=0;
+  orders=[];flights=[];parts=[];floats=[];
+  spawnCd=0;overPending=-1;overT=0;liveRecord=false;
+  fillTable();
+}
+function doGameOver(){
+  if(state==='over')return;
+  state='over';overT=0;prevBest=best;newRecord=score>best;
+  if(newRecord){best=score;saveBest(best);confetti(60);sndRecord();}
+  try{if(window.SC)SC.over(score);}catch(e){}   // 匿名數據回報
+}
+
+// ===== 更新（固定時間步長，120Hz 不會變兩倍速）=====
+function update(dt){
+  tSec+=dt;
+  if(shakeT>0)shakeT-=dt;
+  if(flashT>0)flashT-=dt;
+  floats=floats.filter(function(f){f.t+=dt;f.y-=30*dt;return f.t<f.dur});
+  parts=parts.filter(function(p){
+    p.t+=dt;p.x+=p.vx*dt;p.y+=p.vy*dt;
+    if(p.g)p.vy+=p.g*dt;if(p.vr)p.rot+=p.vr*dt;
+    return p.t<p.dur;
+  });
+  if(state==='over'){overT+=dt;return;}
+  if(state!=='play')return;
+  // 生單：同時最多 1 張，出餐滿 6 份後開雙單（難度旋鈕三）
+  const live=orders.filter(function(o){return !o.done&&!o.burn});
+  const maxO=served>=6?2:1;
+  if(live.length<maxO){spawnCd-=dt;if(spawnCd<=0){spawnOrder();spawnCd=0.8;}}
+  // 訂單計時與動畫
+  for(const o of orders){
+    o.spawnT+=dt;
+    o.x+=(o.tx-o.x)*Math.min(1,dt*10);
+    for(let i=0;i<o.pop.length;i++)if(o.pop[i]>=0)o.pop[i]+=dt;
+    if(o.done){o.doneT+=dt;continue;}
+    if(o.burn){o.burnT+=dt;continue;}
+    if(o.spawnT>0.35&&o.prog<o.recipe.length){  // 疊完最後一層就停表，等出餐
+      o.tLeft-=dt;
+      const s=Math.ceil(o.tLeft);
+      if(o.tLeft>0&&s<=3&&s!==o.tickLast){o.tickLast=s;sndTick();}
+      if(o.tLeft<=0){o.tLeft=0;burnOrder(o);}
+    }
+  }
+  orders=orders.filter(function(o){return !(o.done&&o.doneT>0.6)&&!(o.burn&&o.burnT>0.85)});
+  layoutOrders();
+  // 食材桌補格
+  for(const t of tiles){
+    if(t.pressT>0)t.pressT-=dt;
+    if(t.popT>0)t.popT-=dt;
+    if(!t.kind){t.refillT-=dt;if(t.refillT<=0){t.kind=chooseRefillKind();t.popT=0.3;}}
+  }
+  ensureNeeded();
+  // 飛行中的食材（落地才長出那一層 + 彈跳）
+  flights=flights.filter(function(f){
+    f.t+=dt;
+    if(f.t>=f.dur){
+      if(f.order.pop[f.idx]<0)f.order.pop[f.idx]=0.001;
+      if(f.order.prog>=f.order.recipe.length&&f.idx===f.order.recipe.length-1)completeOrder(f.order);
+      return false;
+    }
+    return true;
+  });
+  if(overPending>0){overPending-=dt;if(overPending<=0)doGameOver();}
+}
+
+// ===== 繪圖小工具 =====
+function rr(x,y,w,h,r){
+  ctx.beginPath();
+  ctx.moveTo(x+r,y);ctx.arcTo(x+w,y,x+w,y+h,r);ctx.arcTo(x+w,y+h,x,y+h,r);
+  ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);ctx.closePath();
+}
+function tri(x1,y1,x2,y2,x3,y3){ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);ctx.lineTo(x3,y3);ctx.closePath();ctx.fill()}
+function dot(x,y,r){ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.fill()}
+function seg(x1,y1,x2,y2){ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);ctx.stroke()}
+
+// 史萊姆貓（綠色史萊姆＋貓耳）
+function drawSlimeCat(x,y,r,mood){
+  ctx.save();
+  ctx.fillStyle='#69c94f';
+  tri(x-r*0.8,y-r*0.3,x-r*0.55,y-r*1.25,x-r*0.15,y-r*0.55);
+  tri(x+r*0.8,y-r*0.3,x+r*0.55,y-r*1.25,x+r*0.15,y-r*0.55);
+  ctx.fillStyle='#f8a8c0';
+  tri(x-r*0.6,y-r*0.5,x-r*0.52,y-r*1.0,x-r*0.32,y-r*0.6);
+  tri(x+r*0.6,y-r*0.5,x+r*0.52,y-r*1.0,x+r*0.32,y-r*0.6);
+  ctx.fillStyle='#7ed957';
+  ctx.beginPath();ctx.ellipse(x,y,r,r*0.88,0,0,Math.PI*2);ctx.fill();
+  ctx.fillStyle='rgba(255,255,255,.4)';
+  ctx.beginPath();ctx.ellipse(x-r*0.35,y-r*0.35,r*0.28,r*0.16,-0.5,0,Math.PI*2);ctx.fill();
+  ctx.fillStyle='rgba(248,150,180,.5)';
+  dot(x-r*0.55,y+r*0.25,r*0.16);dot(x+r*0.55,y+r*0.25,r*0.16);
+  ctx.strokeStyle='#233329';ctx.fillStyle='#233329';
+  ctx.lineWidth=Math.max(1,r*0.09);ctx.lineCap='round';
+  if(mood==='angry'){
+    seg(x-r*0.45,y-r*0.28,x-r*0.15,y-r*0.1);
+    seg(x+r*0.45,y-r*0.28,x+r*0.15,y-r*0.1);
+    ctx.beginPath();ctx.arc(x,y+r*0.5,r*0.2,Math.PI*1.15,Math.PI*1.85);ctx.stroke();
+  }else{
+    dot(x-r*0.3,y-r*0.12,r*0.09);dot(x+r*0.3,y-r*0.12,r*0.09);
+    if(mood==='worried'){
+      ctx.beginPath();ctx.arc(x,y+r*0.32,r*0.13,0,Math.PI*2);ctx.stroke();
+      ctx.fillStyle='#7fd4ff';
+      ctx.beginPath();ctx.ellipse(x+r*0.95,y-r*0.45,r*0.1,r*0.17,0,0,Math.PI*2);ctx.fill();
+    }else{
+      ctx.beginPath();
+      ctx.arc(x-r*0.12,y+r*0.26,r*0.12,0,Math.PI);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(x+r*0.12,y+r*0.26,r*0.12,0,Math.PI);
+      ctx.stroke();
+    }
+  }
+  ctx.restore();
+}
+
+// ===== 訂單卡 =====
+function drawCard(o){
+  const x=o.x,cx=x+90,cy=ORD_Y+84;
+  let s=1,al=1,jx=0,rise=0;
+  if(o.spawnT<0.3){                               // 彈入（easeOutBack）
+    const p=o.spawnT/0.3,c1=1.70158,c3=c1+1;
+    s=1+c3*Math.pow(p-1,3)+c1*Math.pow(p-1,2);
+  }
+  if(o.done){al=1-o.doneT/0.6;rise=-o.doneT*70;s=1+o.doneT*0.15;}
+  if(o.burn){al=o.burnT<0.4?1:1-(o.burnT-0.4)/0.45;jx=Math.sin(o.burnT*50)*3*(1-o.burnT);}
+  ctx.save();
+  ctx.globalAlpha=Math.max(0,Math.min(1,al));
+  ctx.translate(cx+jx,cy+rise);ctx.scale(Math.max(0.01,s),Math.max(0.01,s));ctx.translate(-cx,-cy);
+  rr(x,ORD_Y,CARD_W,168,14);
+  ctx.fillStyle=o.burn?'#e8cdb6':(o.rush?'#fff2e2':'#fffaf0');ctx.fill();
+  ctx.lineWidth=3;
+  ctx.strokeStyle=o.rush?(Math.sin(tSec*10)>0?'#ff5a36':'#ffb03a'):'#dcc49e';
+  ctx.stroke();
+  if(o.rush){
+    rr(cx-44,ORD_Y+4,88,16,8);ctx.fillStyle='#ff5a36';ctx.fill();
+    ctx.fillStyle='#fff';ctx.font='bold 11px sans-serif';
+    ctx.textAlign='center';ctx.textBaseline='middle';
+    ctx.fillText('⚡ 急單 小費×2',cx,ORD_Y+12);
+  }
+  const mood=o.burn?'angry':(o.tLeft<3&&!o.done?'worried':'happy');
+  drawSlimeCat(x+24,ORD_Y+26,12,mood);
+  ctx.fillStyle='#8a6236';ctx.font='11px sans-serif';
+  ctx.textAlign='right';ctx.textBaseline='middle';
+  ctx.fillText('💰 '+(o.recipe.length*10),x+CARD_W-10,ORD_Y+(o.rush?30:14));
+  // 盤子
+  ctx.fillStyle='#ffffff';ctx.strokeStyle='#d8c3a5';ctx.lineWidth=2;
+  ctx.beginPath();ctx.ellipse(cx,ORD_Y+140,48,9,0,0,Math.PI*2);ctx.fill();ctx.stroke();
+  // 食譜疊層（由下往上；已放=實體、下一個=脈動、之後=淡影）
+  for(let i=0;i<o.recipe.length;i++){
+    const ly=ORD_Y+128-i*16;
+    ctx.textAlign='center';ctx.textBaseline='middle';
+    if(i<o.prog&&o.pop[i]>=0){
+      let ls=1;const p=o.pop[i];
+      if(p<0.18)ls=1+Math.sin(p/0.18*Math.PI)*0.35;   // 落下彈跳
+      ctx.font=Math.round(20*ls)+'px sans-serif';
+      ctx.fillText(o.recipe[i],cx,ly);
+    }else if(i<o.prog){
+      ctx.globalAlpha=al*0.25;ctx.font='20px sans-serif';
+      ctx.fillText(o.recipe[i],cx,ly);ctx.globalAlpha=al;
+    }else{
+      const isNext=(i===o.prog&&!o.done&&!o.burn);
+      ctx.globalAlpha=al*(isNext?(0.45+0.2*Math.sin(tSec*6)):0.2);
+      ctx.font='20px sans-serif';ctx.fillText(o.recipe[i],cx,ly);
+      ctx.globalAlpha=al;
+      if(isNext){ctx.fillStyle='#ff7b2e';ctx.font='bold 12px sans-serif';ctx.fillText('▶',cx-42,ly);}
+    }
+  }
+  if(o.burn){ctx.font='34px sans-serif';ctx.textAlign='center';ctx.fillText('😾',cx,ORD_Y+82);}
+  // 時間條
+  const bw=CARD_W-24;
+  rr(x+12,ORD_Y+150,bw,9,4);ctx.fillStyle='#3f2a17';ctx.fill();
+  if(!o.burn){
+    const ra=Math.max(0,o.tLeft/o.tMax);
+    const col=ra>0.5?'#6abf4b':(ra>0.25?'#f2a33c':'#e04426');
+    let ba=1;if(o.tLeft<3)ba=0.5+0.5*Math.abs(Math.sin(tSec*8));   // 快到期閃爍
+    ctx.globalAlpha=al*ba;
+    if(ra>0){rr(x+12,ORD_Y+150,Math.max(4,bw*ra),9,4);ctx.fillStyle=col;ctx.fill();}
+    ctx.globalAlpha=al;
+    if(o.tLeft<6&&o.prog<o.recipe.length&&!o.done){
+      ctx.fillStyle='#e04426';ctx.font='bold 14px sans-serif';
+      ctx.textAlign='right';ctx.fillText(Math.ceil(o.tLeft)+'s',x+CARD_W-12,ORD_Y+142);
+    }
+  }
+  if(o.done){
+    ctx.fillStyle='#e8930c';ctx.font='bold 22px sans-serif';
+    ctx.textAlign='center';ctx.fillText('叮！出餐 ✨',cx,ORD_Y+82);
+  }
+  ctx.restore();
+}
+
+// ===== 遊玩畫面 =====
+function drawPlay(){
+  // 頂部資訊列
+  ctx.fillStyle='#4a2e20';ctx.fillRect(0,0,W,52);
+  ctx.textBaseline='alphabetic';
+  ctx.fillStyle='#caa77e';ctx.font='10px sans-serif';ctx.textAlign='left';
+  ctx.fillText('小費',14,16);
+  ctx.fillStyle='#ffd873';ctx.font='bold 24px sans-serif';
+  ctx.fillText(String(score),14,42);
+  ctx.fillStyle='#caa77e';ctx.font='12px sans-serif';ctx.textAlign='center';
+  ctx.fillText('🏆 最高 '+best,200,20);
+  ctx.font='11px sans-serif';
+  ctx.fillText('🍽 出餐 '+served+' 份',200,40);
+  ctx.font='15px sans-serif';ctx.textAlign='left';
+  for(let i=0;i<3;i++)ctx.fillText(i<hearts?'❤️':'🤍',320+i*25,36);
+  // 訂單卡
+  for(const o of orders)drawCard(o);
+  // 中段提示 / combo
+  ctx.textAlign='center';ctx.textBaseline='middle';
+  if(combo>0){
+    ctx.fillStyle='#ff7b2e';ctx.font='bold 15px sans-serif';
+    ctx.fillText('🔥 連續出餐 ×'+combo+'　小費倍率 ×'+Math.min(combo+1,5),200,258);
+  }else{
+    ctx.fillStyle='#8a6236';ctx.font='12px sans-serif';
+    ctx.fillText(served===0?'看訂單卡：由下往上照順序點食材！':'連續無失誤出餐，小費倍率最高 ×5！',200,258);
+  }
+  // 食材桌
+  rr(4,292,392,292,12);ctx.fillStyle='#7c4a22';ctx.fill();
+  ctx.strokeStyle='#5a3315';ctx.lineWidth=3;ctx.stroke();
+  for(let i=0;i<tiles.length;i++){
+    const t=tiles[i];
+    let s=1;
+    if(t.pressT>0)s=0.9;
+    else if(t.popT>0)s=1-0.5*(t.popT/0.3);
+    const cx2=t.x+45.5,cy2=t.y+44;
+    ctx.save();
+    ctx.translate(cx2,cy2);ctx.scale(s,s);ctx.translate(-cx2,-cy2);
+    rr(t.x+2,t.y+2,87,84,12);
+    ctx.fillStyle=t.kind?'#fdf1d7':'#6a3d1b';ctx.fill();
+    ctx.strokeStyle=t.kind?'#cfa66d':'#5a3315';ctx.lineWidth=2;ctx.stroke();
+    if(t.kind){
+      ctx.font='34px sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';
+      ctx.fillText(t.kind,cx2,cy2+2);
+      ctx.font='10px sans-serif';ctx.fillStyle='rgba(90,59,30,.45)';
+      ctx.textAlign='left';ctx.textBaseline='alphabetic';
+      ctx.fillText(KEYS[i],t.x+8,t.y+14);
+    }
+    ctx.restore();
+  }
+  // 飛行中的食材（拋物線飛向訂單卡）
+  for(const f of flights){
+    const p=Math.min(1,f.t/f.dur),e=1-(1-p)*(1-p);
+    const tx=f.order.x+90,ty=ORD_Y+128-f.idx*16;
+    const fx=f.sx+(tx-f.sx)*e,fy=f.sy+(ty-f.sy)*e-Math.sin(p*Math.PI)*26;
+    ctx.font='26px sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';
+    ctx.fillText(f.em,fx,fy);
+  }
+}
+
+// ===== 標題畫面 =====
+function drawTitle(){
+  ctx.textAlign='center';ctx.textBaseline='middle';
+  ctx.fillStyle='#5a3b1e';ctx.font='bold 32px sans-serif';
+  ctx.fillText('🍔 手忙腳亂喵食堂',200,105);
+  ctx.fillStyle='#8a6236';ctx.font='15px sans-serif';
+  ctx.fillText('照著訂單「由下往上」疊食材，限時出餐！',200,143);
+  // 主廚史萊姆貓＋廚師帽
+  drawSlimeCat(200,255,58,'happy');
+  ctx.fillStyle='#ffffff';
+  rr(154,152,92,32,10);ctx.fill();
+  dot(170,152,15);dot(200,144,17);dot(230,152,15);
+  ctx.fillStyle='#e8dcc7';ctx.fillRect(154,180,92,8);
+  // 跳動的食材
+  for(let i=0;i<4;i++){
+    ctx.font='26px sans-serif';
+    ctx.fillText(ALLKINDS[i],140+i*40,352+Math.sin(tSec*3+i)*6);
+  }
+  ctx.fillStyle='#6b4a26';ctx.font='13px sans-serif';
+  ctx.fillText('👆 點食材（電腦：QWER／ASDF／ZXCV）',200,402);
+  ctx.fillText('⏱ 放錯扣時間，連續出餐小費翻倍！',200,426);
+  ctx.globalAlpha=0.6+0.4*Math.sin(tSec*4);
+  ctx.fillStyle='#d96e00';ctx.font='bold 20px sans-serif';
+  ctx.fillText('— 點一下開店 —',200,482);
+  ctx.globalAlpha=1;
+  ctx.fillStyle='#8a6236';ctx.font='13px sans-serif';
+  ctx.fillText('🏆 最高分 '+best,200,528);
+}
+
+// ===== 結算畫面 =====
+function drawOver(){
+  ctx.fillStyle='rgba(46,26,12,'+Math.min(0.72,overT*1.5).toFixed(3)+')';
+  ctx.fillRect(-20,-20,W+40,H+40);
+  rr(42,140,316,320,16);
+  ctx.fillStyle='#fff6e3';ctx.fill();
+  ctx.strokeStyle='#c9a06b';ctx.lineWidth=3;ctx.stroke();
+  ctx.textAlign='center';ctx.textBaseline='middle';
+  ctx.fillStyle='#5a3b1e';ctx.font='bold 22px sans-serif';
+  ctx.fillText('🍳 打烊了～',200,182);
+  ctx.fillStyle='#8a6236';ctx.font='12px sans-serif';
+  ctx.fillText('本局小費',200,212);
+  ctx.fillStyle='#e8930c';ctx.font='bold 42px sans-serif';
+  ctx.fillText(String(score),200,248);
+  ctx.fillStyle='#6b4a26';ctx.font='13px sans-serif';
+  ctx.fillText('🍽 出餐 '+served+' 份　🔥 最高連續 ×'+maxCombo,200,288);
+  if(newRecord){
+    ctx.fillStyle='#ff416d';ctx.font='bold 16px sans-serif';
+    ctx.fillText('🎉 新紀錄！寫進喵食堂史冊！',200,322);
+  }else{
+    ctx.fillStyle='#c0576b';ctx.font='14px sans-serif';
+    ctx.fillText('差 '+(prevBest+1-score)+' 分就破紀錄，再開一店雪恥！',200,322);
+  }
+  ctx.fillStyle='#8a6236';ctx.font='12px sans-serif';
+  ctx.fillText('🏆 歷史最佳 '+best,200,352);
+  if(overT>0.5){
+    ctx.globalAlpha=0.6+0.4*Math.sin(tSec*4);
+    ctx.fillStyle='#d96e00';ctx.font='bold 17px sans-serif';
+    ctx.fillText('👆 點一下馬上再開店',200,412);
+    ctx.globalAlpha=1;
+  }
+}
+
+// ===== 粒子與漂浮字 =====
+function drawParts(){
+  for(const p of parts){
+    const a=Math.max(0,1-p.t/p.dur);
+    ctx.save();ctx.globalAlpha=a;
+    ctx.translate(p.x,p.y);if(p.rot)ctx.rotate(p.rot);
+    if(p.em){
+      ctx.font='24px sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';
+      ctx.fillText(p.em,0,0);
+    }else{
+      ctx.fillStyle=p.col;
+      if(p.sq)ctx.fillRect(-p.r,-p.r,p.r*2,p.r*2);
+      else dot(0,0,p.r);
+    }
+    ctx.restore();
+  }
+}
+function drawFloats(){
+  for(const f of floats){
+    const a=Math.max(0,1-f.t/f.dur);
+    ctx.globalAlpha=a;
+    ctx.font='bold '+f.size+'px sans-serif';
+    ctx.textAlign='center';ctx.textBaseline='middle';
+    ctx.fillStyle='rgba(60,30,10,.35)';ctx.fillText(f.txt,f.x+1,f.y+2);
+    ctx.fillStyle=f.col;ctx.fillText(f.txt,f.x,f.y);
+  }
+  ctx.globalAlpha=1;
+}
+
+// ===== 主繪製 =====
+function render(){
+  ctx.setTransform(dpr*scl,0,0,dpr*scl,0,0);
+  let ox=0,oy=0;
+  if(shakeT>0){ox=rand(-1,1)*shakeMag*shakeT*2;oy=rand(-1,1)*shakeMag*shakeT*2;}
+  ctx.translate(ox,oy);
+  const g=ctx.createLinearGradient(0,0,0,H);
+  g.addColorStop(0,'#f7e8cf');g.addColorStop(1,'#efd3a7');
+  ctx.fillStyle=g;ctx.fillRect(-20,-20,W+40,H+40);
+  if(state==='title')drawTitle();
+  else{drawPlay();if(state==='over')drawOver();}
+  drawParts();drawFloats();
+  if(flashT>0){
+    ctx.fillStyle='rgba(255,255,230,'+Math.min(0.35,flashT).toFixed(3)+')';
+    ctx.fillRect(-20,-20,W+40,H+40);
+  }
+}
+
+// ===== 輸入 =====
+function tap(x,y){
+  if(state==='title'){startGame();return;}
+  if(state==='over'){if(overT>0.5)startGame();return;}
+  for(const t of tiles){
+    if(x>=t.x&&x<t.x+91&&y>=t.y&&y<t.y+88){tapTile(t);return;}
+  }
+}
+cv.addEventListener('pointerdown',function(e){
+  e.preventDefault();initAudio();
+  // 輸入座標用 getBoundingClientRect 比例換算回 400x600 邏輯座標
+  const r=cv.getBoundingClientRect();
+  tap((e.clientX-r.left)/r.width*W,(e.clientY-r.top)/r.height*H);
+});
+window.addEventListener('keydown',function(e){
+  if(e.repeat)return;
+  initAudio();
+  if(state==='title'){
+    if(e.key===' '||e.key==='Enter'){e.preventDefault();startGame();}
+    return;
+  }
+  if(state==='over'){
+    if((e.key===' '||e.key==='Enter')&&overT>0.5){e.preventDefault();startGame();}
+    return;
+  }
+  const i=KEYS.indexOf(e.key.toUpperCase());
+  if(i>=0&&tiles[i]){e.preventDefault();tapTile(tiles[i]);}
+});
+// 來電 / 切視窗時清掉按壓視覺狀態，避免殘留
+function clearInputs(){for(const t of tiles)t.pressT=0}
+window.addEventListener('blur',clearInputs);
+cv.addEventListener('pointercancel',clearInputs);
+
+// ===== 主迴圈（fixed timestep accumulator）=====
+let last=performance.now(),acc=0;
+function frame(now){
+  let dt=(now-last)/1000;last=now;
+  if(dt>0.25)dt=0.25;          // 切回頁面時不補跑一大段
+  acc+=dt;
+  while(acc>=STEP){update(STEP);acc-=STEP;}
+  render();
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+<script src="../../sc_config.js"></script>
+<script src="../../stats.js"></script>
+</body>
+</html>

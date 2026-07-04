@@ -147,6 +147,16 @@
       "inspiration": "Castle Busters",
       "desc": "拉彈弓轟垮點心塔，把打盹的胖貓全部震下來！",
       "ai_score": 39
+    },
+    {
+      "id": "2026-07-04-014",
+      "title": "手忙腳亂喵食堂",
+      "emoji": "🍔",
+      "genre": "反應",
+      "date": "2026-07-04",
+      "inspiration": "Family Style: Co-op Kitchen",
+      "desc": "照訂單由下往上疊出貓咪漢堡，限時出餐衝小費combo！",
+      "ai_score": 38
     }
   ]
 }
