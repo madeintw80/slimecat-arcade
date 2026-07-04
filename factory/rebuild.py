@@ -20,7 +20,9 @@ GAMES_JS = ROOT / "games.js"
 
 def rebuild() -> int:
     data = json.loads(GAMES_JSON.read_text(encoding="utf-8"))
-    games = data.get("games", [])
+    # 對外的 games.js 剔除 inspiration（原作名只留在內部紀錄，避免商標/攀附疑慮）
+    games = [{k: v for k, v in g.items() if k != "inspiration"}
+             for g in data.get("games", [])]
     js = ("// 此檔由 factory/rebuild.py 自動產生，別手改（改 games.json 再重跑）\n"
           "const GAMES = " + json.dumps(games, ensure_ascii=False, indent=2) + ";\n")
     GAMES_JS.write_text(js, encoding="utf-8")

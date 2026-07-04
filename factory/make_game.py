@@ -55,8 +55,8 @@ except Exception:
 
 # claude CLI：先用 PATH 找，找不到用安裝時記下的絕對路徑（排程環境 PATH 可能不同）
 CLAUDE = shutil.which("claude") or r"C:\Users\User\.local\bin\claude.exe"
-MODEL = "sonnet"          # 生遊戲用的模型（想更強改 "opus"，但更慢、更吃額度）
-GEN_TIMEOUT = 1800        # 實作一整款遊戲的時間上限（實測 15~20 分鐘是常態）
+MODEL = "claude-fable-5"  # 前沿模型做遊戲（2026-07-04 由 sonnet 升級；解構/自評/修復/週檢討同步升級）
+GEN_TIMEOUT = 2700        # 實作一整款遊戲的時間上限（sonnet 曾 30 分鐘超時，放寬到 45 分鐘）
 SMALL_TIMEOUT = 900       # 解構 / 評審這類小任務的上限
 MAX_ATTEMPTS = 2          # 實作 + 驗證最多試幾次
 
@@ -118,7 +118,7 @@ App Store 台灣免費遊戲排行榜（來源 {trends['source']}）：
 
 輸出格式（嚴格遵守，前三行是標頭，之後是筆記本體；直接印出文字、不要使用任何工具）：
 SOURCE: <原作名稱>
-TITLE: <我們的變形版建議中文名（全新命名，不可含原作名）>
+TITLE: <我們的變形版建議中文名（全新命名；不可含原作名，也不可與原作名音近/形近/直譯——商標紅線）>
 GENRE: <類型一詞（街機/益智/反應/跑酷/消除…）>
 
 # 解構：<原作名>
@@ -171,6 +171,8 @@ def stage_generate(decon: dict, past_games: list, feedback: str = ""):
 任務：把解構筆記裡「我們的變形版企劃」實作成完整單檔 HTML5 小遊戲。
 建議名稱《{decon['title'] or '（自訂）'}》，主角美術一律「史萊姆貓」宇宙
 （綠色史萊姆＋貓耳，canvas 畫或 emoji），絕不可用原作名稱/角色/美術/音樂。
+版權紅線：只學「機制與心理學」、不抄「表達」——遊戲名不可與原作音近/形近/直譯；
+不可複製原作的特徵性視覺（配色組合/圖示造型）、具體數值表與關卡佈局。
 實作時逐條對照設計聖經第三節「出貨檢查清單」——特別是：
 前 15 秒不會死、每個互動都有 juice、Game Over 顯示差 X 分破紀錄、重開一鍵零等待。
 

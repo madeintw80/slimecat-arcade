@@ -6,7 +6,6 @@ const GAMES = [
     "emoji": "🐱",
     "genre": "街機",
     "date": "2026-07-04",
-    "inspiration": "創刊號手工特製",
     "desc": "操控史萊姆貓一路往上彈！踩橘色彈簧一飛沖天，掉下去就 GG。"
   },
   {
@@ -15,8 +14,16 @@ const GAMES = [
     "emoji": "🐱",
     "genre": "益智",
     "date": "2026-07-04",
-    "inspiration": "Block Blast!",
     "desc": "把史萊姆貓積木塞進貓窩格子，拼滿一排就爆開！",
-    "ai_score": 42
+    "ai_score": 42,
+    "bugs": [
+      {
+        "date": "2026-07-04",
+        "note": "拖曳方塊放下的位置錯位（電腦手機都有、大方塊更明顯）：視覺以手指為中心畫、判定卻拿手指當方塊左上格，基準不一致",
+        "status": "fixed",
+        "fixed_at": "2026-07-04",
+        "fixed_by": "manual"
+      }
+    ]
   }
 ];

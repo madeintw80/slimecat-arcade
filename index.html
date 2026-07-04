@@ -39,7 +39,7 @@
   <div class="stats" id="stats"></div>
 </header>
 <main id="list"></main>
-<footer>🏭 SlimeCat 遊戲工廠自動生產 · Batnini 出品<br>致敬當年的史萊姆好玩遊戲區</footer>
+<footer>🏭 SlimeCat 遊戲工廠自動生產 · Batnini 出品<br>致敬千禧年的網頁小遊戲樂園</footer>
 <script src="sc_config.js"></script>
 <script src="stats.js"></script>
 <script src="games.js"></script>
@@ -77,7 +77,6 @@ for (const g of games) {
     `<div class="meta">` +
       `<span class="chip genre">${esc(g.genre || "小遊戲")}</span>` +
       `<span class="chip">${g.date}</span>` +
-      `<span class="chip">靈感：${esc(g.inspiration || "?")}</span>` +
       (g.user_rating ? `<span class="chip rate">👤 ${g.user_rating}/10</span>` : "") +
       (g.ai_score ? `<span class="chip rate">🤖 ${g.ai_score}/50</span>` : "") +
       (plays ? `<span class="chip">玩過 ${plays} 次</span>` : "") +
