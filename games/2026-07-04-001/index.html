@@ -46,8 +46,12 @@ function saveBest(v) {
 // ---- 畫面自適應：把 400x600 等比塞進視窗 ----
 function fit() {
   const s = Math.min(innerWidth / W, innerHeight / H) * 0.97;
+  const dpr = Math.min(window.devicePixelRatio || 1, 3);
   cv.style.width = W * s + "px";
   cv.style.height = H * s + "px";
+  cv.width = Math.round(W * s * dpr);   // 實體緩衝跟著螢幕密度，字和圖才不會糊
+  cv.height = Math.round(H * s * dpr);
+  ctx.setTransform(s * dpr, 0, 0, s * dpr, 0, 0); // 遊戲邏輯座標維持 400×600
 }
 addEventListener("resize", fit); fit();
 

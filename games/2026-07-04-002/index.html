@@ -24,7 +24,13 @@ body{display:flex;align-items:center;justify-content:center}
 
 const cv=document.getElementById('game'),ctx=cv.getContext('2d');
 const W=400,H=600;
-function fit(){const s=Math.min(innerWidth/W,innerHeight/H);cv.style.width=(W*s|0)+'px';cv.style.height=(H*s|0)+'px';}
+function fit(){
+  const s=Math.min(innerWidth/W,innerHeight/H);
+  const dpr=Math.min(window.devicePixelRatio||1,3);
+  cv.style.width=(W*s|0)+'px'; cv.style.height=(H*s|0)+'px';
+  cv.width=Math.round(W*s*dpr); cv.height=Math.round(H*s*dpr);  // 實體緩衝跟螢幕密度，才不糊
+  ctx.setTransform(s*dpr,0,0,s*dpr,0,0);                        // 邏輯座標維持 400×600
+}
 addEventListener('resize',fit);fit();
 
 /* ---- 色票：五個隊色（貓巴士＋小貓共用） ---- */

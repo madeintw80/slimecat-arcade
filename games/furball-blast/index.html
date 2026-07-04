@@ -41,8 +41,12 @@ cv.width = W; cv.height = H;
 // 等比縮放到視窗
 function resize() {
   const s = Math.min(window.innerWidth / W, window.innerHeight / H, 1.4);
+  const dpr = Math.min(window.devicePixelRatio || 1, 3);
   cv.style.width  = (W * s) + 'px';
   cv.style.height = (H * s) + 'px';
+  cv.width  = Math.round(W * s * dpr);  // 實體緩衝跟著螢幕密度，字和圖才不會糊
+  cv.height = Math.round(H * s * dpr);
+  cx.setTransform(s * dpr, 0, 0, s * dpr, 0, 0); // 遊戲邏輯座標維持 400×600
 }
 window.addEventListener('resize', resize);
 resize();

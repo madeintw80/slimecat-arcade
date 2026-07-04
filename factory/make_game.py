@@ -185,6 +185,9 @@ def stage_generate(decon: dict, past_games: list, feedback: str = ""):
 - 手機觸控與電腦鍵盤都要能玩；canvas 設 touch-action:none 防頁面捲動
 - 主迴圈不可假設 60fps：用固定時間步長（fixed timestep accumulator）或 deltaTime，
   120Hz 螢幕的手機不可變兩倍速；監聽 pointercancel/blur 清掉輸入狀態（防卡鍵/自走）
+- 高解析度輸出（不可省，省了高 DPI 手機上字和圖全糊）：canvas 實體緩衝 = 顯示尺寸 ×
+  devicePixelRatio（cap 3），再用 ctx.setTransform(s*dpr,0,0,s*dpr,0,0) 讓邏輯座標維持 400×600；
+  輸入座標一律用 getBoundingClientRect 比例換算回邏輯座標（不可拿 canvas.width 算）
 - 標題畫面（遊戲名＋一句話規則＋繁中操作說明＋點擊開始）；即時分數；localStorage 最高分；Game Over 可一鍵重來
 - 介面文字一律繁體中文；程式碼加簡短繁中註解
 - 30 秒上手，一局約 1~3 分鐘
