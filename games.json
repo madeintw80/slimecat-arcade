@@ -77,6 +77,16 @@
       "inspiration": "Smash Fest!",
       "desc": "拖曳蓄力衝撞，把貓咪全撞下布丁擂台，活到最後就是橫綱喵！",
       "ai_score": 43
+    },
+    {
+      "id": "2026-07-04-007",
+      "title": "喵喵雜貨舖大合成",
+      "emoji": "🥫",
+      "genre": "合成",
+      "date": "2026-07-04",
+      "inspiration": "Travel Town - Merge Adventure",
+      "desc": "拖曳合併貓咪點心一路升階，在客人氣走前交出訂單衝高分！",
+      "ai_score": 38
     }
   ]
 }
