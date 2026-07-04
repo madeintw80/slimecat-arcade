@@ -1,0 +1,550 @@
+<!--GAMEMETA {"title":"開閘放喵","emoji":"🐾","genre":"益智","inspiration":"Amaze GO! - 箭頭解謎（Oakever Games）","desc":"看穿誰擋誰，依正確順序點貓衝出格子，全部放光！"}-->
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>開閘放喵</title>
+<style>
+html,body{margin:0;padding:0;background:#171a28;height:100%;overflow:hidden;
+ font-family:"Microsoft JhengHei","PingFang TC",sans-serif;-webkit-tap-highlight-color:transparent;}
+#wrap{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;}
+canvas{touch-action:none;display:block;border-radius:10px;}
+#back{position:fixed;top:8px;left:10px;color:#9fb0d8;text-decoration:none;font-size:14px;
+ z-index:9;background:rgba(20,24,40,.75);padding:4px 10px;border-radius:12px;}
+#back:hover{color:#fff;}
+</style>
+</head>
+<body>
+<a id="back" href="../../index.html">← 回遊戲區</a>
+<div id="wrap"><canvas id="cv"></canvas></div>
+<script>
+'use strict';
+// ===== 基本常數：邏輯座標固定 400x600，格子 6x7 =====
+const W=400,H=600;
+const COLS=6,ROWS=7,CELL=60,GX=20,GY=112;
+const DIRS=[{x:0,y:-1},{x:1,y:0},{x:0,y:1},{x:-1,y:0}]; // 上右下左
+const ANG=[-Math.PI/2,0,Math.PI/2,Math.PI];
+const FONT='"Microsoft JhengHei","PingFang TC",sans-serif';
+function fnt(sz,b){return (b?'bold ':'')+sz+'px '+FONT;}
+
+const cv=document.getElementById('cv'),ctx=cv.getContext('2d');
+let TX=1,TY=1; // 含 devicePixelRatio 的基準縮放
+
+// ===== 高解析度輸出：緩衝 = 顯示尺寸 × dpr（cap 3），邏輯座標維持 400x600 =====
+function resize(){
+ const s=Math.min(window.innerWidth/W,window.innerHeight/H);
+ const cw=Math.max(1,Math.floor(W*s)),ch=Math.max(1,Math.floor(H*s));
+ cv.style.width=cw+'px';cv.style.height=ch+'px';
+ const dpr=Math.min(window.devicePixelRatio||1,3);
+ cv.width=Math.round(cw*dpr);cv.height=Math.round(ch*dpr);
+ TX=cv.width/W;TY=cv.height/H;
+}
+window.addEventListener('resize',resize);
+window.addEventListener('orientationchange',resize);
+resize();
+
+// ===== localStorage 一律 try-catch（無痕模式會 throw）=====
+function loadBest(){try{return parseInt(localStorage.getItem('slimecat_gate_best'))||0;}catch(e){return 0;}}
+function saveBest(v){try{localStorage.setItem('slimecat_gate_best',String(v));}catch(e){}}
+
+// ===== WebAudio 合成音效 =====
+let AC=null;
+function ac(){
+ if(!AC){try{AC=new (window.AudioContext||window.webkitAudioContext)();}catch(e){AC=null;}}
+ if(AC&&AC.state==='suspended'){try{AC.resume();}catch(e){}}
+ return AC;
+}
+function tone(f,dur,type,vol,f2,at){ // 單音：可滑音、可延遲
+ const a=ac();if(!a)return;
+ try{
+  const t0=a.currentTime+(at||0);
+  const o=a.createOscillator(),g=a.createGain();
+  o.type=type||'sine';o.frequency.setValueAtTime(f,t0);
+  if(f2)o.frequency.exponentialRampToValueAtTime(f2,t0+dur);
+  g.gain.setValueAtTime(vol||0.12,t0);
+  g.gain.exponentialRampToValueAtTime(0.001,t0+dur);
+  o.connect(g);g.connect(a.destination);o.start(t0);o.stop(t0+dur+0.02);
+ }catch(e){}
+}
+function whoosh(){ // 衝刺風聲：白噪音＋帶通掃頻
+ const a=ac();if(!a)return;
+ try{
+  const len=Math.floor(a.sampleRate*0.18);
+  const b=a.createBuffer(1,len,a.sampleRate),d=b.getChannelData(0);
+  for(let i=0;i<len;i++)d[i]=(Math.random()*2-1)*(1-i/len);
+  const s=a.createBufferSource();s.buffer=b;
+  const f=a.createBiquadFilter();f.type='bandpass';
+  f.frequency.setValueAtTime(600,a.currentTime);
+  f.frequency.exponentialRampToValueAtTime(2400,a.currentTime+0.15);
+  const g=a.createGain();g.gain.value=0.22;
+  s.connect(f);f.connect(g);g.connect(a.destination);s.start();
+ }catch(e){}
+}
+
+// ===== 遊戲狀態 =====
+let state='title'; // title | play | clear | over
+let score=0,best=loadBest(),level=1,combo=0,lvlCount=0;
+let cats=[],parts=[],floats=[];
+let timeMax=30,timeLeft=30,banner=0,clearT=0,clearBonus=0,tipT=0,shake=0,overT=0,tG=0,lastTick=99;
+let newRecord=false,seenTip=false;
+let cursor={c:2,r:3,on:false}; // 鍵盤游標
+let pointerActive=false; // 輸入狀態（pointercancel/blur 時清掉）
+
+function cx(k){return GX+k.c*CELL+CELL/2;}
+function cy(k){return GY+k.r*CELL+CELL/2;}
+function catAt(c,r){ // 佔格的貓（在場＝idle 或 bounce 中）
+ for(const k of cats)if((k.state==='idle'||k.state==='bounce')&&k.c===c&&k.r===r)return k;
+ return null;
+}
+function remainCount(){let n=0;for(const k of cats)if(k.state==='idle'||k.state==='bounce')n++;return n;}
+
+function mkCat(c,r,d){
+ return {c:c,r:r,dir:d,state:'idle',ox:0,oy:0,px:0,py:0,vx:0,vy:0,
+  bt:0,bdist:0,flash:0,hurt:0,squash:0,phase:Math.random()*6.28};
+}
+
+// ===== 反向生成保證有解：後放的貓射線必淨空，倒序移除必可通關 =====
+function genLevel(n){
+ cats=[];
+ const count=Math.min(4+(n-1)*2,20);
+ const chainP=(n===1)?0:Math.min(0.15+n*0.07,0.75); // 依賴鏈機率隨關卡爬升
+ const occ={};
+ const key=(c,r)=>c+','+r;
+ function rayClear(c,r,d){
+  let x=c+DIRS[d].x,y=r+DIRS[d].y;
+  while(x>=0&&x<COLS&&y>=0&&y<ROWS){if(occ[key(x,y)])return false;x+=DIRS[d].x;y+=DIRS[d].y;}
+  return true;
+ }
+ function onRay(c,r){ // 這格會不會擋到某隻已放的貓（製造依賴鏈）
+  for(const k of cats){
+   let x=k.c+DIRS[k.dir].x,y=k.r+DIRS[k.dir].y;
+   while(x>=0&&x<COLS&&y>=0&&y<ROWS){if(x===c&&y===r)return true;x+=DIRS[k.dir].x;y+=DIRS[k.dir].y;}
+  }
+  return false;
+ }
+ for(let i=0;i<count;i++){
+  const all=[],block=[];
+  for(let c=0;c<COLS;c++)for(let r=0;r<ROWS;r++){
+   if(occ[key(c,r)])continue;
+   for(let d=0;d<4;d++){
+    if(rayClear(c,r,d)){const cand={c:c,r:r,d:d};all.push(cand);if(onRay(c,r))block.push(cand);}
+   }
+  }
+  if(!all.length)break;
+  const pool=(block.length&&Math.random()<chainP)?block:all;
+  const p=pool[Math.floor(Math.random()*pool.length)];
+  cats.push(mkCat(p.c,p.r,p.d));
+  occ[key(p.c,p.r)]=1;
+ }
+ lvlCount=cats.length;
+ timeMax=14+cats.length*2.2;
+ if(n===1)timeMax=30; // 新手保護：第一關時間超寬裕
+ timeLeft=timeMax;banner=1.4;combo=0;lastTick=99;clearT=0;
+ state='play';
+}
+
+function startGame(){
+ score=0;level=1;newRecord=false;parts=[];floats=[];
+ cursor.c=2;cursor.r=3;
+ genLevel(1);
+}
+
+// ===== 點貓放行：點下去瞬間判定，零延遲回饋 =====
+function launch(k){
+ if(state!=='play'||k.state!=='idle')return;
+ const d=DIRS[k.dir];
+ let nc=k.c+d.x,nr=k.r+d.y,blocker=null;
+ while(nc>=0&&nc<COLS&&nr>=0&&nr<ROWS){
+  const o=catAt(nc,nr);
+  if(o){blocker=o;break;}
+  nc+=d.x;nr+=d.y;
+ }
+ const x0=cx(k),y0=cy(k);
+ if(!blocker){
+  // 成功：直接衝出畫面
+  k.px=x0;k.py=y0;k.state='out';k.vx=d.x*1500;k.vy=d.y*1500;
+  combo++;
+  const pts=10*combo;
+  score+=pts;
+  timeLeft=Math.min(timeMax,timeLeft+1);
+  floats.push({x:x0,y:y0-26,txt:'+'+pts+(combo>1?'  ×'+combo:''),life:0.9,col:'#ffd76a',big:combo>=5});
+  burst(x0,y0);
+  whoosh();
+  tone(Math.min(420+combo*45,1400),0.16,'triangle',0.13,Math.min(630+combo*68,2100));
+  // 全部放光 → 過關
+  let left=0;for(const q of cats)if(q.state!=='out'&&q.state!=='gone')left++;
+  if(left===0)startClear();
+ }else{
+  // 被擋：衝到一半彈回原位；擋路的那隻亮圈＝免費提示
+  const steps=Math.abs(blocker.c-k.c)+Math.abs(blocker.r-k.r)-1;
+  k.state='bounce';k.bt=0;k.bdist=steps*CELL+16;k.hurt=0.7;
+  combo=0;
+  timeLeft=Math.max(0,timeLeft-2);
+  blocker.flash=0.9;
+  shake=0.25;
+  tone(150,0.2,'square',0.11,85,0.14);
+  floats.push({x:x0,y:y0-26,txt:'-2 秒',life:0.8,col:'#ff8a7a'});
+  if(!seenTip){seenTip=true;}
+  tipT=2.2;
+  if(timeLeft<=0)gameOver();
+ }
+}
+
+function startClear(){
+ state='clear';clearT=0;
+ clearBonus=40+level*10+Math.floor(timeLeft)*2;
+ score+=clearBonus;
+ confetti(200,290);
+ [523,659,784,1047].forEach((f,i)=>tone(f,0.18,'triangle',0.12,0,i*0.09));
+}
+
+function gameOver(){
+ if(state!=='play')return;
+ state='over';overT=0;
+ newRecord=(score>best&&score>0);
+ if(newRecord){
+  best=score;saveBest(best);
+  confetti(200,220);
+  [523,659,784,1047,1319].forEach((f,i)=>tone(f,0.22,'triangle',0.12,0,i*0.09));
+ }else{
+  [392,311,262,196].forEach((f,i)=>tone(f,0.25,'sawtooth',0.08,0,i*0.13));
+ }
+ if(window.SC&&SC.over)SC.over(score); // 匿名數據回報
+}
+
+// ===== 粒子 / 浮字 =====
+function burst(x,y){
+ for(let i=0;i<12;i++){
+  const a=Math.random()*6.28,v=60+Math.random()*140;
+  parts.push({x:x,y:y,vx:Math.cos(a)*v,vy:Math.sin(a)*v,life:0.4,max:0.4,size:3+Math.random()*3,col:'182,242,138',grav:0});
+ }
+}
+function confetti(x,y){
+ const cols=['255,215,106','126,224,90','255,138,122','122,197,255'];
+ for(let i=0;i<60;i++){
+  parts.push({x:x+(Math.random()-0.5)*140,y:y,vx:(Math.random()-0.5)*380,vy:-Math.random()*320-60,
+   life:1.2,max:1.2,size:3+Math.random()*4,col:cols[i%4],grav:500});
+ }
+}
+
+// ===== 更新（固定時間步長呼叫）=====
+function update(dt){
+ tG+=dt;
+ if(shake>0)shake=Math.max(0,shake-dt);
+ if(tipT>0)tipT-=dt;
+ if(banner>0)banner-=dt;
+ if(state==='play'){
+  timeLeft-=dt;
+  if(timeLeft<=5&&timeLeft>0){ // 剩 5 秒滴答警告
+   const s=Math.ceil(timeLeft);
+   if(s!==lastTick){lastTick=s;tone(880,0.06,'square',0.07);}
+  }
+  if(timeLeft<=0){timeLeft=0;gameOver();}
+ }else if(state==='clear'){
+  clearT+=dt;
+  if(clearT>=1.5){level++;genLevel(level);}
+ }else if(state==='over'){
+  overT+=dt;
+  if(newRecord&&Math.random()<0.12){ // 破紀錄慶祝：持續飄彩紙
+   const cols=['255,215,106','126,224,90','255,138,122','122,197,255'];
+   parts.push({x:Math.random()*W,y:-10,vx:(Math.random()-0.5)*40,vy:80+Math.random()*120,
+    life:2.5,max:2.5,size:3+Math.random()*4,col:cols[Math.floor(Math.random()*4)],grav:60});
+  }
+ }
+ for(const k of cats){
+  if(k.flash>0)k.flash-=dt;
+  if(k.hurt>0)k.hurt-=dt;
+  if(k.squash>0)k.squash-=dt;
+  if(k.state==='out'){
+   k.px+=k.vx*dt;k.py+=k.vy*dt;
+   parts.push({x:k.px-k.vx*0.02+(Math.random()-0.5)*10,y:k.py-k.vy*0.02+(Math.random()-0.5)*10,
+    vx:(Math.random()-0.5)*30,vy:(Math.random()-0.5)*30,life:0.35,max:0.35,size:5+Math.random()*5,col:'126,224,90',grav:0});
+   if(k.px<-80||k.px>W+80||k.py<-80||k.py>H+80)k.state='gone';
+  }else if(k.state==='bounce'){
+   k.bt+=dt;
+   const OUT=0.16,BACK=0.26,d=DIRS[k.dir];
+   if(k.bt<OUT){ // 衝出去（快）
+    const e=1-Math.pow(1-k.bt/OUT,2);
+    k.ox=d.x*k.bdist*e;k.oy=d.y*k.bdist*e;
+   }else if(k.bt<OUT+BACK){ // 彈回來
+    const q=(k.bt-OUT)/BACK,e=1-Math.pow(1-q,2),f=k.bdist*(1-e);
+    k.ox=d.x*f;k.oy=d.y*f;
+   }else{
+    k.ox=0;k.oy=0;k.state='idle';k.squash=0.25; // 回到原位 squash 一下
+   }
+  }
+ }
+ for(let i=parts.length-1;i>=0;i--){
+  const p=parts[i];p.life-=dt;
+  if(p.life<=0){parts.splice(i,1);continue;}
+  p.x+=p.vx*dt;p.y+=p.vy*dt;p.vy+=(p.grav||0)*dt;
+ }
+ for(let i=floats.length-1;i>=0;i--){
+  const f=floats[i];f.life-=dt;
+  if(f.life<=0){floats.splice(i,1);continue;}
+  f.y-=28*dt;
+ }
+}
+
+// ===== 繪圖 =====
+function rr(x,y,w,h,r){ // 圓角矩形路徑
+ ctx.beginPath();ctx.moveTo(x+r,y);
+ ctx.arcTo(x+w,y,x+w,y+h,r);ctx.arcTo(x+w,y+h,x,y+h,r);
+ ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);ctx.closePath();
+}
+function chevron(x,y,ang,size,color){ // 方向箭頭
+ ctx.save();ctx.translate(x,y);ctx.rotate(ang);
+ ctx.beginPath();ctx.moveTo(-size*0.5,-size*0.6);ctx.lineTo(size*0.5,0);ctx.lineTo(-size*0.5,size*0.6);
+ ctx.lineWidth=4.5;ctx.strokeStyle=color;ctx.lineCap='round';ctx.lineJoin='round';ctx.stroke();
+ ctx.restore();
+}
+
+function drawCat(k){
+ let x,y;
+ if(k.state==='out'||k.state==='demo'){x=k.px;y=k.py;}
+ else{x=cx(k)+k.ox;y=cy(k)+k.oy;}
+ const d=DIRS[k.dir];
+ let sx=1,sy=1;
+ const br=1+0.035*Math.sin(tG*2.2+k.phase); // 呼吸
+ if(k.state==='out'){if(d.x){sx=1.45;sy=0.65;}else{sx=0.65;sy=1.45;}} // 衝刺拉長
+ else if(k.state==='bounce'&&k.bt<0.16){if(d.x){sx=1.25;sy=0.8;}else{sx=0.8;sy=1.25;}}
+ if(k.squash>0){const q=k.squash/0.25;sx*=1+0.18*q;sy*=1-0.18*q;} // 落地壓扁
+ if(k.flash>0||k.hurt>0){x+=(Math.random()-0.5)*3;y+=(Math.random()-0.5)*3;} // 受驚抖動
+ const R=21;
+ ctx.save();
+ ctx.translate(x,y);
+ // 方向箭頭（在場才畫）
+ if(k.state!=='out'&&k.state!=='gone'){
+  ctx.globalAlpha=0.92;
+  chevron(d.x*24,d.y*24,ANG[k.dir],9,k.flash>0?'#ffb04d':'#eaffdc');
+  ctx.globalAlpha=1;
+ }
+ // 耳朵（畫在身體後面）
+ ctx.fillStyle='#7ccf52';ctx.strokeStyle='#3f8a2a';ctx.lineWidth=2;
+ ctx.beginPath();ctx.moveTo(-14,-R*0.5*sy);ctx.lineTo(-8,-R*1.15*sy);ctx.lineTo(-1,-R*0.6*sy);ctx.closePath();ctx.fill();ctx.stroke();
+ ctx.beginPath();ctx.moveTo(14,-R*0.5*sy);ctx.lineTo(8,-R*1.15*sy);ctx.lineTo(1,-R*0.6*sy);ctx.closePath();ctx.fill();ctx.stroke();
+ // 身體：綠色史萊姆
+ const grad=ctx.createRadialGradient(-6,-8,4,0,0,R+6);
+ grad.addColorStop(0,'#b6f28a');grad.addColorStop(1,'#6cc24a');
+ ctx.fillStyle=grad;
+ ctx.beginPath();ctx.ellipse(0,2,R*sx,R*0.92*sy*br,0,0,6.29);ctx.fill();
+ ctx.strokeStyle='#3f8a2a';ctx.lineWidth=2;ctx.stroke();
+ // 臉：眼睛看向要衝的方向
+ const ex=d.x*3,ey=d.y*2;
+ ctx.fillStyle='#20301c';
+ ctx.beginPath();ctx.arc(-7+ex,-2+ey,2.6,0,6.29);ctx.fill();
+ ctx.beginPath();ctx.arc(7+ex,-2+ey,2.6,0,6.29);ctx.fill();
+ ctx.strokeStyle='#20301c';ctx.lineWidth=1.6;
+ if(k.hurt>0||k.flash>0){ // 委屈嘴
+  ctx.beginPath();ctx.arc(ex,10+ey,4,Math.PI*1.15,Math.PI*1.85);ctx.stroke();
+ }else{ // 微笑
+  ctx.beginPath();ctx.arc(ex,3+ey,4,0.25,Math.PI-0.25);ctx.stroke();
+ }
+ // 腮紅
+ ctx.fillStyle='rgba(255,150,150,0.45)';
+ ctx.beginPath();ctx.arc(-12,5,3,0,6.29);ctx.fill();
+ ctx.beginPath();ctx.arc(12,5,3,0,6.29);ctx.fill();
+ // 擋路提示圈（失敗即提示：先送走亮圈那隻）
+ if(k.flash>0){
+  ctx.globalAlpha=Math.min(1,k.flash);
+  ctx.strokeStyle='#ffa030';ctx.lineWidth=3;
+  ctx.beginPath();ctx.arc(0,0,R+8+Math.sin(tG*20)*2,0,6.29);ctx.stroke();
+  ctx.globalAlpha=1;
+ }
+ ctx.restore();
+}
+
+function renderHUD(){
+ ctx.textAlign='left';ctx.fillStyle='#8fa2cc';ctx.font=fnt(13);ctx.fillText('分數',20,28);
+ ctx.fillStyle='#fff';ctx.font=fnt(26,true);ctx.fillText(score,20,56);
+ ctx.textAlign='center';ctx.fillStyle='#ffd76a';ctx.font=fnt(18,true);ctx.fillText('第 '+level+' 關',200,36);
+ ctx.fillStyle='#8fa2cc';ctx.font=fnt(12);ctx.fillText('剩 '+remainCount()+' 隻',200,56);
+ ctx.textAlign='right';ctx.fillStyle='#8fa2cc';ctx.font=fnt(13);ctx.fillText('最高 '+best,380,28);
+ // 時間條
+ const ratio=Math.max(0,Math.min(1,timeLeft/timeMax));
+ ctx.fillStyle='rgba(255,255,255,0.12)';rr(20,88,360,12,6);ctx.fill();
+ if(ratio>0){
+  const col=ratio>0.5?'#7ed957':(ratio>0.25?'#ffd76a':'#ff6b6b');
+  if(timeLeft<5)ctx.globalAlpha=0.6+0.4*Math.sin(tG*12);
+  ctx.fillStyle=col;rr(20,88,Math.max(8,360*ratio),12,6);ctx.fill();
+  ctx.globalAlpha=1;
+ }
+}
+
+function renderGrid(){
+ for(let c=0;c<COLS;c++)for(let r=0;r<ROWS;r++){
+  ctx.fillStyle='rgba(255,255,255,0.055)';
+  rr(GX+c*CELL+2.5,GY+r*CELL+2.5,CELL-5,CELL-5,10);ctx.fill();
+ }
+}
+
+function renderTitle(){
+ // 示範貓
+ const demo={state:'demo',px:200,py:140,dir:1,c:0,r:0,ox:0,oy:0,bt:1,flash:0,hurt:0,squash:0,phase:0};
+ ctx.save();ctx.translate(200,140);ctx.scale(2,2);ctx.translate(-200,-140);drawCat(demo);ctx.restore();
+ ctx.textAlign='center';
+ ctx.fillStyle='#fff';ctx.font=fnt(40,true);ctx.fillText('開閘放喵',200,246);
+ ctx.fillStyle='#9fb0d8';ctx.font=fnt(15);
+ ctx.fillText('點貓，牠就朝箭頭方向衝出去；',200,292);
+ ctx.fillText('被同伴擋住會彈回來——',200,316);
+ ctx.fillText('看穿誰擋誰，把整窩貓全部放出門！',200,340);
+ ctx.fillStyle='#8fa2cc';ctx.font=fnt(13);
+ ctx.fillText('📱 手指點貓　⌨️ 方向鍵選格＋空白鍵放行',200,384);
+ ctx.fillText('連續不失誤有 COMBO 加分｜時間歸零結束',200,406);
+ if(best>0){ctx.fillStyle='#ffd76a';ctx.font=fnt(14);ctx.fillText('🏆 最高分 '+best,200,438);}
+ ctx.globalAlpha=0.6+0.4*Math.sin(tG*4);
+ ctx.fillStyle='#7ed957';ctx.font=fnt(22,true);ctx.fillText('點擊畫面開始',200,488);
+ ctx.globalAlpha=1;
+}
+
+function renderOver(){
+ ctx.fillStyle='rgba(12,15,26,0.84)';ctx.fillRect(0,0,W,H);
+ ctx.textAlign='center';
+ ctx.fillStyle='#ff8a7a';ctx.font=fnt(32,true);ctx.fillText('⏰ 時間到！',200,196);
+ ctx.fillStyle='#fff';ctx.font=fnt(44,true);ctx.fillText(score,200,262);
+ ctx.fillStyle='#8fa2cc';ctx.font=fnt(15);ctx.fillText('抵達第 '+level+' 關',200,294);
+ if(newRecord){
+  ctx.globalAlpha=0.7+0.3*Math.sin(tG*6);
+  ctx.fillStyle='#ffd76a';ctx.font=fnt(24,true);ctx.fillText('🎉 新紀錄！',200,344);
+  ctx.globalAlpha=1;
+ }else if(best>0){
+  ctx.fillStyle='#ffd76a';ctx.font=fnt(18,true);
+  ctx.fillText('差 '+(best-score+1)+' 分就破紀錄！',200,344); // near-miss 邀請
+ }else{
+  ctx.fillStyle='#ffd76a';ctx.font=fnt(16);ctx.fillText('把貓全放出去就有分，再試一次！',200,344);
+ }
+ if(overT>0.5){
+  ctx.globalAlpha=0.6+0.4*Math.sin(tG*4);
+  ctx.fillStyle='#7ed957';ctx.font=fnt(20,true);ctx.fillText('點擊再來一局',200,412);
+  ctx.globalAlpha=1;
+ }
+}
+
+function render(){
+ ctx.setTransform(TX,0,0,TY,0,0);
+ const g=ctx.createLinearGradient(0,0,0,H);
+ g.addColorStop(0,'#252b44');g.addColorStop(1,'#1a1e30');
+ ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
+ if(state==='title'){renderTitle();return;}
+ if(shake>0)ctx.translate((Math.random()-0.5)*shake*14,(Math.random()-0.5)*shake*14);
+ renderHUD();
+ renderGrid();
+ // 鍵盤游標
+ if(cursor.on&&state==='play'){
+  ctx.strokeStyle='#ffd76a';ctx.lineWidth=3;
+  rr(GX+cursor.c*CELL+3,GY+cursor.r*CELL+3,CELL-6,CELL-6,10);ctx.stroke();
+ }
+ for(const k of cats)if(k.state==='idle'||k.state==='bounce')drawCat(k);
+ for(const k of cats)if(k.state==='out')drawCat(k); // 飛出中的畫最上層
+ // 底部提示 / COMBO
+ ctx.textAlign='center';
+ if(tipT>0){
+  ctx.fillStyle='#ffb04d';ctx.font=fnt(16,true);
+  ctx.fillText('💡 亮橘圈的那隻擋路了，先送走牠！',200,566);
+ }else if(combo>1){
+  ctx.fillStyle='#ffd76a';ctx.font=fnt(18,true);
+  ctx.fillText('🔥 COMBO ×'+combo,200,566);
+ }else{
+  ctx.fillStyle='#66739a';ctx.font=fnt(13);
+  ctx.fillText('點貓放行｜被同伴擋住會彈回來',200,566);
+ }
+ // 關卡開場橫幅
+ if(banner>0&&state==='play'){
+  ctx.globalAlpha=Math.min(1,banner/0.4);
+  ctx.fillStyle='rgba(20,24,40,0.8)';rr(90,248,220,72,14);ctx.fill();
+  ctx.fillStyle='#fff';ctx.font=fnt(26,true);ctx.textAlign='center';ctx.fillText('第 '+level+' 關',200,283);
+  ctx.fillStyle='#ffd76a';ctx.font=fnt(13);ctx.fillText('把 '+lvlCount+' 隻貓全部放出去！',200,308);
+  ctx.globalAlpha=1;
+ }
+ if(state==='over')renderOver();
+ // 粒子與浮字最後畫（慶祝要蓋在最上面）
+ for(const p of parts){
+  ctx.globalAlpha=Math.max(0,p.life/p.max);
+  ctx.fillStyle='rgb('+p.col+')';
+  ctx.beginPath();ctx.arc(p.x,p.y,Math.max(0.5,p.size*(p.life/p.max)),0,6.29);ctx.fill();
+ }
+ ctx.globalAlpha=1;
+ for(const f of floats){
+  ctx.globalAlpha=Math.min(1,f.life/0.4);
+  ctx.fillStyle=f.col;ctx.font=fnt(f.big?26:18,true);ctx.textAlign='center';
+  ctx.fillText(f.txt,f.x,f.y);
+ }
+ ctx.globalAlpha=1;
+ // 過關演出
+ if(state==='clear'){
+  const pop=Math.min(1,clearT*4);
+  ctx.save();ctx.translate(200,296);ctx.scale(pop,pop);ctx.textAlign='center';
+  ctx.fillStyle='#ffd76a';ctx.font=fnt(34,true);ctx.fillText('🎉 全部放出！',0,0);
+  ctx.fillStyle='#fff';ctx.font=fnt(20,true);ctx.fillText('過關獎勵 +'+clearBonus,0,36);
+  ctx.restore();
+ }
+}
+
+// ===== 輸入 =====
+function tap(x,y){
+ if(state==='title'){startGame();return;}
+ if(state==='over'){if(overT>0.5)startGame();return;}
+ if(state!=='play')return;
+ const c=Math.floor((x-GX)/CELL),r=Math.floor((y-GY)/CELL);
+ let k=null;
+ if(c>=0&&c<COLS&&r>=0&&r<ROWS){
+  const q=catAt(c,r);
+  if(q&&q.state==='idle')k=q;
+ }
+ if(!k){ // 容錯：附近 34px 內最近的貓也算點到
+  let bd=34;
+  for(const q of cats){
+   if(q.state!=='idle')continue;
+   const dd=Math.hypot(cx(q)-x,cy(q)-y);
+   if(dd<bd){bd=dd;k=q;}
+  }
+ }
+ if(k)launch(k);
+}
+cv.addEventListener('pointerdown',function(e){
+ e.preventDefault();
+ pointerActive=true;
+ ac(); // 第一次觸碰解鎖音訊
+ const rect=cv.getBoundingClientRect(); // 輸入一律用 rect 比例換算回邏輯座標
+ tap((e.clientX-rect.left)/rect.width*W,(e.clientY-rect.top)/rect.height*H);
+},{passive:false});
+cv.addEventListener('pointerup',function(){pointerActive=false;});
+cv.addEventListener('pointercancel',function(){pointerActive=false;}); // 來電/切走時清輸入狀態
+window.addEventListener('blur',function(){pointerActive=false;});
+
+window.addEventListener('keydown',function(e){
+ const k=e.code;
+ if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space','Enter'].indexOf(k)>=0)e.preventDefault();
+ ac();
+ if(state==='title'&&(k==='Space'||k==='Enter')){startGame();return;}
+ if(state==='over'&&(k==='Space'||k==='Enter'||k==='KeyR')){if(overT>0.3)startGame();return;}
+ if(state!=='play')return;
+ if(k==='ArrowUp'){cursor.on=true;cursor.r=Math.max(0,cursor.r-1);}
+ else if(k==='ArrowDown'){cursor.on=true;cursor.r=Math.min(ROWS-1,cursor.r+1);}
+ else if(k==='ArrowLeft'){cursor.on=true;cursor.c=Math.max(0,cursor.c-1);}
+ else if(k==='ArrowRight'){cursor.on=true;cursor.c=Math.min(COLS-1,cursor.c+1);}
+ else if(k==='Space'||k==='Enter'){
+  cursor.on=true;
+  const q=catAt(cursor.c,cursor.r);
+  if(q&&q.state==='idle')launch(q);
+ }
+});
+
+// ===== 主迴圈：固定時間步長，120Hz 螢幕不會變兩倍速 =====
+let last=performance.now(),accu=0;
+const STEP=1/60;
+function frame(now){
+ let dt=(now-last)/1000;last=now;
+ if(dt>0.1)dt=0.1; // 切回視窗時避免大跳
+ accu+=dt;
+ while(accu>=STEP){update(STEP);accu-=STEP;}
+ render();
+ requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+<script src="../../sc_config.js"></script>
+<script src="../../stats.js"></script>
+</body>
+</html>
