@@ -57,6 +57,7 @@ const GY    = 58;   // 格子左上 Y
 const SCELL = 22;   // 備料區每格像素（比格子小）
 const SY    = 460;  // 備料中心 Y
 const SX    = [70, 200, 330];  // 三槽中心 X
+const TOUCH_LIFT = 70;  // 觸控拖曳時方塊上浮的距離（手指不擋住方塊）
 
 // ── 顏色主題 ──────────────────────────────────
 const COLORS = ['#5ceb5a','#4dbfff','#ff7b54','#d97bff','#ffdd55','#ff8ab4'];
@@ -593,20 +594,33 @@ function drawSlots() {
   }
 }
 
+// ── 拖曳落點計算（視覺與判定共用同一個基準，才不會錯位）────
+// 以「方塊視覺中心」對齊手指位置，round 吸附到最近的格子
+function dropTarget(p, px, py) {
+  const rows = Math.max(...p.shape.map(([r]) => r)) + 1;
+  const cols = Math.max(...p.shape.map(([, c]) => c)) + 1;
+  const gr = Math.round((py - rows * CELL / 2 - GY) / CELL);
+  const gc = Math.round((px - cols * CELL / 2 - GX) / CELL);
+  return { gr, gc, rows, cols };
+}
+
+// 拖曳中的有效座標（觸控時上浮，讓手指不擋方塊）
+function dragPoint() {
+  return { x: dragSt.cx, y: dragSt.cy - (dragSt.touch ? TOUCH_LIFT : 0) };
+}
+
 // ── 拖曳中的方塊 ──────────────────────────────────
 function drawDrag() {
   if (!dragSt) return;
   const p = pieces[dragSt.idx];
   if (!p) return;
 
-  const x = dragSt.cx, y = dragSt.cy;
+  const { x, y } = dragPoint();
+  const { gr, gc, rows, cols } = dropTarget(p, x, y);
+  const onBoard = gr >= 0 && gr < GS && gc >= 0 && gc < GS;
 
-  // 計算對應格子位置（游標直接對齊格子）
-  const gc = Math.floor((x - GX) / CELL);
-  const gr = Math.floor((y - GY) / CELL);
-
-  // 格子預覽
-  if (gr >= 0 && gr < GS && gc >= 0 && gc < GS) {
+  if (onBoard) {
+    // 格子預覽（跟放開時的判定用同一個 dropTarget，所見即所得）
     const ok = canPlace(p, gr, gc);
     p.shape.forEach(([dr, dc]) => {
       const cr = gr + dr, cc = gc + dc;
@@ -617,10 +631,14 @@ function drawDrag() {
         cx.fill();
       }
     });
+    // 方塊本體直接吸附畫在目標格上（棋盤同尺寸）
+    const snapX = GX + (gc + cols / 2) * CELL;
+    const snapY = GY + (gr + rows / 2) * CELL;
+    drawPieceInSlot(p, snapX, snapY, CELL, 0.92);
+  } else {
+    // 還沒進棋盤：方塊跟著手浮動
+    drawPieceInSlot(p, x, y, SCELL * 1.3, 0.88);
   }
-
-  // 跟手方塊（稍微放大）
-  drawPieceInSlot(p, x, y - 20, SCELL * 1.3, 0.88);
 }
 
 // ── 分數 UI ──────────────────────────────────────
@@ -913,7 +931,8 @@ function onDown(e) {
 
   const idx = hitSlot(pos.x, pos.y);
   if (idx >= 0) {
-    dragSt = { idx, cx: pos.x, cy: pos.y };
+    // touch 記下來：拖曳時方塊會上浮，避免被手指擋住
+    dragSt = { idx, cx: pos.x, cy: pos.y, touch: !!e.touches };
   }
 }
 
@@ -931,7 +950,7 @@ function onUp(e) {
   e.preventDefault();
   if (!dragSt) return;
 
-  const x = dragSt.cx, y = dragSt.cy;
+  const { x, y } = dragPoint();  // 跟畫面同一個基準（含觸控上浮）
   const idx = dragSt.idx;
   dragSt = null;
 
@@ -939,9 +958,8 @@ function onUp(e) {
   const p = pieces[idx];
   if (!p) return;
 
-  // 計算落點格子
-  const gc = Math.floor((x - GX) / CELL);
-  const gr = Math.floor((y - GY) / CELL);
+  // 落點格子：跟 drawDrag 預覽共用 dropTarget，看到綠格＝放得進去
+  const { gr, gc } = dropTarget(p, x, y);
 
   if (gr >= 0 && gr < GS && gc >= 0 && gc < GS && canPlace(p, gr, gc)) {
     placePiece(idx, gr, gc);

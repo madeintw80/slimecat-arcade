@@ -37,6 +37,13 @@ def main() -> int:
     today = datetime.date.today().isoformat()
     log("📅 SlimeCat 每週檢討開始")
 
+    # 0. 維護迴圈：玩家回報的 open bugs 先修（fix_game 自己會品管+部署+推播；失敗不擋檢討）
+    try:
+        subprocess.run([sys.executable, str(HERE / "fix_game.py"), "--all"],
+                       timeout=7200)
+    except Exception as e:
+        log(f"⚠️ 自動修復階段出錯（不擋檢討）：{e}")
+
     # 1. 更新數據（失敗不擋檢討）
     subprocess.run([sys.executable, str(HERE / "analytics_pull.py"), "--quiet"],
                    capture_output=True)
