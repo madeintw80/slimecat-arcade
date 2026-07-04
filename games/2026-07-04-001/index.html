@@ -110,6 +110,8 @@ cv.addEventListener("pointermove", e => {
   pointerSide = (e.clientX - r.left) < r.width / 2 ? -1 : 1;
 });
 addEventListener("pointerup", () => pointerSide = 0);
+addEventListener("pointercancel", () => pointerSide = 0); // 來電/通知打斷觸控，別讓貓自己一直跑
+addEventListener("blur", () => { pointerSide = 0; for (const k in keys) keys[k] = false; }); // 切視窗清掉卡住的按鍵
 cv.addEventListener("contextmenu", e => e.preventDefault());
 
 // ---- 任意輸入：開始 / 重來 ----
@@ -320,10 +322,18 @@ function draw() {
   if (state === "over") overScreen();
 }
 
-// ---- 主迴圈 ----
-function frame() { update(); draw(); requestAnimationFrame(frame); }
+// ---- 主迴圈（固定 60 步/秒：120Hz 螢幕也不會變兩倍速）----
+const STEP = 1000 / 60;
+let acc = 0, last = performance.now();
+function frame(now) {
+  acc += now - last; last = now;
+  if (acc > 100) acc = 100;  // 切去背景再回來，不狂補幀
+  while (acc >= STEP) { update(); acc -= STEP; }
+  draw();
+  requestAnimationFrame(frame);
+}
 reset();
-frame();
+requestAnimationFrame(t => { last = t; frame(t); });
 </script>
 <script src="../../sc_config.js"></script>
 <script src="../../stats.js"></script>

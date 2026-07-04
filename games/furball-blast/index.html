@@ -111,10 +111,12 @@ let flashTimer = {}; // 每個 clear 格子的閃爍 timer
 
 // ── 讀取最高分 ──────────────────────────────────
 function loadBest() {
-  return parseInt(localStorage.getItem('furball-best') || '0');
+  try { return parseInt(localStorage.getItem('furball-best') || '0'); }
+  catch (e) { return 0; }  // 無痕模式可能讀不了
 }
 function saveBest() {
-  localStorage.setItem('furball-best', best);
+  try { localStorage.setItem('furball-best', best); }
+  catch (e) { /* 無痕模式可能存不了 */ }
 }
 
 // ── 初始化 ──────────────────────────────────────
@@ -172,12 +174,9 @@ function placePiece(idx, r, c) {
   const cleared = checkClears();
   if (cleared === 0) comboCount = 0;  // 沒消重置 combo
 
-  // 三塊都用完才補新的
+  // 三塊都用完才補新的（一組三塊怎麼配置＝本作的策略深度，不可以放一塊補一塊）
   if (pieces.every(p => !p)) refill();
-  else {
-    refill();  // 補空槽
-    updateNearMiss();
-  }
+  else updateNearMiss();
 
   // 檢查遊戲結束
   if (clearCells.length === 0) checkGameOver();

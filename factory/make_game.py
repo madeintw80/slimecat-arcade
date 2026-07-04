@@ -55,7 +55,10 @@ except Exception:
 
 # claude CLI：先用 PATH 找，找不到用安裝時記下的絕對路徑（排程環境 PATH 可能不同）
 CLAUDE = shutil.which("claude") or r"C:\Users\User\.local\bin\claude.exe"
-MODEL = "claude-fable-5"  # 前沿模型做遊戲（2026-07-04 由 sonnet 升級；解構/自評/修復/週檢討同步升級）
+# 模型策略：產遊戲一律用「當下可用的最前沿模型」（用戶 2026-07-04 拍板）。
+# Fable 5 免費期只到 2026-07-07 → 7/8 起自動退回 opus（別名=最新版 Opus，目前 4.8），不用人記
+FABLE_FREE_UNTIL = datetime.date(2026, 7, 7)
+MODEL = ("claude-fable-5" if datetime.date.today() <= FABLE_FREE_UNTIL else "opus")
 GEN_TIMEOUT = 2700        # 實作一整款遊戲的時間上限（sonnet 曾 30 分鐘超時，放寬到 45 分鐘）
 SMALL_TIMEOUT = 900       # 解構 / 評審這類小任務的上限
 MAX_ATTEMPTS = 2          # 實作 + 驗證最多試幾次
@@ -180,6 +183,8 @@ def stage_generate(decon: dict, past_games: list, feedback: str = ""):
 - 單一 HTML 檔內含全部 CSS/JS；零外部資源（不可用 CDN、外部圖片、字型、音檔；音效用 WebAudio 合成）
 - 遊戲畫面用 <canvas>，寬 400 高 600 直式，JS 把 canvas 等比縮放到適合視窗
 - 手機觸控與電腦鍵盤都要能玩；canvas 設 touch-action:none 防頁面捲動
+- 主迴圈不可假設 60fps：用固定時間步長（fixed timestep accumulator）或 deltaTime，
+  120Hz 螢幕的手機不可變兩倍速；監聽 pointercancel/blur 清掉輸入狀態（防卡鍵/自走）
 - 標題畫面（遊戲名＋一句話規則＋繁中操作說明＋點擊開始）；即時分數；localStorage 最高分；Game Over 可一鍵重來
 - 介面文字一律繁體中文；程式碼加簡短繁中註解
 - 30 秒上手，一局約 1~3 分鐘
