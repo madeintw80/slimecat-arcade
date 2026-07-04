@@ -1,0 +1,5 @@
+__pycache__/
+factory/factory.log
+factory/shots/
+factory/trends.json
+factory/analytics_summary.json

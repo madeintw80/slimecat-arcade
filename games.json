@@ -1,0 +1,23 @@
+{
+  "games": [
+    {
+      "id": "2026-07-04-001",
+      "title": "史萊姆貓彈跳",
+      "emoji": "🐱",
+      "genre": "街機",
+      "date": "2026-07-04",
+      "inspiration": "創刊號手工特製",
+      "desc": "操控史萊姆貓一路往上彈！踩橘色彈簧一飛沖天，掉下去就 GG。"
+    },
+    {
+      "id": "furball-blast",
+      "title": "毛球塞爆了",
+      "emoji": "🐱",
+      "genre": "益智",
+      "date": "2026-07-04",
+      "inspiration": "Block Blast!",
+      "desc": "把史萊姆貓積木塞進貓窩格子，拼滿一排就爆開！",
+      "ai_score": 42
+    }
+  ]
+}

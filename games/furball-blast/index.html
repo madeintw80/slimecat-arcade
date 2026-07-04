@@ -1,0 +1,972 @@
+<!--GAMEMETA {"title":"毛球塞爆了","emoji":"🐱","genre":"益智","inspiration":"Block Blast!","desc":"把史萊姆貓積木塞進貓窩格子，拼滿一排就爆開！"}-->
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>毛球塞爆了 — SlimeCat 遊戲工作室</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{
+  background:#110820;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;min-height:100vh;
+  font-family:'Helvetica Neue',Arial,sans-serif;overflow:hidden;
+  user-select:none;-webkit-user-select:none;
+}
+#back{
+  position:fixed;top:10px;left:10px;color:#9966cc;
+  text-decoration:none;font-size:13px;z-index:100;
+  background:rgba(0,0,0,0.4);padding:4px 8px;border-radius:8px;
+}
+#back:hover{color:#cc99ff}
+canvas{touch-action:none;display:block;cursor:pointer}
+</style>
+</head>
+<body>
+<a href="../../index.html" id="back">← 回遊戲區</a>
+<canvas id="c"></canvas>
+<script>
+// ═══════════════════════════════════════════════
+//  毛球塞爆了 — SlimeCat 遊戲工作室
+//  Block Blast! 變形版：把史萊姆貓積木塞進格子
+// ═══════════════════════════════════════════════
+
+const cv = document.getElementById('c');
+const cx = cv.getContext('2d');
+
+// ── 版面常數 ──────────────────────────────────
+const W = 400, H = 600;
+cv.width = W; cv.height = H;
+
+// 等比縮放到視窗
+function resize() {
+  const s = Math.min(window.innerWidth / W, window.innerHeight / H, 1.4);
+  cv.style.width  = (W * s) + 'px';
+  cv.style.height = (H * s) + 'px';
+}
+window.addEventListener('resize', resize);
+resize();
+
+// 格子設定
+const CELL  = 38;   // 每格像素
+const GS    = 8;    // 8×8 格
+const GX    = (W - GS * CELL) / 2;  // 格子左上 X = 24
+const GY    = 58;   // 格子左上 Y
+
+// 備料區設定（下方三個槽）
+const SCELL = 22;   // 備料區每格像素（比格子小）
+const SY    = 460;  // 備料中心 Y
+const SX    = [70, 200, 330];  // 三槽中心 X
+
+// ── 顏色主題 ──────────────────────────────────
+const COLORS = ['#5ceb5a','#4dbfff','#ff7b54','#d97bff','#ffdd55','#ff8ab4'];
+const BG   = '#110820';
+const GBDR = '#3a1d6e';   // 格子邊框
+const GEMP = '#1c0d38';   // 空格背景
+const GFIL = '#2a1254';   // 半透明填充（拖曳預覽）
+
+// ── 方塊形狀 [行偏移, 列偏移][] ─────────────
+const SHAPES = [
+  [[0,0]],
+  [[0,0],[0,1]],
+  [[0,0],[1,0]],
+  [[0,0],[0,1],[0,2]],
+  [[0,0],[1,0],[2,0]],
+  [[0,0],[0,1],[0,2],[0,3]],
+  [[0,0],[1,0],[2,0],[3,0]],
+  [[0,0],[0,1],[1,0],[1,1]],
+  [[0,0],[1,0],[2,0],[2,1]],
+  [[0,1],[1,1],[2,0],[2,1]],
+  [[0,0],[1,0],[1,1],[2,1]],
+  [[0,1],[1,0],[1,1],[2,0]],
+  [[0,0],[0,1],[0,2],[1,1]],
+  [[0,1],[1,0],[1,1],[1,2]],
+  [[0,0],[0,1],[0,2],[1,0]],
+  [[0,0],[0,1],[0,2],[1,2]],
+  [[0,0],[0,1],[1,0]],
+  [[0,0],[1,0],[1,1]],
+  [[0,1],[1,0],[1,1]],
+  [[0,0],[0,1],[1,1]],
+  [[0,0],[0,1],[0,2],[0,3],[0,4]],
+  [[0,0],[1,0],[2,0],[3,0],[4,0]],
+  [[0,0],[0,1],[0,2],[1,0],[1,1],[1,2],[2,0],[2,1],[2,2]],
+];
+
+// 形狀難度分組（控制出現機率）
+const EASY   = [0,1,2,7,16,17,18,19];
+const MEDIUM = [3,4,8,9,10,11,12,13,14,15];
+const HARD   = [5,6,20,21,22];
+
+// ── 遊戲狀態 ──────────────────────────────────
+let grid, pieces, dragSt, score, best, state;
+let particles = [];
+let clearCells = [], clearTimer = 0;
+let shakeX = 0, shakeY = 0;
+let audioCtx = null;
+let comboCount = 0;   // 連消計數（無效後重置）
+let scorePopups = []; // 分數浮字
+let nearMissRows = new Set(), nearMissCols = new Set(); // 差一格
+let flashTimer = {}; // 每個 clear 格子的閃爍 timer
+
+// ── 讀取最高分 ──────────────────────────────────
+function loadBest() {
+  return parseInt(localStorage.getItem('furball-best') || '0');
+}
+function saveBest() {
+  localStorage.setItem('furball-best', best);
+}
+
+// ── 初始化 ──────────────────────────────────────
+function init() {
+  grid  = Array.from({length: GS}, () => Array(GS).fill(0));
+  pieces = [null, null, null];
+  dragSt = null;
+  score  = 0;
+  best   = loadBest();
+  state  = 'playing';
+  particles  = [];
+  clearCells = [];
+  scorePopups = [];
+  nearMissRows = new Set();
+  nearMissCols = new Set();
+  comboCount = 0;
+  refill();
+}
+
+// ── 生成方塊 ─────────────────────────────────────
+function randPiece() {
+  // 前期偏簡單形狀，分數高了才多難用的
+  let pool;
+  if (score < 200)      pool = [...EASY, ...EASY, ...MEDIUM];
+  else if (score < 800) pool = [...EASY, ...MEDIUM, ...MEDIUM, ...HARD];
+  else                   pool = [...MEDIUM, ...HARD, ...HARD];
+
+  const shapeIdx = pool[Math.floor(Math.random() * pool.length)];
+  const color    = COLORS[Math.floor(Math.random() * COLORS.length)];
+  return { shape: SHAPES[shapeIdx], color };
+}
+
+function refill() {
+  for (let i = 0; i < 3; i++) {
+    if (!pieces[i]) pieces[i] = randPiece();
+  }
+  updateNearMiss();
+}
+
+// ── 格子邏輯 ─────────────────────────────────────
+function canPlace(piece, r, c) {
+  return piece.shape.every(([dr, dc]) => {
+    const nr = r + dr, nc = c + dc;
+    return nr >= 0 && nr < GS && nc >= 0 && nc < GS && !grid[nr][nc];
+  });
+}
+
+function placePiece(idx, r, c) {
+  const p = pieces[idx];
+  p.shape.forEach(([dr, dc]) => { grid[r + dr][c + dc] = p.color; });
+  pieces[idx] = null;
+  playSound('place');
+
+  // 檢查消除
+  const cleared = checkClears();
+  if (cleared === 0) comboCount = 0;  // 沒消重置 combo
+
+  // 三塊都用完才補新的
+  if (pieces.every(p => !p)) refill();
+  else {
+    refill();  // 補空槽
+    updateNearMiss();
+  }
+
+  // 檢查遊戲結束
+  if (clearCells.length === 0) checkGameOver();
+}
+
+// ── 消除邏輯 ─────────────────────────────────────
+function checkClears() {
+  const fullRows = [], fullCols = [];
+  for (let r = 0; r < GS; r++) {
+    if (grid[r].every(v => v)) fullRows.push(r);
+  }
+  for (let c = 0; c < GS; c++) {
+    if (grid.every(row => row[c])) fullCols.push(c);
+  }
+
+  const cells = new Set();
+  fullRows.forEach(r => { for (let c = 0; c < GS; c++) cells.add(`${r},${c}`); });
+  fullCols.forEach(c => { for (let r = 0; r < GS; r++) cells.add(`${r},${c}`); });
+
+  if (cells.size === 0) return 0;
+
+  comboCount++;
+  const lines = fullRows.length + fullCols.length;
+  // 分數計算：每格10分 × 行數倍率 × combo加成
+  const pts = cells.size * 10 * lines * comboCount;
+  score += pts;
+  if (score > best) { best = score; saveBest(); }
+
+  // 消除格子列表（動畫用）
+  clearCells = [...cells].map(s => s.split(',').map(Number));
+  clearTimer = 18;  // 動畫幀數
+
+  // 產生粒子 + 分數浮字
+  clearCells.forEach(([r, c]) => {
+    spawnParticles(GX + c * CELL + CELL/2, GY + r * CELL + CELL/2, grid[r][c]);
+  });
+
+  // 分數浮字（中間位置）
+  const cx2 = GX + GS * CELL / 2;
+  const cy2 = GY + GS * CELL / 2;
+  scorePopups.push({ x: cx2, y: cy2, val: `+${pts}`, life: 1.0, combo: comboCount });
+
+  playSound('clear', lines);
+  shakeX = 4; shakeY = 3;
+
+  // 延遲清格（動畫結束後）
+  const snapshot = [...cells];
+  setTimeout(() => {
+    snapshot.forEach(s => {
+      const [r, c] = s.split(',').map(Number);
+      grid[r][c] = 0;
+    });
+    clearCells = [];
+    updateNearMiss();
+    checkGameOver();
+  }, 280);
+
+  return cells.size;
+}
+
+// ── Near-miss 偵測 ────────────────────────────────
+function updateNearMiss() {
+  nearMissRows = new Set();
+  nearMissCols = new Set();
+  for (let r = 0; r < GS; r++) {
+    const filled = grid[r].filter(v => v).length;
+    if (filled >= GS - 1) nearMissRows.add(r);
+  }
+  for (let c = 0; c < GS; c++) {
+    const filled = grid.filter(row => row[c]).length;
+    if (filled >= GS - 1) nearMissCols.add(c);
+  }
+}
+
+// ── 遊戲結束判斷 ─────────────────────────────────
+function checkGameOver() {
+  const live = pieces.filter(p => p);
+  if (!live.length) return;
+
+  const anyFit = live.some(piece =>
+    grid.some((row, r) => row.some((_, c) => canPlace(piece, r, c)))
+  );
+
+  if (!anyFit) {
+    state = 'gameover';
+    playSound('gameover');
+    if (window.SC) SC.over(score);  // 匿名回報一局結束（數據追蹤，選配）
+  }
+}
+
+// ── 粒子系統 ─────────────────────────────────────
+function spawnParticles(x, y, color) {
+  for (let i = 0; i < 10; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const v = 1.5 + Math.random() * 4;
+    particles.push({
+      x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 1,
+      life: 1, dec: 0.03 + Math.random() * 0.03,
+      color, r: 2 + Math.random() * 4
+    });
+  }
+}
+
+function updateParticles() {
+  particles = particles.filter(p => {
+    p.x  += p.vx; p.y  += p.vy;
+    p.vy += 0.15;  // 重力
+    p.life -= p.dec;
+    return p.life > 0;
+  });
+  scorePopups = scorePopups.filter(p => {
+    p.y  -= 1.2;
+    p.life -= 0.02;
+    return p.life > 0;
+  });
+}
+
+// ── 畫面震動 ─────────────────────────────────────
+function updateShake() {
+  if (shakeX > 0.2) { shakeX *= 0.7; } else shakeX = 0;
+  if (shakeY > 0.2) { shakeY *= 0.7; } else shakeY = 0;
+}
+
+// ── WebAudio 音效 ─────────────────────────────────
+function getAC() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  return audioCtx;
+}
+
+function playSound(type, n = 1) {
+  try {
+    const ac = getAC();
+    const t  = ac.currentTime;
+
+    if (type === 'place') {
+      const o = ac.createOscillator(), g = ac.createGain();
+      o.connect(g); g.connect(ac.destination);
+      o.frequency.setValueAtTime(220, t);
+      o.frequency.exponentialRampToValueAtTime(110, t + 0.08);
+      g.gain.setValueAtTime(0.25, t);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.08);
+      o.start(t); o.stop(t + 0.08);
+    }
+
+    if (type === 'clear') {
+      // 每條消除一個音符，疊加成和弦
+      const freqs = [523, 659, 784, 988, 1175];
+      for (let i = 0; i < Math.min(n, 5); i++) {
+        const o = ac.createOscillator(), g = ac.createGain();
+        o.connect(g); g.connect(ac.destination);
+        o.type = 'sine';
+        o.frequency.value = freqs[i];
+        const dt = i * 0.05;
+        g.gain.setValueAtTime(0, t + dt);
+        g.gain.linearRampToValueAtTime(0.35, t + dt + 0.03);
+        g.gain.exponentialRampToValueAtTime(0.001, t + dt + 0.35);
+        o.start(t + dt); o.stop(t + dt + 0.35);
+      }
+    }
+
+    if (type === 'gameover') {
+      [400, 320, 240, 160].forEach((f, i) => {
+        const o = ac.createOscillator(), g = ac.createGain();
+        o.connect(g); g.connect(ac.destination);
+        o.frequency.value = f;
+        o.type = 'sawtooth';
+        const dt = i * 0.18;
+        g.gain.setValueAtTime(0.25, t + dt);
+        g.gain.exponentialRampToValueAtTime(0.001, t + dt + 0.18);
+        o.start(t + dt); o.stop(t + dt + 0.18);
+      });
+    }
+
+    if (type === 'btn') {
+      const o = ac.createOscillator(), g = ac.createGain();
+      o.connect(g); g.connect(ac.destination);
+      o.frequency.value = 600;
+      g.gain.setValueAtTime(0.2, t);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.06);
+      o.start(t); o.stop(t + 0.06);
+    }
+  } catch(e) {}
+}
+
+// ── 繪製史萊姆貓（一格）────────────────────────────
+function drawCat(x, y, sz, color, expr) {
+  const cx2 = x + sz / 2, cy2 = y + sz * 0.58;
+  const rad  = sz * 0.4;
+
+  // 身體（圓形黏液）
+  cx.fillStyle = color;
+  cx.beginPath();
+  cx.arc(cx2, cy2, rad, 0, Math.PI * 2);
+  cx.fill();
+
+  // 光澤
+  cx.fillStyle = 'rgba(255,255,255,0.22)';
+  cx.beginPath();
+  cx.arc(cx2 - rad * 0.25, cy2 - rad * 0.3, rad * 0.3, 0, Math.PI * 2);
+  cx.fill();
+
+  // 貓耳（三角形）
+  cx.fillStyle = color;
+  // 左耳
+  cx.beginPath();
+  cx.moveTo(cx2 - rad * 0.65, cy2 - rad * 0.55);
+  cx.lineTo(cx2 - rad * 0.9,  cy2 - rad * 1.15);
+  cx.lineTo(cx2 - rad * 0.25, cy2 - rad * 0.85);
+  cx.fill();
+  // 右耳
+  cx.beginPath();
+  cx.moveTo(cx2 + rad * 0.65, cy2 - rad * 0.55);
+  cx.lineTo(cx2 + rad * 0.9,  cy2 - rad * 1.15);
+  cx.lineTo(cx2 + rad * 0.25, cy2 - rad * 0.85);
+  cx.fill();
+
+  // 耳朵內色
+  cx.fillStyle = 'rgba(255,200,220,0.55)';
+  cx.beginPath();
+  cx.moveTo(cx2 - rad * 0.6, cy2 - rad * 0.6);
+  cx.lineTo(cx2 - rad * 0.8, cy2 - rad * 1.05);
+  cx.lineTo(cx2 - rad * 0.3, cy2 - rad * 0.85);
+  cx.fill();
+  cx.beginPath();
+  cx.moveTo(cx2 + rad * 0.6, cy2 - rad * 0.6);
+  cx.lineTo(cx2 + rad * 0.8, cy2 - rad * 1.05);
+  cx.lineTo(cx2 + rad * 0.3, cy2 - rad * 0.85);
+  cx.fill();
+
+  // 眼睛
+  cx.fillStyle = '#1a0a2e';
+  if (expr === 'happy') {
+    // ^ ^ 弧形眼
+    cx.strokeStyle = '#1a0a2e';
+    cx.lineWidth = sz * 0.07;
+    cx.lineCap = 'round';
+    cx.beginPath();
+    cx.arc(cx2 - rad * 0.38, cy2 - rad * 0.1, rad * 0.18, Math.PI, 0);
+    cx.stroke();
+    cx.beginPath();
+    cx.arc(cx2 + rad * 0.38, cy2 - rad * 0.1, rad * 0.18, Math.PI, 0);
+    cx.stroke();
+  } else if (expr === 'dead') {
+    // × × 眼
+    cx.strokeStyle = '#1a0a2e';
+    cx.lineWidth = sz * 0.07;
+    cx.lineCap = 'round';
+    const ew = rad * 0.2;
+    // 左 X
+    cx.beginPath();
+    cx.moveTo(cx2 - rad * 0.55, cy2 - rad * 0.22);
+    cx.lineTo(cx2 - rad * 0.2,  cy2 + rad * 0.05);
+    cx.moveTo(cx2 - rad * 0.2,  cy2 - rad * 0.22);
+    cx.lineTo(cx2 - rad * 0.55, cy2 + rad * 0.05);
+    cx.stroke();
+    // 右 X
+    cx.beginPath();
+    cx.moveTo(cx2 + rad * 0.2,  cy2 - rad * 0.22);
+    cx.lineTo(cx2 + rad * 0.55, cy2 + rad * 0.05);
+    cx.moveTo(cx2 + rad * 0.55, cy2 - rad * 0.22);
+    cx.lineTo(cx2 + rad * 0.2,  cy2 + rad * 0.05);
+    cx.stroke();
+  } else if (expr === 'worried') {
+    // >< 緊張眼
+    cx.strokeStyle = '#1a0a2e';
+    cx.lineWidth = sz * 0.07;
+    cx.lineCap = 'round';
+    cx.beginPath();
+    cx.moveTo(cx2 - rad * 0.55, cy2 - rad * 0.2);
+    cx.lineTo(cx2 - rad * 0.25, cy2 + rad * 0.05);
+    cx.moveTo(cx2 - rad * 0.25, cy2 - rad * 0.2);
+    cx.lineTo(cx2 - rad * 0.55, cy2 + rad * 0.05);
+    cx.stroke();
+    cx.beginPath();
+    cx.moveTo(cx2 + rad * 0.25, cy2 - rad * 0.2);
+    cx.lineTo(cx2 + rad * 0.55, cy2 + rad * 0.05);
+    cx.moveTo(cx2 + rad * 0.55, cy2 - rad * 0.2);
+    cx.lineTo(cx2 + rad * 0.25, cy2 + rad * 0.05);
+    cx.stroke();
+  } else {
+    // ‧ ‧ 正常眼
+    cx.beginPath();
+    cx.arc(cx2 - rad * 0.38, cy2 - rad * 0.08, rad * 0.14, 0, Math.PI * 2);
+    cx.fill();
+    cx.beginPath();
+    cx.arc(cx2 + rad * 0.38, cy2 - rad * 0.08, rad * 0.14, 0, Math.PI * 2);
+    cx.fill();
+    // 眼睛白反光
+    cx.fillStyle = 'white';
+    cx.beginPath();
+    cx.arc(cx2 - rad * 0.32, cy2 - rad * 0.15, rad * 0.07, 0, Math.PI * 2);
+    cx.fill();
+    cx.beginPath();
+    cx.arc(cx2 + rad * 0.44, cy2 - rad * 0.15, rad * 0.07, 0, Math.PI * 2);
+    cx.fill();
+  }
+
+  // 嘴巴
+  cx.strokeStyle = '#1a0a2e';
+  cx.lineWidth = Math.max(1, sz * 0.055);
+  cx.lineCap = 'round';
+  if (expr === 'happy') {
+    cx.beginPath();
+    cx.arc(cx2, cy2 + rad * 0.28, rad * 0.25, 0, Math.PI);
+    cx.stroke();
+  } else if (expr === 'worried') {
+    // ω 口
+    cx.beginPath();
+    cx.moveTo(cx2 - rad * 0.3, cy2 + rad * 0.35);
+    cx.bezierCurveTo(cx2 - rad * 0.15, cy2 + rad * 0.2, cx2, cy2 + rad * 0.42, cx2, cy2 + rad * 0.42);
+    cx.bezierCurveTo(cx2, cy2 + rad * 0.42, cx2 + rad * 0.15, cy2 + rad * 0.2, cx2 + rad * 0.3, cy2 + rad * 0.35);
+    cx.stroke();
+  } else {
+    // w 形小嘴
+    cx.beginPath();
+    cx.moveTo(cx2 - rad * 0.28, cy2 + rad * 0.25);
+    cx.quadraticCurveTo(cx2, cy2 + rad * 0.45, cx2 + rad * 0.28, cy2 + rad * 0.25);
+    cx.stroke();
+  }
+}
+
+// ── 繪製格子 ─────────────────────────────────────
+function drawGrid() {
+  const time = Date.now() / 1000;
+
+  for (let r = 0; r < GS; r++) {
+    for (let c = 0; c < GS; c++) {
+      const x = GX + c * CELL, y = GY + r * CELL;
+
+      // 空格背景
+      cx.fillStyle = GEMP;
+      cx.beginPath();
+      cx.roundRect(x + 1, y + 1, CELL - 2, CELL - 2, 4);
+      cx.fill();
+
+      // Near-miss 高亮（差一格就滿了）
+      if (nearMissRows.has(r) || nearMissCols.has(c)) {
+        const pulse = 0.5 + 0.5 * Math.sin(time * 6);
+        if (!grid[r][c]) {
+          cx.fillStyle = `rgba(255, 100, 60, ${0.12 + pulse * 0.1})`;
+          cx.beginPath();
+          cx.roundRect(x + 1, y + 1, CELL - 2, CELL - 2, 4);
+          cx.fill();
+        }
+      }
+
+      if (grid[r][c]) {
+        // 消除動畫：格子閃爍白光
+        const isClear = clearCells.some(([cr, cc]) => cr === r && cc === c);
+        if (isClear && clearTimer > 0) {
+          const t = clearTimer / 18;
+          cx.fillStyle = `rgba(255,255,255,${t * 0.8})`;
+          cx.beginPath();
+          cx.roundRect(x + 1, y + 1, CELL - 2, CELL - 2, 4);
+          cx.fill();
+        }
+
+        // 判斷表情
+        let expr = 'normal';
+        if (isClear && clearTimer > 10) expr = 'happy';
+        else if (isClear) expr = 'dead';
+        else if (nearMissRows.has(r) || nearMissCols.has(c)) expr = 'worried';
+
+        drawCat(x + 1, y + 1, CELL - 2, grid[r][c], expr);
+      }
+
+      // 格子邊框
+      cx.strokeStyle = GBDR;
+      cx.lineWidth = 1;
+      cx.beginPath();
+      cx.roundRect(x + 1, y + 1, CELL - 2, CELL - 2, 4);
+      cx.stroke();
+    }
+  }
+}
+
+// ── 繪製備料槽 ────────────────────────────────────
+function drawPieceInSlot(piece, cx2, cy2, scell, alpha = 1) {
+  if (!piece) return;
+  // 計算形狀邊界
+  const rows = piece.shape.map(([r]) => r);
+  const cols = piece.shape.map(([, c]) => c);
+  const minR = Math.min(...rows), maxR = Math.max(...rows);
+  const minC = Math.min(...cols), maxC = Math.max(...cols);
+  const spanR = maxR - minR + 1, spanC = maxC - minC + 1;
+
+  const offX = cx2 - (spanC * scell) / 2;
+  const offY = cy2 - (spanR * scell) / 2;
+
+  cx.globalAlpha = alpha;
+  piece.shape.forEach(([r, c]) => {
+    const x = offX + (c - minC) * scell;
+    const y = offY + (r - minR) * scell;
+    drawCat(x, y, scell - 1, piece.color, 'normal');
+  });
+  cx.globalAlpha = 1;
+}
+
+function drawSlots() {
+  for (let i = 0; i < 3; i++) {
+    // 槽背景
+    const sx = SX[i] - 55, sy = SY - 55;
+    cx.fillStyle = 'rgba(40,20,70,0.5)';
+    cx.strokeStyle = dragSt && dragSt.idx === i ? '#9966cc' : '#3a1d6e';
+    cx.lineWidth = 1.5;
+    cx.beginPath();
+    cx.roundRect(sx, sy, 110, 110, 10);
+    cx.fill();
+    cx.stroke();
+
+    if (pieces[i] && !(dragSt && dragSt.idx === i)) {
+      drawPieceInSlot(pieces[i], SX[i], SY, SCELL);
+    }
+  }
+}
+
+// ── 拖曳中的方塊 ──────────────────────────────────
+function drawDrag() {
+  if (!dragSt) return;
+  const p = pieces[dragSt.idx];
+  if (!p) return;
+
+  const x = dragSt.cx, y = dragSt.cy;
+
+  // 計算對應格子位置（游標直接對齊格子）
+  const gc = Math.floor((x - GX) / CELL);
+  const gr = Math.floor((y - GY) / CELL);
+
+  // 格子預覽
+  if (gr >= 0 && gr < GS && gc >= 0 && gc < GS) {
+    const ok = canPlace(p, gr, gc);
+    p.shape.forEach(([dr, dc]) => {
+      const cr = gr + dr, cc = gc + dc;
+      if (cr >= 0 && cr < GS && cc >= 0 && cc < GS) {
+        cx.fillStyle = ok ? 'rgba(100,255,100,0.35)' : 'rgba(255,60,60,0.25)';
+        cx.beginPath();
+        cx.roundRect(GX + cc * CELL + 1, GY + cr * CELL + 1, CELL - 2, CELL - 2, 4);
+        cx.fill();
+      }
+    });
+  }
+
+  // 跟手方塊（稍微放大）
+  drawPieceInSlot(p, x, y - 20, SCELL * 1.3, 0.88);
+}
+
+// ── 分數 UI ──────────────────────────────────────
+function drawScore() {
+  // 頂部背景
+  cx.fillStyle = 'rgba(20,10,40,0.85)';
+  cx.fillRect(0, 0, W, GY - 4);
+
+  // 「毛球塞爆了」標題
+  cx.fillStyle = '#cc99ff';
+  cx.font = 'bold 17px sans-serif';
+  cx.textAlign = 'left';
+  cx.textBaseline = 'middle';
+  cx.fillText('毛球塞爆了🐱', 12, GY / 2 - 2);
+
+  // 分數
+  cx.fillStyle = '#ffdd55';
+  cx.font = 'bold 22px sans-serif';
+  cx.textAlign = 'right';
+  cx.fillText(score, W - 12, GY / 2 - 10);
+
+  // 最高分
+  cx.fillStyle = '#9966cc';
+  cx.font = '12px sans-serif';
+  cx.fillText('最高 ' + best, W - 12, GY / 2 + 12);
+}
+
+// ── 分數浮字 ─────────────────────────────────────
+function drawScorePopups() {
+  scorePopups.forEach(p => {
+    cx.globalAlpha = p.life;
+    cx.fillStyle   = p.combo >= 2 ? '#ff7b54' : '#ffdd55';
+    cx.font        = `bold ${14 + p.combo * 2}px sans-serif`;
+    cx.textAlign   = 'center';
+    cx.textBaseline = 'middle';
+    cx.fillText(p.val, p.x, p.y);
+    if (p.combo >= 2) {
+      cx.font = `bold 11px sans-serif`;
+      cx.fillStyle = '#ff4444';
+      cx.fillText(`${p.combo}連消！`, p.x, p.y - 18);
+    }
+    cx.globalAlpha = 1;
+  });
+}
+
+// ── 粒子繪製 ─────────────────────────────────────
+function drawParticles() {
+  particles.forEach(p => {
+    cx.globalAlpha = p.life;
+    cx.fillStyle   = p.color;
+    cx.beginPath();
+    cx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+    cx.fill();
+  });
+  cx.globalAlpha = 1;
+}
+
+// ── 標題畫面 ─────────────────────────────────────
+function drawTitle() {
+  // 背景
+  const grd = cx.createLinearGradient(0, 0, 0, H);
+  grd.addColorStop(0, '#1a0838');
+  grd.addColorStop(1, '#0d0520');
+  cx.fillStyle = grd;
+  cx.fillRect(0, 0, W, H);
+
+  // 貓裝飾（排成一排）
+  const catColors = ['#5ceb5a','#4dbfff','#ff7b54','#d97bff','#ffdd55'];
+  catColors.forEach((col, i) => {
+    drawCat(50 + i * 62, 60, 52, col, 'normal');
+  });
+
+  // 標題
+  cx.fillStyle = '#cc99ff';
+  cx.font = 'bold 38px sans-serif';
+  cx.textAlign = 'center';
+  cx.textBaseline = 'middle';
+  cx.shadowColor = '#9922ff';
+  cx.shadowBlur  = 20;
+  cx.fillText('毛球塞爆了', W / 2, 175);
+  cx.shadowBlur = 0;
+
+  cx.fillStyle = '#ffdd55';
+  cx.font = 'bold 18px sans-serif';
+  cx.fillText('🐱 史萊姆貓方塊', W / 2, 215);
+
+  // 規則說明
+  const rules = [
+    '把史萊姆貓積木拖進 8×8 貓窩格子裡',
+    '一整排塞滿就爆開清除',
+    '橘色 = 差一格就清了！把握機會',
+    '三塊都用完才補新的',
+  ];
+  cx.fillStyle = '#b388ff';
+  cx.font = '15px sans-serif';
+  rules.forEach((r, i) => {
+    cx.fillText(r, W / 2, 268 + i * 26);
+  });
+
+  // 操作說明
+  cx.fillStyle = '#7c5cbf';
+  cx.font = '13px sans-serif';
+  cx.fillText('👆 拖曳方塊到格子   💻 也支援滑鼠', W / 2, 388);
+
+  // 開始按鈕
+  const bx = W/2 - 90, by = 420, bw = 180, bh = 52;
+  const pulse = 0.85 + 0.15 * Math.sin(Date.now() / 400);
+  cx.fillStyle = `rgba(120,50,220,${pulse})`;
+  cx.shadowColor = '#9922ff';
+  cx.shadowBlur  = 15 * pulse;
+  cx.beginPath();
+  cx.roundRect(bx, by, bw, bh, 26);
+  cx.fill();
+  cx.shadowBlur = 0;
+
+  cx.fillStyle = 'white';
+  cx.font = 'bold 22px sans-serif';
+  cx.fillText('▶ 開始玩', W / 2, by + bh / 2);
+
+  // 最高分
+  if (best > 0) {
+    cx.fillStyle = '#9966cc';
+    cx.font = '14px sans-serif';
+    cx.fillText('最高分：' + best, W / 2, by + bh + 28);
+  }
+}
+
+// ── 遊戲結束畫面 ─────────────────────────────────
+function drawGameOver() {
+  // 半透明遮罩
+  cx.fillStyle = 'rgba(10,5,25,0.85)';
+  cx.fillRect(0, 0, W, H);
+
+  // 哭泣貓
+  drawCat(W/2 - 26, 110, 52, '#cc99ff', 'dead');
+
+  cx.fillStyle = '#ff6677';
+  cx.font = 'bold 34px sans-serif';
+  cx.textAlign = 'center';
+  cx.textBaseline = 'middle';
+  cx.shadowColor = '#ff0033';
+  cx.shadowBlur = 15;
+  cx.fillText('塞不下了！', W / 2, 200);
+  cx.shadowBlur = 0;
+
+  cx.fillStyle = '#ffdd55';
+  cx.font = 'bold 28px sans-serif';
+  cx.fillText('得分：' + score, W / 2, 250);
+
+  if (score >= best) {
+    cx.fillStyle = '#ffaa00';
+    cx.font = 'bold 16px sans-serif';
+    cx.fillText('🏆 新紀錄！', W / 2, 283);
+  } else {
+    const diff = best - score;
+    cx.fillStyle = '#9966cc';
+    cx.font = '16px sans-serif';
+    cx.fillText(`差 ${diff} 分破紀錄`, W / 2, 285);
+  }
+
+  cx.fillStyle = '#7c5cbf';
+  cx.font = '14px sans-serif';
+  cx.fillText('最高分：' + best, W / 2, 312);
+
+  // 再來按鈕
+  const bx = W/2 - 80, by = 345, bw = 160, bh = 50;
+  cx.fillStyle = '#5020a0';
+  cx.shadowColor = '#9922ff';
+  cx.shadowBlur = 12;
+  cx.beginPath();
+  cx.roundRect(bx, by, bw, bh, 25);
+  cx.fill();
+  cx.shadowBlur = 0;
+
+  cx.fillStyle = 'white';
+  cx.font = 'bold 20px sans-serif';
+  cx.fillText('🔄 再來一局', W / 2, by + bh / 2);
+}
+
+// ── 主繪製函數 ────────────────────────────────────
+function draw() {
+  cx.clearRect(0, 0, W, H);
+
+  if (state === 'title') {
+    drawTitle();
+    return;
+  }
+
+  // 震動偏移
+  const sx = (Math.random() - 0.5) * shakeX;
+  const sy = (Math.random() - 0.5) * shakeY;
+  cx.save();
+  cx.translate(sx, sy);
+
+  // 背景
+  cx.fillStyle = BG;
+  cx.fillRect(0, 0, W, H);
+
+  drawScore();
+  drawGrid();
+  drawSlots();
+
+  // 備料區標籤
+  cx.fillStyle = '#6644aa';
+  cx.font = '12px sans-serif';
+  cx.textAlign = 'center';
+  cx.textBaseline = 'top';
+  cx.fillText('拖曳方塊到格子', W / 2, SY + 58);
+
+  drawDrag();
+  drawParticles();
+  drawScorePopups();
+
+  cx.restore();
+
+  if (state === 'gameover') {
+    drawGameOver();
+  }
+}
+
+// ── 更新 ────────────────────────────────────────
+function update() {
+  updateParticles();
+  updateShake();
+  if (clearTimer > 0) clearTimer--;
+}
+
+// ── 遊戲循環 ─────────────────────────────────────
+function loop() {
+  update();
+  draw();
+  requestAnimationFrame(loop);
+}
+
+// ── 滑鼠/觸控座標轉換（對應 canvas 縮放）────────────
+function getPos(e) {
+  const rect = cv.getBoundingClientRect();
+  const scaleX = W / rect.width;
+  const scaleY = H / rect.height;
+  let cx2, cy2;
+  if (e.touches) {
+    cx2 = (e.touches[0].clientX - rect.left) * scaleX;
+    cy2 = (e.touches[0].clientY - rect.top)  * scaleY;
+  } else {
+    cx2 = (e.clientX - rect.left) * scaleX;
+    cy2 = (e.clientY - rect.top)  * scaleY;
+  }
+  return { x: cx2, y: cy2 };
+}
+
+// ── 哪個槽被點到 ─────────────────────────────────
+function hitSlot(x, y) {
+  for (let i = 0; i < 3; i++) {
+    if (!pieces[i]) continue;
+    const sx2 = SX[i], sy2 = SY;
+    if (x >= sx2 - 55 && x <= sx2 + 55 && y >= sy2 - 55 && y <= sy2 + 55) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+// ── 按下 ────────────────────────────────────────
+function onDown(e) {
+  e.preventDefault();
+  const pos = getPos(e);
+
+  if (state === 'title') {
+    // 點開始按鈕
+    const bx = W/2 - 90, by = 420, bw = 180, bh = 52;
+    if (pos.x >= bx && pos.x <= bx + bw && pos.y >= by && pos.y <= by + bh) {
+      playSound('btn');
+      init();
+    }
+    return;
+  }
+
+  if (state === 'gameover') {
+    // 點再來按鈕
+    const bx = W/2 - 80, by = 345, bw = 160, bh = 50;
+    if (pos.x >= bx && pos.x <= bx + bw && pos.y >= by && pos.y <= by + bh) {
+      playSound('btn');
+      init();
+    }
+    return;
+  }
+
+  if (state !== 'playing') return;
+  if (clearCells.length > 0) return;  // 消除動畫中暫停輸入
+
+  const idx = hitSlot(pos.x, pos.y);
+  if (idx >= 0) {
+    dragSt = { idx, cx: pos.x, cy: pos.y };
+  }
+}
+
+// ── 移動 ────────────────────────────────────────
+function onMove(e) {
+  e.preventDefault();
+  if (!dragSt) return;
+  const pos = getPos(e);
+  dragSt.cx = pos.x;
+  dragSt.cy = pos.y;
+}
+
+// ── 放開 ────────────────────────────────────────
+function onUp(e) {
+  e.preventDefault();
+  if (!dragSt) return;
+
+  const x = dragSt.cx, y = dragSt.cy;
+  const idx = dragSt.idx;
+  dragSt = null;
+
+  if (state !== 'playing') return;
+  const p = pieces[idx];
+  if (!p) return;
+
+  // 計算落點格子
+  const gc = Math.floor((x - GX) / CELL);
+  const gr = Math.floor((y - GY) / CELL);
+
+  if (gr >= 0 && gr < GS && gc >= 0 && gc < GS && canPlace(p, gr, gc)) {
+    placePiece(idx, gr, gc);
+  }
+  // 放不上去就回槽（什麼都不做，方塊還在 pieces[idx]）
+}
+
+// ── 事件綁定 ─────────────────────────────────────
+cv.addEventListener('mousedown',  onDown, {passive: false});
+cv.addEventListener('mousemove',  onMove, {passive: false});
+cv.addEventListener('mouseup',    onUp,   {passive: false});
+cv.addEventListener('mouseleave', onUp,   {passive: false});
+cv.addEventListener('touchstart', onDown, {passive: false});
+cv.addEventListener('touchmove',  onMove, {passive: false});
+cv.addEventListener('touchend',   onUp,   {passive: false});
+
+// 阻止 canvas 上的右鍵選單
+cv.addEventListener('contextmenu', e => e.preventDefault());
+
+// ── 啟動 ─────────────────────────────────────────
+state = 'title';
+best  = loadBest();
+loop();
+</script>
+<script src="../../sc_config.js"></script>
+<script src="../../stats.js"></script>
+</body>
+</html>

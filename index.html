@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SlimeCat 遊戲區 🐱🟢</title>
+<style>
+  :root{
+    --bg:#0f1a0c; --card:#1b2c14; --line:#33511f;
+    --acc:#7ce85a; --txt:#e8ffe0; --sub:#9fbf90;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:radial-gradient(1200px 600px at 50% -100px,#1d3313,var(--bg));min-height:100vh;color:var(--txt);font-family:"Microsoft JhengHei",system-ui,sans-serif}
+  header{text-align:center;padding:38px 16px 10px}
+  h1{margin:0;font-size:clamp(26px,6vw,44px);letter-spacing:2px;color:var(--acc);text-shadow:0 0 18px rgba(124,232,90,.45)}
+  .slogan{color:var(--sub);margin-top:8px;font-size:15px}
+  .stats{margin-top:14px;font-size:13px;color:var(--sub)}
+  .stats b{color:var(--acc)}
+  main{max-width:980px;margin:22px auto 60px;padding:0 16px;display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:16px}
+  a.card{position:relative;display:block;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:18px;text-decoration:none;color:var(--txt);transition:transform .12s,box-shadow .12s,border-color .12s}
+  a.card:hover{transform:translateY(-4px);border-color:var(--acc);box-shadow:0 10px 26px rgba(0,0,0,.45)}
+  .emoji{font-size:44px;line-height:1}
+  .thumb{width:100%;aspect-ratio:4/3;object-fit:cover;border-radius:10px;margin-top:10px;border:1px solid var(--line);display:block}
+  .title{font-size:19px;font-weight:700;margin:10px 0 6px;color:#fff}
+  .desc{font-size:13.5px;color:var(--sub);line-height:1.55;min-height:42px}
+  .meta{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px;font-size:11.5px;color:var(--sub)}
+  .chip{border:1px solid var(--line);border-radius:99px;padding:2px 9px;background:rgba(124,232,90,.07)}
+  .chip.genre{color:var(--acc);border-color:rgba(124,232,90,.4)}
+  .chip.rate{color:#ffd76a;border-color:rgba(255,215,106,.4)}
+  .new{position:absolute;top:-9px;right:-6px;background:#ff9b3d;color:#2b1600;font-weight:800;font-size:11px;border-radius:99px;padding:3px 10px;box-shadow:0 3px 10px rgba(0,0,0,.4);transform:rotate(6deg)}
+  .empty{grid-column:1/-1;text-align:center;color:var(--sub);padding:60px 0}
+  footer{text-align:center;color:#5f7a54;font-size:12px;padding:26px 12px 40px;line-height:1.8}
+</style>
+</head>
+<body>
+<header>
+  <h1>🐱 SlimeCat 遊戲區 🟢</h1>
+  <div class="slogan">不斷生產新遊戲的小遊戲樂園 — 工廠每天爬排行榜、提煉玩法、自動生一款</div>
+  <div class="stats" id="stats"></div>
+</header>
+<main id="list"></main>
+<footer>🏭 SlimeCat 遊戲工廠自動生產 · Batnini 出品<br>致敬當年的史萊姆好玩遊戲區</footer>
+<script src="sc_config.js"></script>
+<script src="stats.js"></script>
+<script src="games.js"></script>
+<script>
+// 讀 games.js 的 GAMES 清單，畫出遊戲卡片（新的排前面）
+const list = document.getElementById("list");
+const stats = document.getElementById("stats");
+const games = (typeof GAMES !== "undefined" ? GAMES.slice() : [])
+  .sort((a, b) => (b.date + b.id).localeCompare(a.date + a.id));
+
+// 今天日期字串，用來標 NEW!
+const today = new Date();
+const todayStr = today.getFullYear() + "-" +
+  String(today.getMonth() + 1).padStart(2, "0") + "-" +
+  String(today.getDate()).padStart(2, "0");
+
+stats.innerHTML = games.length
+  ? `目前共 <b>${games.length}</b> 款 · 最新出廠 <b>${games[0].date}</b>`
+  : "";
+
+if (!games.length) {
+  list.innerHTML = '<div class="empty">🏭 工廠正在準備第一款遊戲…</div>';
+}
+for (const g of games) {
+  const a = document.createElement("a");
+  a.className = "card";
+  a.href = "games/" + g.id + "/index.html";
+  const plays = getPlays(g.id);
+  a.innerHTML =
+    (g.date === todayStr ? '<span class="new">NEW!</span>' : "") +
+    `<div class="emoji">${g.emoji || "🎮"}</div>` +
+    `<img class="thumb" src="games/${g.id}/shot.png" loading="lazy" alt="" onerror="this.remove()">` +
+    `<div class="title">${esc(g.title)}</div>` +
+    `<div class="desc">${esc(g.desc || "")}</div>` +
+    `<div class="meta">` +
+      `<span class="chip genre">${esc(g.genre || "小遊戲")}</span>` +
+      `<span class="chip">${g.date}</span>` +
+      `<span class="chip">靈感：${esc(g.inspiration || "?")}</span>` +
+      (g.user_rating ? `<span class="chip rate">👤 ${g.user_rating}/10</span>` : "") +
+      (g.ai_score ? `<span class="chip rate">🤖 ${g.ai_score}/50</span>` : "") +
+      (plays ? `<span class="chip">玩過 ${plays} 次</span>` : "") +
+    `</div>`;
+  a.addEventListener("click", () => addPlay(g.id)); // 本機版「點擊率」：記每款開了幾次
+  list.appendChild(a);
+}
+
+// 遊玩次數存 localStorage（之後上線再換成真的分析數據）
+function getPlays(id) {
+  try { return +(localStorage.getItem("plays_" + id) || 0); } catch (e) { return 0; }
+}
+function addPlay(id) {
+  try { localStorage.setItem("plays_" + id, getPlays(id) + 1); } catch (e) {}
+}
+
+// 防 XSS 的簡單跳脫（遊戲資料是自家工廠產的，防個保險）
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, c =>
+    ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+}
+</script>
+</body>
+</html>
