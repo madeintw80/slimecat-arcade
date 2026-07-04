@@ -30,6 +30,21 @@
   .new{position:absolute;top:-9px;right:-6px;background:#ff9b3d;color:#2b1600;font-weight:800;font-size:11px;border-radius:99px;padding:3px 10px;box-shadow:0 3px 10px rgba(0,0,0,.4);transform:rotate(6deg)}
   .empty{grid-column:1/-1;text-align:center;color:var(--sub);padding:60px 0}
   footer{text-align:center;color:#5f7a54;font-size:12px;padding:26px 12px 40px;line-height:1.8}
+  /* ── 評分＋留言彈窗 ── */
+  .ratebtn{cursor:pointer;font-family:inherit;font-size:11.5px;color:#ffd76a;background:rgba(255,215,106,.07);border:1px solid rgba(255,215,106,.4);border-radius:99px;padding:2px 9px}
+  .ratebtn:hover{background:rgba(255,215,106,.18)}
+  #rateov{position:fixed;inset:0;background:rgba(0,0,0,.62);display:none;align-items:center;justify-content:center;z-index:50;padding:16px}
+  #rateov.show{display:flex}
+  #ratebox{background:var(--card);border:1px solid var(--acc);border-radius:16px;padding:22px;width:min(92vw,380px);box-shadow:0 18px 50px rgba(0,0,0,.5)}
+  #ratebox h3{margin:0 0 14px;color:var(--acc);font-size:17px}
+  #stars{display:flex;gap:5px;margin-bottom:12px}
+  #stars button{flex:1;min-width:0;cursor:pointer;font-size:14px;padding:8px 0;border-radius:8px;border:1px solid var(--line);background:transparent;color:var(--sub);font-family:inherit}
+  #stars button.on{background:rgba(255,215,106,.18);border-color:#ffd76a;color:#ffd76a;font-weight:700}
+  #ratenote{width:100%;min-height:70px;background:#12210d;border:1px solid var(--line);border-radius:10px;color:var(--txt);padding:10px;font-family:inherit;font-size:14px;resize:vertical}
+  .ratebtns{display:flex;gap:10px;margin-top:14px}
+  .ratebtns button{flex:1;cursor:pointer;padding:10px 0;border-radius:10px;font-family:inherit;font-size:15px;font-weight:700;border:1px solid var(--line);background:transparent;color:var(--sub)}
+  .ratebtns .go{background:var(--acc);border-color:var(--acc);color:#10250a}
+  #ratemsg{margin-top:10px;font-size:13px;color:var(--acc);min-height:18px;text-align:center}
 </style>
 </head>
 <body>
@@ -40,6 +55,19 @@
 </header>
 <main id="list"></main>
 <footer>🏭 SlimeCat 遊戲工廠自動生產 · Batnini 出品<br>致敬千禧年的網頁小遊戲樂園</footer>
+<!-- 評分＋留言彈窗（匿名，回饋會餵給遊戲工廠改進下一款） -->
+<div id="rateov">
+  <div id="ratebox">
+    <h3 id="ratetitle">⭐ 評分</h3>
+    <div id="stars"></div>
+    <textarea id="ratenote" maxlength="200" placeholder="留言給工廠（選填，200 字內）：哪裡好玩？哪裡卡？"></textarea>
+    <div class="ratebtns">
+      <button id="ratecancel">取消</button>
+      <button class="go" id="ratesend">送出</button>
+    </div>
+    <div id="ratemsg"></div>
+  </div>
+</div>
 <script src="sc_config.js"></script>
 <script src="stats.js"></script>
 <script src="games.js?v=476e6f97"></script>
@@ -80,8 +108,14 @@ for (const g of games) {
       (g.user_rating ? `<span class="chip rate">👤 ${g.user_rating}/10</span>` : "") +
       (g.ai_score ? `<span class="chip rate">🤖 ${g.ai_score}/50</span>` : "") +
       (plays ? `<span class="chip">玩過 ${plays} 次</span>` : "") +
+      (getMyRate(g.id) ? `<span class="chip rate">⭐ 我評 ${getMyRate(g.id)}</span>` : "") +
+      `<button class="ratebtn" data-gid="${g.id}" data-gtitle="${esc(g.title)}">⭐ 評分</button>` +
     `</div>`;
-  a.addEventListener("click", () => addPlay(g.id)); // 本機版「點擊率」：記每款開了幾次
+  a.addEventListener("click", (e) => {
+    const rb = e.target.closest(".ratebtn");
+    if (rb) { e.preventDefault(); openRate(rb.dataset.gid, rb.dataset.gtitle); return; } // 點評分不開遊戲
+    addPlay(g.id); // 本機版「點擊率」：記每款開了幾次
+  });
   list.appendChild(a);
 }
 
@@ -98,6 +132,56 @@ function esc(s) {
   return String(s).replace(/[&<>"']/g, c =>
     ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 }
+
+// ─── 玩家評分＋留言（匿名，跟遙測走同一條 GAS 管線；工廠會讀來改進下一款）───
+const rateov = document.getElementById("rateov");
+let rateGid = null, rateVal = 0;
+
+function getMyRate(id) { try { return +(localStorage.getItem("sc_myrate_" + id) || 0); } catch (e) { return 0; } }
+
+function openRate(gid, title) {
+  rateGid = gid;
+  rateVal = getMyRate(gid) || 0;   // 評過的預選舊分數，可改評
+  document.getElementById("ratetitle").textContent = "⭐ 評分《" + title + "》";
+  document.getElementById("ratenote").value = "";
+  document.getElementById("ratemsg").textContent = "";
+  drawStars();
+  rateov.classList.add("show");
+}
+function drawStars() {
+  const box = document.getElementById("stars");
+  box.innerHTML = "";
+  for (let i = 1; i <= 10; i++) {
+    const b = document.createElement("button");
+    b.textContent = i;
+    if (i <= rateVal) b.classList.add("on");
+    b.addEventListener("click", () => { rateVal = i; drawStars(); });
+    box.appendChild(b);
+  }
+}
+document.getElementById("ratecancel").addEventListener("click", () => rateov.classList.remove("show"));
+rateov.addEventListener("click", (e) => { if (e.target === rateov) rateov.classList.remove("show"); });
+
+document.getElementById("ratesend").addEventListener("click", () => {
+  const msg = document.getElementById("ratemsg");
+  if (!rateVal) { msg.textContent = "先點一個分數（1～10）再送出"; return; }
+  const url = window.SC_ANALYTICS_URL || "";
+  if (url) {
+    let did = "anon";
+    try { did = localStorage.getItem("sc_did") || "anon"; } catch (e) {}
+    try {
+      navigator.sendBeacon(url, JSON.stringify({
+        ev: "rate", game: rateGid, val: rateVal,
+        note: document.getElementById("ratenote").value.slice(0, 200),
+        did, days: 0,
+        mob: /Mobi|Android/i.test(navigator.userAgent) ? 1 : 0,
+      }));
+    } catch (e) {}
+  }
+  try { localStorage.setItem("sc_myrate_" + rateGid, rateVal); } catch (e) {}
+  msg.textContent = "✅ 已送出，謝謝回饋！工廠會參考";
+  setTimeout(() => rateov.classList.remove("show"), 900);
+});
 </script>
 </body>
 </html>

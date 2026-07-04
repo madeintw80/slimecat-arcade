@@ -55,6 +55,53 @@ def fetch_rows():
     return resp.get("values", [])
 
 
+def fetch_ratings():
+    """讀 ratings 分頁（網頁評分＋留言）。分頁還沒建（GAS v3 未部署）就回空。"""
+    from google.oauth2.credentials import Credentials
+    from googleapiclient.discovery import build
+
+    creds = Credentials.from_authorized_user_file(str(PORTFOLIO_TOKEN))
+    svc = build("sheets", "v4", credentials=creds)
+    try:
+        resp = svc.spreadsheets().values().get(
+            spreadsheetId=SHEET_ID, range="ratings!A2:F").execute()
+        return resp.get("values", [])
+    except Exception:
+        return []
+
+
+def summarize_ratings(rows):
+    """rows: [時間, 遊戲, 分數, 留言, 裝置ID, 手機]
+    同一裝置對同一款以最後一筆為準（可改評），回傳 {game: {...}}。"""
+    known = known_ids()
+    latest = {}  # (game, did) -> (score, note)，列序即時間序
+    for r in rows:
+        r = r + [""] * (6 - len(r))
+        _, game, score, note, did, _ = r[:6]
+        if game not in known:
+            continue
+        try:
+            score = int(float(score))
+        except ValueError:
+            continue
+        if not 1 <= score <= 10:
+            continue
+        latest[(game, did)] = (score, str(note)[:100].strip())
+
+    out = {}
+    for (game, _did), (score, note) in latest.items():
+        s = out.setdefault(game, {"scores": [], "notes": []})
+        s["scores"].append(score)
+        if note:
+            s["notes"].append({"score": score, "note": note})
+    for game, s in out.items():
+        s["web_raters"] = len(s["scores"])
+        s["web_score_med"] = round(statistics.median(s["scores"]), 1)
+        s["notes"] = s["notes"][-5:]  # 只留最新 5 條給週檢討，防灌太長
+        del s["scores"]
+    return out
+
+
 def summarize(rows):
     """rows: [時間, 事件, 遊戲, 數值, 裝置ID, 距首訪天數, 手機]
     回傳 (每款統計, 被排除的未知事件數)。"""
@@ -118,6 +165,8 @@ def report_text(summary) -> str:
         lines.append(f"  活躍停留中位 {s['med_session_sec']} 秒｜回訪率 {int(s['return_rate']*100)}%")
         if s["plays_reported"]:
             lines.append(f"  回報 {s['plays_reported']} 局｜分數中位 {s['med_score']}")
+        if s.get("web_raters"):
+            lines.append(f"  👥 網頁評分中位 {s['web_score_med']}/10（{s['web_raters']} 人）")
     return "\n".join(lines)
 
 
@@ -131,6 +180,15 @@ def main() -> int:
               "或 Portfolio token 過期，跑 portfolio_cli.py status 重新 OAuth）")
         return 1
     summary, unknown = summarize(rows)
+
+    # 網頁評分＋留言併進每款統計（web-only 的遊戲補一個基本骨架）
+    for game, w in summarize_ratings(fetch_ratings()).items():
+        summary.setdefault(game, {
+            "opens": 0, "devices": 0, "med_session_sec": 0, "avg_session_sec": 0,
+            "plays_reported": 0, "med_score": 0, "avg_score": 0,
+            "return_rate": 0, "mobile_ratio": 0,
+        }).update(w)
+
     SUMMARY_FILE.write_text(json.dumps({
         "updated_at": datetime.datetime.now().isoformat(timespec="seconds"),
         "total_events": len(rows),
