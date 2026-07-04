@@ -1,0 +1,665 @@
+<!--GAMEMETA {"title":"點心暴走喵","emoji":"🍘","genre":"跑酷","inspiration":"CookieRun Classic","desc":"跳與滑閃避障礙，沿路吞小魚餅乾補體力，輸送帶越跑越快！"}-->
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>點心暴走喵</title>
+<style>
+  /* 版面：深色底、canvas 置中等比縮放 */
+  html,body{margin:0;padding:0;height:100%;background:#26202e;overflow:hidden;
+    -webkit-user-select:none;user-select:none;}
+  body{display:flex;align-items:center;justify-content:center;}
+  #game{touch-action:none;display:block;border-radius:8px;box-shadow:0 6px 30px rgba(0,0,0,.5);}
+  .back{position:fixed;top:8px;left:10px;z-index:9;color:#e8d9b5;text-decoration:none;
+    font:14px/1.6 "Microsoft JhengHei","Noto Sans TC",sans-serif;
+    background:rgba(0,0,0,.35);padding:3px 10px;border-radius:14px;}
+  .back:active{background:rgba(0,0,0,.6);}
+</style>
+</head>
+<body>
+<a class="back" href="../../index.html">← 回遊戲區</a>
+<canvas id="game" width="400" height="600"></canvas>
+<script>
+'use strict';
+(function(){
+// ══════════ 基本常數 ══════════
+const W=400, H=600, GROUND=482;      // 畫布尺寸與地面(輸送帶面)高度
+const STEP=1/60;                      // 固定時間步長：120Hz 螢幕不會變兩倍速
+const CAT_X=84;                       // 貓的固定水平位置
+const JUMP_V=-640, GRAV=1750;         // 跳躍初速與重力
+const FONT='"Microsoft JhengHei","Noto Sans TC",sans-serif';
+const cv=document.getElementById('game');
+const ctx=cv.getContext('2d');
+
+// ══════════ 等比縮放 ══════════
+function fit(){
+  const s=Math.min(window.innerWidth/W, window.innerHeight*0.98/H);
+  cv.style.width=(W*s)+'px'; cv.style.height=(H*s)+'px';
+}
+window.addEventListener('resize',fit); fit();
+
+// ══════════ 最高分（localStorage 一律 try-catch，防無痕模式炸掉）══════════
+function loadBest(){ try{ return parseInt(localStorage.getItem('snackCatBest'))||0; }catch(e){ return 0; } }
+function saveBest(v){ try{ localStorage.setItem('snackCatBest',String(v)); }catch(e){} }
+
+// ══════════ WebAudio 合成音效（零外部資源）══════════
+let AC=null;
+function initAudio(){
+  try{
+    if(!AC) AC=new (window.AudioContext||window.webkitAudioContext)();
+    if(AC && AC.state==='suspended') AC.resume();
+  }catch(e){ AC=null; }
+}
+// 單音：起頻→終頻滑音
+function tone(f0,f1,dur,type,vol,delay){
+  if(!AC) return;
+  try{
+    const t=AC.currentTime+(delay||0);
+    const o=AC.createOscillator(), g=AC.createGain();
+    o.type=type||'square';
+    o.frequency.setValueAtTime(Math.max(30,f0),t);
+    if(f1) o.frequency.exponentialRampToValueAtTime(Math.max(30,f1),t+dur);
+    g.gain.setValueAtTime(vol||0.07,t);
+    g.gain.exponentialRampToValueAtTime(0.0008,t+dur);
+    o.connect(g); g.connect(AC.destination);
+    o.start(t); o.stop(t+dur+0.03);
+  }catch(e){}
+}
+// 噪音（滑鏟咻聲、撞擊）
+function noiseSnd(dur,vol,hp){
+  if(!AC) return;
+  try{
+    const n=Math.floor(AC.sampleRate*dur);
+    const buf=AC.createBuffer(1,n,AC.sampleRate);
+    const d=buf.getChannelData(0);
+    for(let i=0;i<n;i++) d[i]=(Math.random()*2-1)*(1-i/n);
+    const src=AC.createBufferSource(); src.buffer=buf;
+    const g=AC.createGain(); g.gain.value=vol||0.08;
+    const f=AC.createBiquadFilter(); f.type=hp?'highpass':'lowpass'; f.frequency.value=hp?1200:700;
+    src.connect(f); f.connect(g); g.connect(AC.destination); src.start();
+  }catch(e){}
+}
+// 連吃音階：五聲音階往上爬（do-re-mi…），連吃越多音越高
+const SCALE=[0,2,4,7,9,12,14,16,19,21,24];
+function sndCollect(c){
+  const st=SCALE[(Math.max(0,c-1))%SCALE.length];
+  const f=523*Math.pow(2,st/12);
+  tone(f,f*1.06,0.09,'square',0.055);
+}
+function sndSnack(){ tone(660,990,0.15,'triangle',0.1); tone(880,1320,0.2,'triangle',0.08,0.08); }
+function sndJump(){ tone(320,620,0.12,'square',0.06); }
+function sndJump2(){ tone(460,860,0.12,'square',0.06); }
+function sndHit(){ tone(170,65,0.28,'sawtooth',0.13); noiseSnd(0.18,0.1,false); }
+function sndSpeed(){ tone(380,980,0.35,'sawtooth',0.07); }
+function sndNear(){ tone(1250,1600,0.08,'sine',0.06); }
+function sndHeart(){ tone(96,78,0.12,'sine',0.1); }
+function sndDead(){ tone(300,90,0.6,'sawtooth',0.1); }
+function sndRecord(){ [523,659,784,1047].forEach((f,i)=>tone(f,f,0.16,'square',0.08,i*0.12)); }
+
+// ══════════ 遊戲狀態 ══════════
+let state='title';            // title / play / pause / dead
+let tGlob=0;                  // 全域動畫時鐘（永遠在走）
+let time=0;                   // 本局時間
+let score=0, best=loadBest(), prevBest=0, newBest=false;
+let stamina=100;              // 體力＝軟性計時器，歸零出局
+let level=0, speed=200;       // 階梯式加速
+let combo=0, maxCombo=0;      // 連吃
+let scroll=0;                 // 世界捲動量（背景/輸送帶用）
+let obstacles=[], items=[], parts=[], floats=[];
+let spawnGap=260, patCount=0;
+let shake=0, flashT=0, deadT=0, heartT=0, hintT=6;
+let slideKey=false, slideTouch=false, slidePtr=null;
+const cat={y:GROUND, vy:0, onGround:true, jumps:2, sliding:false, wasSlide:false, stumble:0, squash:0};
+
+// ══════════ 小工具 ══════════
+function rr(x,y,w,h,r){ // 圓角矩形路徑
+  ctx.beginPath();
+  ctx.moveTo(x+r,y);
+  ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r);
+  ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r);
+  ctx.closePath();
+}
+function addFloat(x,y,txt,color,size){ floats.push({x,y,txt,color:color||'#fff',size:size||16,t:1}); }
+function puff(x,y,n,color,spd){
+  for(let i=0;i<n;i++){
+    const a=Math.random()*Math.PI*2, v=(spd||70)*(0.4+Math.random());
+    parts.push({x,y,vx:Math.cos(a)*v,vy:Math.sin(a)*v-40,t:0.5+Math.random()*0.3,color,r:2+Math.random()*3});
+  }
+}
+
+// ══════════ 生成關卡片段（閃避與收集同路徑＝核心）══════════
+function addC(x,y){ items.push({x,y,kind:'c',got:false}); }              // 小魚餅乾
+function addS(x,y){ items.push({x,y,kind:'s',got:false}); }              // 能量甜甜圈
+function addCrate(x,h){ obstacles.push({x,y:GROUND-h,w:46,h,kind:'crate',gap:999,done:false,hit:false}); }
+function addHang(x){ obstacles.push({x,y:GROUND-84,w:44,h:52,kind:'hang',gap:999,done:false,hit:false}); }
+// 沿跳躍弧線鋪餅乾：躲得漂亮＝撿得多
+function arcC(x,span,n,peak){
+  for(let i=0;i<n;i++){ const t=i/(n-1); addC(x+t*span, GROUND-26-Math.sin(t*Math.PI)*peak); }
+}
+function spawnPattern(){
+  const x0=W+60; let len=0; patCount++;
+  const safe=time<12;   // 前 12 秒（抵達約第 14 秒前）不出障礙：保證前 15 秒不會死
+  let p;
+  if(safe){ p=Math.random()<0.5?'line':'arc'; }
+  else{
+    const pool=['line','arc','crate','crate','hang','hang'];
+    if(level>=2) pool.push('double','duo');
+    if(level>=3) pool.push('tall','duo','double');
+    p=pool[(Math.random()*pool.length)|0];
+  }
+  switch(p){
+    case 'line':{ for(let i=0;i<6;i++) addC(x0+i*34,GROUND-24); len=204; break; }
+    case 'arc':{ arcC(x0,192,7,96); len=192; break; }
+    case 'crate':{ // 木箱：跳過去，餅乾鋪在弧線上
+      const h=48+((Math.random()*2)|0)*14;
+      addCrate(x0+90,h); arcC(x0+34,140,5,h+50); len=230; break; }
+    case 'tall':{ // 高箱：需要漂亮的滿跳或二段跳
+      addCrate(x0+90,74); arcC(x0+30,150,5,126); len=240; break; }
+    case 'hang':{ // 吊掛警示牌：滑鏟過，低空鋪餅乾
+      addHang(x0+100); for(let i=0;i<5;i++) addC(x0+52+i*30,GROUND-18); len=250; break; }
+    case 'double':{ // 連續兩箱
+      addCrate(x0+80,50); addCrate(x0+272,60);
+      arcC(x0+28,130,4,100); for(let i=0;i<3;i++) addC(x0+160+i*30,GROUND-24);
+      arcC(x0+222,130,4,112); len=380; break; }
+    case 'duo':{ // 跳完馬上滑：組合技
+      addCrate(x0+70,52); addHang(x0+306);
+      arcC(x0+16,130,5,104); for(let i=0;i<4;i++) addC(x0+258+i*30,GROUND-18);
+      len=420; break; }
+  }
+  if(patCount%5===0) addS(x0+len+80,GROUND-72);   // 定期補一顆能量甜甜圈（要小跳才吃得到）
+  spawnGap=len+210+Math.random()*150-level*20;
+  if(spawnGap<len+130) spawnGap=len+130;
+}
+
+// ══════════ 操作 ══════════
+function doJump(){
+  if(cat.onGround){
+    cat.vy=JUMP_V; cat.onGround=false; cat.jumps=1;
+    sndJump(); puff(CAT_X,GROUND,5,'#c9bda4',60);
+  }else if(cat.jumps>0){
+    cat.vy=JUMP_V*0.92; cat.jumps--;
+    sndJump2(); puff(CAT_X,cat.y,6,'#bfe9ae',80);
+  }
+}
+function start(){ // 一鍵重開：零等待
+  obstacles=[]; items=[]; parts=[]; floats=[];
+  time=0; score=0; stamina=100; level=0; speed=200; combo=0; maxCombo=0;
+  scroll=0; spawnGap=240; patCount=0; shake=0; flashT=0; heartT=0; hintT=6;
+  cat.y=GROUND; cat.vy=0; cat.onGround=true; cat.jumps=2; cat.sliding=false; cat.stumble=0; cat.squash=0;
+  slideKey=false; slideTouch=false; slidePtr=null;
+  newBest=false; prevBest=best;
+  state='play';
+}
+cv.addEventListener('pointerdown',function(e){
+  e.preventDefault(); initAudio();
+  if(state==='title'){ start(); return; }
+  if(state==='pause'){ state='play'; return; }
+  if(state==='dead'){ if(deadT>0.5) start(); return; }
+  const r=cv.getBoundingClientRect();
+  const ry=(e.clientY-r.top)/r.height;
+  if(ry<0.58){ doJump(); }               // 上半＝跳（可二段跳）
+  else{ slideTouch=true; slidePtr=e.pointerId; } // 下半按住＝滑鏟
+},{passive:false});
+function endTouch(e){ if(slidePtr===null||e.pointerId===slidePtr){ slideTouch=false; slidePtr=null; } }
+window.addEventListener('pointerup',endTouch);
+window.addEventListener('pointercancel',endTouch);  // 來電/系統手勢：清輸入防卡鍵
+window.addEventListener('keydown',function(e){
+  if(e.repeat) return;
+  const c=e.code;
+  if(c==='Space'||c==='ArrowUp'||c==='KeyW'){
+    e.preventDefault(); initAudio();
+    if(state==='title') start();
+    else if(state==='pause') state='play';
+    else if(state==='dead'){ if(deadT>0.5) start(); }
+    else doJump();
+  }
+  if(c==='ArrowDown'||c==='KeyS'){ e.preventDefault(); initAudio(); slideKey=true; }
+});
+window.addEventListener('keyup',function(e){
+  if(e.code==='ArrowDown'||e.code==='KeyS') slideKey=false;
+});
+function loseFocus(){ // 切視窗/來電：清輸入＋自動暫停
+  slideKey=false; slideTouch=false; slidePtr=null;
+  if(state==='play') state='pause';
+}
+window.addEventListener('blur',loseFocus);
+document.addEventListener('visibilitychange',function(){ if(document.hidden) loseFocus(); });
+
+// ══════════ 撞到障礙（寬容判定＋歸因於己）══════════
+function hitObstacle(o){
+  o.hit=true;
+  stamina=Math.max(0,stamina-22);
+  combo=0;                 // 連吃斷掉
+  cat.stumble=1.2;         // 短暫無敵踉蹌
+  shake=10;
+  sndHit();
+  puff(CAT_X,cat.y-24,10,'#ff6b6b',110);
+  addFloat(CAT_X,cat.y-70,'哎呀！體力 -22','#ff5252',17);
+}
+function die(){
+  state='dead'; deadT=0;
+  score=Math.floor(score);
+  newBest=score>prevBest;
+  if(newBest){ best=score; saveBest(best); sndRecord(); }
+  else sndDead();
+  try{ if(window.SC) SC.over(score); }catch(e){}   // 匿名數據回報
+}
+
+// ══════════ 遊戲邏輯（固定步長呼叫）══════════
+function update(dt){
+  time+=dt;
+  // 階梯式加速：每 20 秒升一檔，畫面閃光＋音效＝讓玩家「感覺到變快」
+  const nl=Math.min(5,Math.floor(time/20));
+  if(nl>level){
+    level=nl; flashT=0.55; shake=7; sndSpeed();
+    addFloat(W/2,236,'⚡ 加速！第 '+level+' 檔','#ff8c1a',26);
+  }
+  speed=200+level*36;
+  scroll+=speed*dt;
+  if(hintT>0) hintT-=dt;
+
+  // ── 貓物理 ──
+  cat.vy+=GRAV*dt;
+  const holdDown=slideKey||slideTouch;
+  if(holdDown&&!cat.onGround) cat.vy+=2400*dt;   // 空中按下＝快速下墜（進滑鏟更順）
+  cat.y+=cat.vy*dt;
+  if(cat.y>=GROUND){
+    if(!cat.onGround){ cat.squash=0.35; if(cat.vy>560) puff(CAT_X,GROUND,6,'#c9bda4',70); }
+    cat.y=GROUND; cat.vy=0; cat.onGround=true; cat.jumps=2;
+  }
+  cat.sliding=holdDown&&cat.onGround;
+  if(cat.sliding&&!cat.wasSlide) noiseSnd(0.14,0.06,true);  // 滑鏟咻聲
+  cat.wasSlide=cat.sliding;
+  cat.stumble=Math.max(0,cat.stumble-dt);
+
+  // ── 體力＝軟性計時器：等級越高流失越快，100 秒後再慢性加壓（長線張力）──
+  const drain=3.2+level*0.7+Math.max(0,time-100)*0.03;
+  stamina-=drain*dt;
+  if(stamina<25){ heartT-=dt; if(heartT<=0){ heartT=0.7; sndHeart(); } } // 低體力心跳警告
+  if(stamina<=0){ stamina=0; die(); return; }
+
+  // ── 距離分數 ──
+  score+=speed*dt*0.05;
+
+  // ── 世界捲動與生成 ──
+  const dx=speed*dt;
+  for(const o of obstacles) o.x-=dx;
+  for(const it of items) it.x-=dx;
+  spawnGap-=dx;
+  if(spawnGap<=0) spawnPattern();
+
+  // ── 碰撞（貓判定框小於視覺＝寬容判定，死了才服氣）──
+  const cw=cat.sliding?36:26, chh=cat.sliding?20:40;
+  const cl=CAT_X-cw/2, cr=CAT_X+cw/2, ct=cat.y-chh, cb=cat.y;
+  for(const o of obstacles){
+    if(o.x<cr&&o.x+o.w>cl){
+      const ot=o.y, ob=o.y+o.h;
+      if(ct<ob&&cb>ot){
+        if(cat.stumble<=0&&!o.hit) hitObstacle(o);
+      }else{
+        // 記錄擦邊距離 → near-miss「好險！」
+        const g=(o.kind==='crate')?(ot-cb):(ct-ob);
+        if(g>=0&&g<o.gap) o.gap=g;
+      }
+    }
+    if(!o.done&&o.x+o.w<cl){
+      o.done=true;
+      if(!o.hit&&o.gap<14){ score+=15; sndNear(); addFloat(CAT_X+30,cat.y-84,'好險！+15','#ffd93d',18); }
+    }
+  }
+  // ── 收集（每 0.2 秒一顆的微獎勵雨）──
+  const cy=cat.y-chh/2;
+  for(const it of items){
+    if(it.got) continue;
+    if(Math.abs(it.x-CAT_X)<26&&Math.abs(it.y-cy)<32){
+      it.got=true;
+      if(it.kind==='c'){
+        combo++; if(combo>maxCombo) maxCombo=combo;
+        stamina=Math.min(100,stamina+2);           // 收集＝續命：閃避與收集同路徑
+        score+=10+Math.min(combo,50);
+        sndCollect(combo);
+        puff(it.x,it.y,4,'#ffb24a',60);
+        if(combo>0&&combo%10===0) addFloat(CAT_X,cat.y-92,'連吃 x'+combo+'！','#ff8c1a',20);
+      }else{
+        stamina=Math.min(100,stamina+30); score+=50;
+        sndSnack(); puff(it.x,it.y,12,'#ff9ff3',100);
+        addFloat(it.x,it.y-24,'體力大回復！+30','#ff6fae',18);
+      }
+    }
+  }
+  // ── 清理離場物件 ──
+  obstacles=obstacles.filter(o=>o.x>-90);
+  items=items.filter(it=>it.x>-40&&!it.got);
+}
+// 純演出更新（任何狀態都跑：粒子、飄字、擠壓回彈）
+function stepFx(dt){
+  tGlob+=dt;
+  cat.squash=Math.max(0,cat.squash-dt*3);
+  for(const p of parts){ p.x+=p.vx*dt; p.y+=p.vy*dt; p.vy+=300*dt; p.t-=dt; }
+  parts=parts.filter(p=>p.t>0);
+  for(const f of floats){ f.y-=32*dt; f.t-=dt*0.9; }
+  floats=floats.filter(f=>f.t>0);
+  if(state==='dead') deadT+=dt;
+}
+
+// ══════════ 繪圖 ══════════
+function drawBG(){
+  // 點心工廠暖色牆面
+  const g=ctx.createLinearGradient(0,0,0,H);
+  g.addColorStop(0,'#fdf0d5'); g.addColorStop(0.8,'#f6ddaa'); g.addColorStop(1,'#eccf96');
+  ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
+  // 天花板管線
+  ctx.fillStyle='#dcc79b'; ctx.fillRect(0,0,W,26);
+  ctx.fillStyle='#cbb586';
+  for(let i=0;i<5;i++) ctx.fillRect(30+i*84,26,10,14);
+  // 視差窗戶（慢速）
+  const wx=-((scroll*0.3)%230);
+  ctx.fillStyle='#b9dff0';
+  for(let i=-1;i<3;i++){ rr(wx+i*230+40,80,90,110,10); ctx.fill(); }
+  ctx.strokeStyle='#d9c49a'; ctx.lineWidth=5;
+  for(let i=-1;i<3;i++){ rr(wx+i*230+40,80,90,110,10); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(wx+i*230+85,80); ctx.lineTo(wx+i*230+85,190); ctx.stroke(); }
+  // 轉動齒輪（工廠感）
+  drawGear(350,250,26,scroll*0.012);
+  drawGear(30,300,18,-scroll*0.016);
+  // 高速時的速度線
+  if(state==='play'&&level>=2){
+    ctx.strokeStyle='rgba(255,255,255,0.35)'; ctx.lineWidth=2;
+    for(let i=0;i<level;i++){
+      const yy=(i*97+scroll*1.7)%420+40, xx=W-((scroll*2.2+i*140)%(W+140));
+      ctx.beginPath(); ctx.moveTo(xx,yy); ctx.lineTo(xx+56,yy); ctx.stroke();
+    }
+  }
+  // 輸送帶
+  ctx.fillStyle='#5b5346'; ctx.fillRect(0,GROUND,W,36);
+  ctx.fillStyle='#8f8468';
+  const off=scroll%46;
+  for(let x=-46;x<W+46;x+=46){ // 移動斜紋＝帶子在跑
+    ctx.beginPath();
+    ctx.moveTo(x-off,GROUND+4); ctx.lineTo(x-off+16,GROUND+4);
+    ctx.lineTo(x-off+4,GROUND+32); ctx.lineTo(x-off-12,GROUND+32);
+    ctx.closePath(); ctx.fill();
+  }
+  ctx.fillStyle='#3f3a30'; ctx.fillRect(0,GROUND+36,W,H-GROUND-36);
+  ctx.fillStyle='#332e26';
+  for(let x=26;x<W;x+=90) ctx.fillRect(x,GROUND+36,14,H-GROUND-36);
+  ctx.strokeStyle='#2c2822'; ctx.lineWidth=3;
+  ctx.beginPath(); ctx.moveTo(0,GROUND); ctx.lineTo(W,GROUND); ctx.stroke();
+}
+function drawGear(x,y,r,rot){
+  ctx.save(); ctx.translate(x,y); ctx.rotate(rot);
+  ctx.fillStyle='#d8bf8e';
+  for(let i=0;i<8;i++){ ctx.rotate(Math.PI/4); ctx.fillRect(-3,-r-5,6,10); }
+  ctx.beginPath(); ctx.arc(0,0,r,0,Math.PI*2); ctx.fill();
+  ctx.fillStyle='#f6ddaa'; ctx.beginPath(); ctx.arc(0,0,r*0.4,0,Math.PI*2); ctx.fill();
+  ctx.restore();
+}
+function drawFishCracker(x,y){
+  const yy=y+Math.sin(tGlob*5+x*0.03)*2.5;   // 輕輕浮動
+  ctx.save(); ctx.translate(x,yy);
+  ctx.fillStyle='#f2b04a'; ctx.strokeStyle='#c9822a'; ctx.lineWidth=1.5;
+  ctx.beginPath(); ctx.ellipse(1,0,8,5.5,0,0,Math.PI*2); ctx.fill(); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(-6,0); ctx.lineTo(-12,-5); ctx.lineTo(-12,5); ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.fillStyle='#7a4a12'; ctx.beginPath(); ctx.arc(4.5,-1.5,1.2,0,Math.PI*2); ctx.fill();
+  ctx.restore();
+}
+function drawDonut(x,y){
+  const s=1+Math.sin(tGlob*6)*0.08;   // 呼吸縮放：好東西會發光
+  ctx.save(); ctx.translate(x,y+Math.sin(tGlob*4+x)*3); ctx.scale(s,s);
+  ctx.fillStyle='rgba(255,159,243,0.25)';
+  ctx.beginPath(); ctx.arc(0,0,18,0,Math.PI*2); ctx.fill();
+  ctx.fillStyle='#c98a4b'; ctx.beginPath(); ctx.arc(0,0,12,0,Math.PI*2); ctx.fill();
+  ctx.fillStyle='#ff9ff3'; ctx.beginPath(); ctx.arc(0,-1,11,Math.PI,Math.PI*2); ctx.fill();
+  ctx.fillStyle='#f6ddaa'; ctx.beginPath(); ctx.arc(0,0,4.5,0,Math.PI*2); ctx.fill();
+  ctx.fillStyle='#fff';
+  [[-7,-5],[0,-8],[7,-4]].forEach(p=>ctx.fillRect(p[0],p[1],2.5,1.5));
+  ctx.restore();
+}
+function drawItems(){ for(const it of items){ if(it.got)continue; it.kind==='c'?drawFishCracker(it.x,it.y):drawDonut(it.x,it.y); } }
+function drawObstacles(){
+  for(const o of obstacles){
+    if(o.kind==='crate'){
+      ctx.fillStyle='#b07a44'; ctx.strokeStyle='#6e4a26'; ctx.lineWidth=3;
+      rr(o.x,o.y,o.w,o.h,5); ctx.fill(); ctx.stroke();
+      ctx.strokeStyle='#8a5c30'; ctx.lineWidth=2;
+      ctx.beginPath(); ctx.moveTo(o.x+4,o.y+5); ctx.lineTo(o.x+o.w-4,o.y+o.h-5);
+      ctx.moveTo(o.x+o.w-4,o.y+5); ctx.lineTo(o.x+4,o.y+o.h-5); ctx.stroke();
+      ctx.fillStyle='#e8cfa8'; ctx.font='11px '+FONT; ctx.textAlign='center';
+      ctx.fillText('點心',o.x+o.w/2,o.y+o.h/2+4);
+    }else{
+      // 吊掛警示牌：從天花板垂下，必須滑鏟
+      ctx.fillStyle='#7a8499'; ctx.fillRect(o.x+o.w/2-4,0,8,o.y);
+      ctx.fillStyle='#95a0b5'; ctx.strokeStyle='#5c6577'; ctx.lineWidth=3;
+      rr(o.x,o.y,o.w,o.h,6); ctx.fill(); ctx.stroke();
+      ctx.save(); rr(o.x,o.y+o.h-12,o.w,12,4); ctx.clip(); // 底緣黃黑斜紋（危險感）
+      ctx.fillStyle='#f4c430'; ctx.fillRect(o.x,o.y+o.h-12,o.w,12);
+      ctx.fillStyle='#333';
+      for(let x=o.x-12;x<o.x+o.w;x+=14){
+        ctx.beginPath(); ctx.moveTo(x,o.y+o.h); ctx.lineTo(x+7,o.y+o.h);
+        ctx.lineTo(x+14,o.y+o.h-12); ctx.lineTo(x+7,o.y+o.h-12); ctx.closePath(); ctx.fill();
+      }
+      ctx.restore();
+      ctx.fillStyle='#e8ecf5'; ctx.font='12px '+FONT; ctx.textAlign='center';
+      ctx.fillText('低頭',o.x+o.w/2,o.y+18);
+    }
+  }
+}
+function drawCat(){
+  const s=cat.sliding;
+  const bw=s?58:46, bh=s?28:46;
+  let sx=1,sy=1;
+  if(!cat.onGround){ sy=1.12; sx=0.93; }        // 空中拉長
+  sy-=cat.squash*0.38; sx+=cat.squash*0.38;     // 落地擠扁（squash-stretch 手感）
+  const bob=(cat.onGround&&!s)?Math.abs(Math.sin(tGlob*16))*3:0;
+  if(cat.stumble>0&&((tGlob*14)|0)%2===0) ctx.globalAlpha=0.45;  // 無敵閃爍
+  ctx.save(); ctx.translate(CAT_X,cat.y-bob); ctx.scale(sx,sy);
+  // 尾巴
+  ctx.strokeStyle='#5cbf45'; ctx.lineWidth=6; ctx.lineCap='round';
+  ctx.beginPath(); ctx.moveTo(-bw/2+4,-bh*0.4);
+  ctx.quadraticCurveTo(-bw/2-14,-bh*0.5+Math.sin(tGlob*10)*6,-bw/2-18,-bh*0.9);
+  ctx.stroke();
+  // 史萊姆身體
+  ctx.fillStyle='#7edd63'; ctx.strokeStyle='#3f9e33'; ctx.lineWidth=3;
+  ctx.beginPath(); ctx.ellipse(0,-bh/2,bw/2,bh/2,0,0,Math.PI*2); ctx.fill(); ctx.stroke();
+  // 貓耳（後掠＝速度感）
+  const ex=s?0.36:0.3, et=s?-bh*0.7:-bh*0.86;
+  [[-bw*ex,-6],[bw*(ex-0.08),2]].forEach(function(o,i){
+    const dir=i===0?-1:1;
+    ctx.fillStyle='#7edd63'; ctx.strokeStyle='#3f9e33';
+    ctx.beginPath();
+    ctx.moveTo(o[0]-9,et+10); ctx.lineTo(o[0]+o[1]-4,et-8); ctx.lineTo(o[0]+10,et+8);
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.fillStyle='#f5a8c0';
+    ctx.beginPath();
+    ctx.moveTo(o[0]-4,et+7); ctx.lineTo(o[0]+o[1]-3,et-3); ctx.lineTo(o[0]+5,et+6);
+    ctx.closePath(); ctx.fill();
+  });
+  // 臉
+  if(cat.stumble>0){ // 踉蹌：X 眼
+    ctx.strokeStyle='#245c1a'; ctx.lineWidth=2.5;
+    [[4,-bh*0.58],[15,-bh*0.55]].forEach(function(p){
+      ctx.beginPath();
+      ctx.moveTo(p[0]-3,p[1]-3); ctx.lineTo(p[0]+3,p[1]+3);
+      ctx.moveTo(p[0]+3,p[1]-3); ctx.lineTo(p[0]-3,p[1]+3); ctx.stroke();
+    });
+  }else if(s){ // 滑鏟：瞇眼
+    ctx.strokeStyle='#245c1a'; ctx.lineWidth=2.5;
+    ctx.beginPath(); ctx.moveTo(2,-bh*0.55); ctx.lineTo(9,-bh*0.55);
+    ctx.moveTo(14,-bh*0.52); ctx.lineTo(21,-bh*0.52); ctx.stroke();
+  }else{
+    ctx.fillStyle='#245c1a';
+    ctx.beginPath(); ctx.arc(5,-bh*0.58,3.6,0,Math.PI*2); ctx.arc(16,-bh*0.55,3.6,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle='#fff';
+    ctx.beginPath(); ctx.arc(6,-bh*0.62,1.2,0,Math.PI*2); ctx.arc(17,-bh*0.59,1.2,0,Math.PI*2); ctx.fill();
+  }
+  // 腮紅＋嘴＋鬍鬚
+  ctx.fillStyle='rgba(245,150,170,0.55)';
+  ctx.beginPath(); ctx.ellipse(0,-bh*0.36,3.4,2.2,0,0,Math.PI*2);
+  ctx.ellipse(20,-bh*0.34,3.4,2.2,0,0,Math.PI*2); ctx.fill();
+  ctx.strokeStyle='#245c1a'; ctx.lineWidth=1.8;
+  ctx.beginPath(); ctx.arc(10,-bh*0.44,3,0.15*Math.PI,0.85*Math.PI); ctx.stroke();
+  ctx.strokeStyle='rgba(36,92,26,0.6)'; ctx.lineWidth=1.4;
+  ctx.beginPath();
+  ctx.moveTo(21,-bh*0.46); ctx.lineTo(29,-bh*0.5);
+  ctx.moveTo(21,-bh*0.4); ctx.lineTo(29,-bh*0.38); ctx.stroke();
+  ctx.restore();
+  ctx.globalAlpha=1;
+  // 連吃顯示（短期目標可見化）
+  if(state==='play'&&combo>=3){
+    const pl=1+Math.sin(tGlob*10)*0.06;
+    ctx.save(); ctx.translate(CAT_X,cat.y-74); ctx.scale(pl,pl);
+    ctx.font='bold 16px '+FONT; ctx.textAlign='center';
+    ctx.fillStyle='#ff8c1a'; ctx.strokeStyle='#fff'; ctx.lineWidth=3;
+    ctx.strokeText('連吃 x'+combo,0,0); ctx.fillText('連吃 x'+combo,0,0);
+    ctx.restore();
+  }
+}
+function drawParts(){
+  for(const p of parts){
+    ctx.globalAlpha=Math.max(0,p.t*1.6);
+    ctx.fillStyle=p.color;
+    ctx.beginPath(); ctx.arc(p.x,p.y,p.r,0,Math.PI*2); ctx.fill();
+  }
+  ctx.globalAlpha=1;
+}
+function drawFloats(){
+  for(const f of floats){
+    ctx.globalAlpha=Math.max(0,Math.min(1,f.t*1.5));
+    ctx.font='bold '+f.size+'px '+FONT; ctx.textAlign='center';
+    ctx.strokeStyle='rgba(255,255,255,0.9)'; ctx.lineWidth=3;
+    ctx.strokeText(f.txt,f.x,f.y);
+    ctx.fillStyle=f.color; ctx.fillText(f.txt,f.x,f.y);
+  }
+  ctx.globalAlpha=1;
+}
+function drawHUD(){
+  // 體力條（軟性計時器＝恆定張力來源，要夠顯眼）
+  const bx=96,by=16,bwd=214,bht=16;
+  ctx.font='bold 14px '+FONT; ctx.textAlign='left';
+  ctx.fillStyle='#7a5c2e'; ctx.fillText('體力',58,by+13);
+  ctx.fillStyle='rgba(0,0,0,0.25)'; rr(bx-2,by-2,bwd+4,bht+4,9); ctx.fill();
+  const pct=stamina/100;
+  const col=pct>0.5?'#5ecb4a':(pct>0.25?'#f4b942':'#f0503c');
+  ctx.fillStyle=col;
+  if(pct>0){ rr(bx,by,Math.max(6,bwd*pct),bht,7); ctx.fill(); }
+  if(stamina<25&&state==='play'){ // 低體力紅框閃爍
+    ctx.strokeStyle='rgba(240,60,40,'+(0.5+Math.sin(tGlob*10)*0.5)+')';
+    ctx.lineWidth=3; rr(bx-4,by-4,bwd+8,bht+8,10); ctx.stroke();
+  }
+  // 分數（即時、跳動）
+  ctx.textAlign='right';
+  ctx.font='bold 26px '+FONT;
+  ctx.fillStyle='#5c4318'; ctx.fillText(String(Math.floor(score)),W-16,60);
+  ctx.font='12px '+FONT;
+  ctx.fillStyle='#8a6d3b'; ctx.fillText('分數',W-16,74);
+  ctx.textAlign='left';
+  ctx.fillText('🏆 '+best,16,60);
+  if(level>0){ ctx.fillStyle='#c96a10'; ctx.font='bold 14px '+FONT; ctx.fillText('⚡ 第 '+level+' 檔',16,80); }
+  // 開場操作提示（前幾秒淡出）
+  if(state==='play'&&hintT>0){
+    ctx.globalAlpha=Math.min(1,hintT/1.5);
+    ctx.font='bold 15px '+FONT; ctx.textAlign='center';
+    ctx.fillStyle='#7a5c2e';
+    ctx.fillText('點上半＝跳（可二段跳）　按住下半＝滑鏟',W/2,150);
+    ctx.globalAlpha=1;
+  }
+}
+function panel(x,y,w,h){
+  ctx.fillStyle='rgba(45,32,20,0.88)'; rr(x,y,w,h,16); ctx.fill();
+  ctx.strokeStyle='#e8c87a'; ctx.lineWidth=3; rr(x,y,w,h,16); ctx.stroke();
+}
+function drawTitle(){
+  ctx.fillStyle='rgba(45,32,20,0.45)'; ctx.fillRect(0,0,W,H);
+  panel(28,96,344,368);
+  ctx.textAlign='center';
+  ctx.font='bold 36px '+FONT;
+  ctx.fillStyle='#ffd93d'; ctx.fillText('🍘 點心暴走喵 🍘',W/2,152);
+  ctx.font='bold 17px '+FONT; ctx.fillStyle='#fff';
+  ctx.fillText('跳與滑閃避障礙，沿路吞小魚餅乾！',W/2,192);
+  ctx.font='15px '+FONT; ctx.fillStyle='#f0e2c0';
+  ctx.fillText('體力一直在流失，吃餅乾續命，',W/2,224);
+  ctx.fillText('輸送帶每 20 秒加速一檔，看你能撐多遠！',W/2,246);
+  ctx.font='bold 15px '+FONT; ctx.fillStyle='#9fe08a';
+  ctx.fillText('📱 點畫面上半＝跳（再點一次＝二段跳）',W/2,290);
+  ctx.fillText('　　按住畫面下半＝滑鏟',W/2,314);
+  ctx.fillText('⌨️ ↑ / 空白鍵＝跳　　↓＝滑鏟',W/2,338);
+  ctx.font='15px '+FONT; ctx.fillStyle='#f0e2c0';
+  ctx.fillText('🏆 最高分：'+best,W/2,380);
+  if(((tGlob*2)|0)%2===0){
+    ctx.font='bold 19px '+FONT; ctx.fillStyle='#ffd93d';
+    ctx.fillText('── 點一下開始 ──',W/2,428);
+  }
+}
+function drawDead(){
+  ctx.fillStyle='rgba(30,20,12,0.62)'; ctx.fillRect(0,0,W,H);
+  panel(36,140,328,300);
+  ctx.textAlign='center';
+  ctx.font='bold 30px '+FONT;
+  if(newBest){
+    ctx.fillStyle='#ffd93d'; ctx.fillText('🎉 新紀錄！',W/2,192);
+  }else{
+    ctx.fillStyle='#ff9a76'; ctx.fillText('體力用完了喵…',W/2,192);
+  }
+  ctx.font='bold 44px '+FONT; ctx.fillStyle='#fff';
+  ctx.fillText(String(Math.floor(score)),W/2,252);
+  ctx.font='15px '+FONT; ctx.fillStyle='#f0e2c0';
+  // near-miss 再利用：把失敗包裝成邀請
+  if(newBest) ctx.fillText('超越舊紀錄 '+prevBest+' 分，你就是點心之王！',W/2,290);
+  else ctx.fillText('差 '+(prevBest-Math.floor(score))+' 分就破紀錄（'+prevBest+'）！',W/2,290);
+  ctx.fillText('本局最高連吃 x'+maxCombo,W/2,316);
+  if(deadT>0.5&&((tGlob*2)|0)%2===0){
+    ctx.font='bold 20px '+FONT; ctx.fillStyle='#9fe08a';
+    ctx.fillText('點一下，馬上雪恥！',W/2,392);
+  }
+}
+function drawPause(){
+  ctx.fillStyle='rgba(30,20,12,0.55)'; ctx.fillRect(0,0,W,H);
+  ctx.textAlign='center';
+  ctx.font='bold 26px '+FONT; ctx.fillStyle='#fff';
+  ctx.fillText('已暫停',W/2,280);
+  ctx.font='16px '+FONT; ctx.fillStyle='#f0e2c0';
+  ctx.fillText('點一下繼續',W/2,316);
+}
+function draw(){
+  ctx.save();
+  if(shake>0){ ctx.translate((Math.random()-0.5)*shake,(Math.random()-0.5)*shake); shake=Math.max(0,shake-0.6); }
+  drawBG();
+  drawItems();
+  drawObstacles();
+  drawCat();
+  drawParts();
+  drawFloats();
+  drawHUD();
+  ctx.restore();
+  if(flashT>0){ // 加速閃光
+    ctx.fillStyle='rgba(255,255,255,'+(flashT*0.7)+')';
+    ctx.fillRect(0,0,W,H);
+    flashT=Math.max(0,flashT-0.025);
+  }
+  if(state==='title') drawTitle();
+  else if(state==='dead') drawDead();
+  else if(state==='pause') drawPause();
+}
+
+// ══════════ 主迴圈：固定時間步長（不可假設 60fps）══════════
+let last=performance.now(), acc=0;
+function frame(now){
+  let dt=(now-last)/1000; last=now;
+  if(dt>0.1) dt=0.1;              // 切回視窗時避免暴衝
+  acc+=dt;
+  while(acc>=STEP){
+    stepFx(STEP);
+    if(state==='play') update(STEP);
+    acc-=STEP;
+  }
+  draw();
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+})();
+</script>
+<script src="../../sc_config.js"></script>
+<script src="../../stats.js"></script>
+</body>
+</html>
