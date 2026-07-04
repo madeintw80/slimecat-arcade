@@ -57,6 +57,16 @@
       "inspiration": "CookieRun Classic",
       "desc": "跳與滑閃避障礙，沿路吞小魚餅乾補體力，輸送帶越跑越快！",
       "ai_score": 40
+    },
+    {
+      "id": "2026-07-04-005",
+      "title": "貓湯倒倒樂",
+      "emoji": "🍵",
+      "genre": "益智",
+      "date": "2026-07-04",
+      "inspiration": "Magic Sort!",
+      "desc": "貓是液體！把同色貓湯倒進同一罐，集滿凝固成貓",
+      "ai_score": 38
     }
   ]
 }

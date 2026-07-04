@@ -1,0 +1,583 @@
+<!--GAMEMETA {"title":"貓湯倒倒樂","emoji":"🍵","genre":"益智","inspiration":"Magic Sort!","desc":"貓是液體！把同色貓湯倒進同一罐，集滿凝固成貓"}-->
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>貓湯倒倒樂</title>
+<style>
+  /* 版面：畫布置中、深色背景 */
+  html,body{margin:0;padding:0;height:100%;background:#171226;overflow:hidden}
+  body{display:flex;align-items:center;justify-content:center}
+  canvas{display:block;touch-action:none;user-select:none;-webkit-user-select:none;border-radius:8px}
+  #back{position:fixed;top:8px;left:10px;z-index:10;color:#9b8fc0;text-decoration:none;
+        font:13px system-ui,sans-serif;opacity:.85;background:rgba(23,18,38,.6);
+        padding:3px 8px;border-radius:8px}
+</style>
+</head>
+<body>
+<a id="back" href="../../index.html">← 回遊戲區</a>
+<canvas id="cv"></canvas>
+<script>
+'use strict';
+// ================== 基本設定 ==================
+const W=400,H=600,CAP=4; // 邏輯畫面 400x600、每罐 4 格
+const cv=document.getElementById('cv'),ctx=cv.getContext('2d');
+let dpr=1;
+function fit(){ // 高 DPI：緩衝 × devicePixelRatio，邏輯座標維持 400x600
+  dpr=Math.min(window.devicePixelRatio||1,3);
+  cv.width=W*dpr;cv.height=H*dpr;
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  const s=Math.min(window.innerWidth/W,window.innerHeight/H);
+  cv.style.width=(W*s)+'px';cv.style.height=(H*s)+'px';
+}
+fit();addEventListener('resize',fit);
+
+// localStorage 安全讀寫（無痕模式會 throw，一律 try-catch）
+function loadHi(){try{return parseInt(localStorage.getItem('catSoupHi')||'0',10)||0}catch(e){return 0}}
+function saveHi(v){try{localStorage.setItem('catSoupHi',String(v))}catch(e){}}
+
+// ================== WebAudio 合成音效 ==================
+let AC=null,muted=false;
+function audio(){ // 第一次互動才建立/喚醒（行動裝置政策）
+  if(!AC){try{AC=new (window.AudioContext||window.webkitAudioContext)()}catch(e){}}
+  if(AC&&AC.state==='suspended'){try{AC.resume()}catch(e){}}
+}
+function tone(f,dur,type,vol,f2,delay){
+  if(!AC||muted)return;
+  try{
+    const t0=AC.currentTime+(delay||0);
+    const o=AC.createOscillator(),g=AC.createGain();
+    o.type=type||'sine';o.frequency.setValueAtTime(f,t0);
+    if(f2)o.frequency.exponentialRampToValueAtTime(f2,t0+dur);
+    g.gain.setValueAtTime(vol||.15,t0);
+    g.gain.exponentialRampToValueAtTime(.001,t0+dur);
+    o.connect(g);g.connect(AC.destination);
+    o.start(t0);o.stop(t0+dur+.02);
+  }catch(e){}
+}
+const S={
+  pick(){tone(660,.07,'square',.1,880)},                 // 選罐
+  cancel(){tone(440,.06,'square',.07,330)},              // 取消
+  glug(i){tone(170+i*45,.13,'triangle',.18,85)},         // 咕嚕倒湯（越滿音越高）
+  bad(){tone(170,.16,'sawtooth',.1,110)},                // 倒不進去
+  seal(){[523,659,784,1046].forEach((f,i)=>tone(f,.18,'triangle',.13,null,i*.06))}, // 凝固琶音
+  meow(){tone(760,.26,'sawtooth',.08,430);tone(770,.26,'sine',.1,440)},             // 喵
+  clear(){[523,659,784,1046,1318].forEach((f,i)=>tone(f,.22,'square',.09,null,i*.09))}, // 過關
+  tick(){tone(1150,.04,'square',.05)},                   // 倒數提示
+  over(){tone(300,.5,'sawtooth',.11,90)},                // 結束
+  record(){[659,784,1046,1318,1568].forEach((f,i)=>tone(f,.25,'triangle',.12,null,i*.1))} // 新紀錄
+};
+
+// ================== 色票（史萊姆貓湯 8 色：主色/深色）==================
+const PAL=[['#7ed957','#4c9a2f'],['#ffb347','#c77f14'],['#5bc0eb','#2b7fb0'],['#ff8fab','#d0577e'],
+           ['#b388eb','#7a4fc0'],['#ffe066','#c2a418'],['#ff6b6b','#c73e3e'],['#4ecdc4','#238f87']];
+
+// ================== 遊戲狀態 ==================
+let state='title',level=1,score=0,hi=loadHi(),levelStartScore=0;
+let jars=[],undosLeft=3,undoStack=[],sel=-1,pour=null;
+let timeMax=120,timeLeft=120;
+let particles=[],floats=[];
+let toastMsg='',toastT=0,shakeT=0,clearT=0,clearBonusTxt=[];
+let firstPourDone=false,firstHintShown=false,overInfo=null;
+let gTime=0;
+const UNDO_BTN={x:344,y:534},MUTE_BTN={x:376,y:56};
+
+// 背景腳印（載入時生成一次，之後不變）
+const PAWS=[];
+for(let i=0;i<10;i++)PAWS.push({x:Math.random()*W,y:Math.random()*H,r:8+Math.random()*10,a:.035+Math.random()*.04});
+
+// 標題畫面示範罐
+const DEMO=[
+  {segs:[{c:0},{c:0},{c:0},{c:0}],sealed:true ,lift:0,shake:0,pop:0,x:106,y:186},
+  {segs:[{c:3},{c:3},{c:3}]      ,sealed:false,lift:0,shake:0,pop:0,x:238,y:186}
+];
+
+// ================== 小工具 ==================
+function rr(x,y,w,h,r){ctx.beginPath();ctx.moveTo(x+r,y);ctx.arcTo(x+w,y,x+w,y+h,r);
+  ctx.arcTo(x+w,y+h,x,y+h,r);ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);ctx.closePath()}
+function tri(x1,y1,x2,y2,x3,y3){ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);ctx.lineTo(x3,y3);ctx.closePath();ctx.fill()}
+function isMono(j){return j.segs.length===CAP&&j.segs.every(s=>s.c===j.segs[0].c)}
+function topRun(j){const n=j.segs.length;if(!n)return 0;const c=j.segs[n-1].c;
+  let r=1;while(r<n&&j.segs[n-1-r].c===c)r++;return r}
+function nearMiss(j){ // 差一格就滿：3 格同色可見 → 金光提示
+  return !j.sealed&&j.segs.length===3&&j.segs.every(s=>!s.hid&&s.c===j.segs[0].c)}
+function canPour(si,di){
+  if(si===di)return false;
+  const A=jars[si],B=jars[di];
+  if(A.sealed||B.sealed||!A.segs.length||B.segs.length>=CAP)return false;
+  const c=A.segs[A.segs.length-1].c;
+  return !B.segs.length||B.segs[B.segs.length-1].c===c;
+}
+function anyMove(){
+  for(let a=0;a<jars.length;a++)for(let b=0;b<jars.length;b++)if(canPour(a,b))return true;
+  return false;
+}
+function mouth(i){const j=jars[i];return{x:j.x+28,y:j.y-10}}
+function snap(){return{segs:jars.map(j=>j.segs.map(s=>({c:s.c,hid:s.hid}))),
+  sealed:jars.map(j=>j.sealed),score:score}}
+function restoreSnap(s){jars.forEach((j,i)=>{j.segs=s.segs[i].map(x=>({c:x.c,hid:x.hid}));
+  j.sealed=s.sealed[i]});score=s.score}
+function burst(x,y,col,n,type){
+  for(let i=0;i<n;i++){
+    const a=Math.random()*Math.PI*2,sp=(type==='conf'?60+Math.random()*160:40+Math.random()*120);
+    particles.push({x,y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp-(type==='heart'?70:20),
+      life:.6+Math.random()*.6,col,type,rot:Math.random()*6,vr:(Math.random()-.5)*8});
+  }
+}
+function addFloat(x,y,txt,col,size){floats.push({x,y,txt,col,size,life:1.15})}
+function toast(m){toastMsg=m;toastT=2.2}
+
+// ================== 關卡生成（倒逆生成，保證可解）==================
+function genLevel(L){
+  const colors=Math.min(3+Math.floor(L/2),8);          // L1:3色 → L10+:8色
+  const hideN=L>=5?Math.min(1+((L-5)>>1),3):0;         // 第 5 關起底層蓋牌
+  let arr=null;
+  for(let att=0;att<30;att++){
+    const js=[];
+    for(let c=0;c<colors;c++)js.push([c,c,c,c]);       // 從「已完成」狀態出發
+    js.push([]);js.push([]);                           // 兩根空罐
+    const K=10+colors*7+L*2;                           // 反向亂倒步數 = 難度旋鈕
+    let done=0,tries=0;
+    while(done<K&&tries<K*40){
+      tries++;
+      const bi=(Math.random()*js.length)|0,B=js[bi];
+      if(!B.length)continue;
+      const c=B[B.length-1];
+      let run=1;while(run<B.length&&B[B.length-1-run]===c)run++;
+      const k=1+((Math.random()*run)|0);
+      if(!(k<run||k===B.length))continue;              // 拿走後 B 頂仍同色或變空 → 正向可倒回
+      const cand=[];
+      for(let ai=0;ai<js.length;ai++){
+        if(ai===bi)continue;
+        const A=js[ai];
+        if(CAP-A.length<k)continue;
+        if(A.length&&A[A.length-1]===c)continue;       // 避免同色黏頂、破壞可逆性
+        cand.push(ai);
+      }
+      if(!cand.length)continue;
+      const A=js[cand[(Math.random()*cand.length)|0]];
+      for(let i=0;i<k;i++)A.push(B.pop());
+      done++;
+    }
+    const bad=js.some(a=>a.length===CAP&&a.every(v=>v===a[0])); // 開局不給現成整罐
+    if(!bad){arr=js;break}
+    if(!arr)arr=js;
+  }
+  const out=arr.map(a=>a.map((c,idx)=>({c:c,hid:hideN>0&&a.length>1&&idx<Math.min(hideN,a.length-1)})));
+  return{jars:out,colors:colors,hideN:hideN};
+}
+function layout(){ // 依罐數排兩排置中
+  const n=jars.length,top=Math.ceil(n/2);
+  const rows=[[],[]];
+  jars.forEach((j,i)=>rows[i<top?0:1].push(j));
+  rows.forEach((row,r)=>{
+    const cnt=row.length;if(!cnt)return;
+    const gap=Math.min(92,352/cnt);
+    row.forEach((j,i)=>{j.x=W/2+(i-(cnt-1)/2)*gap-28;j.y=(r===0?104:296)});
+  });
+}
+function startLevel(L){
+  for(let guard=0;guard<10;guard++){
+    const g=genLevel(L);
+    jars=g.jars.map(a=>({segs:a,sealed:false,lift:0,shake:0,pop:0,x:0,y:0}));
+    jars.forEach(j=>{if(isMono(j)){j.sealed=true;j.segs.forEach(s=>s.hid=false)}}); // 極罕見保底
+    timeMax=60+g.colors*15+g.hideN*15+(L<=2?60:0);     // 前兩關特別寬鬆（前 15 秒絕對安全）
+    if(anyMove())break;                                 // 生成即卡死就重生（幾乎不可能）
+  }
+  layout();
+  undosLeft=3;undoStack=[];sel=-1;pour=null;
+  levelStartScore=score;
+  timeLeft=timeMax;
+  particles.length=0;floats.length=0;
+}
+function startRun(){level=1;score=0;firstPourDone=false;firstHintShown=false;startLevel(1);state='play'}
+function retrySame(){score=levelStartScore;startLevel(level);state='play'}   // 續戰當前關（回饋教訓：不從第 1 關重刷）
+
+// ================== 玩法核心 ==================
+function tapJar(i){
+  if(pour)return;                                       // 倒湯動畫中鎖輸入
+  const J=jars[i];
+  if(sel===-1){
+    if(J.sealed){J.shake=1;S.meow();toast('這罐已經凝固成貓囉');return}
+    if(!J.segs.length){J.shake=1;S.cancel();toast('這罐是空的喵');return}
+    sel=i;S.pick();return;
+  }
+  if(sel===i){sel=-1;S.cancel();return}
+  if(canPour(sel,i)){doPour(sel,i)}
+  else{
+    J.shake=1;S.bad();
+    if(J.sealed)toast('已經凝固，倒不進去了');
+    else if(J.segs.length>=CAP)toast('這罐滿了！');
+    else toast('顏色不同疊不上去喵！');
+  }
+}
+function doPour(si,di){
+  undoStack.push(snap());                               // 倒之前存快照（悔棋用）
+  const A=jars[si],B=jars[di];
+  const n=Math.min(topRun(A),CAP-B.segs.length);
+  const units=[];
+  for(let i=0;i<n;i++)units.push(A.segs.pop());
+  pour={si:si,di:di,c:units[0].c,n:n,t:0,landed:0};
+  sel=-1;firstPourDone=true;
+}
+function finishPour(){
+  const di=pour.di;pour=null;
+  jars.forEach(j=>{if(j.segs.length)j.segs[j.segs.length-1].hid=false}); // 露出的頂格翻開
+  const B=jars[di];
+  if(!B.sealed&&isMono(B)){                             // 集滿同色 → 凝固成貓！
+    B.sealed=true;B.pop=1;
+    const pts=100+level*20;score+=pts;
+    const m=mouth(di);
+    addFloat(m.x,m.y-4,'+'+pts,'#ffe066',24);
+    addFloat(m.x,m.y-30,'凝固！','#fff',15);
+    burst(B.x+28,B.y+75,PAL[B.segs[0].c][0],18,'heart');
+    shakeT=Math.max(shakeT,.15);
+    S.seal();S.meow();
+  }
+  if(!firstHintShown&&level===1){firstHintShown=true;toast('集滿 4 格同色就凝固成貓！')}
+  if(jars.every(j=>!j.segs.length||j.sealed))return levelClear();
+  if(!anyMove()){                                       // 卡死偵測：全怪自己，但給悔棋機會
+    if(undosLeft>0&&undoStack.length){toast('倒不動了！按 ↩ 悔棋救回來');S.bad()}
+    else gameOver('stuck');
+  }
+}
+function undo(){
+  if(state!=='play'||pour)return;
+  if(undosLeft<=0){toast('悔棋次數用完了！');S.bad();return}
+  if(!undoStack.length){toast('還沒有可悔的步喵');S.bad();return}
+  restoreSnap(undoStack.pop());undosLeft--;sel=-1;
+  S.cancel();addFloat(UNDO_BTN.x,UNDO_BTN.y-20,'↩','#fff',20);
+  if(!anyMove()&&undosLeft<=0)gameOver('stuck');        // 保險
+}
+function levelClear(){
+  state='clear';clearT=0;
+  const ub=undosLeft*100,tb=Math.floor(timeLeft),bonus=300+ub+tb;
+  score+=bonus;
+  clearBonusTxt=['過關 +300','悔棋保留 +'+ub,'手速獎勵 +'+tb];
+  if(score>hi){hi=score;saveHi(hi)}
+  shakeT=.4;S.clear();
+  for(let i=0;i<60;i++)burst(20+Math.random()*360,80+Math.random()*300,PAL[(Math.random()*8)|0][0],1,'conf');
+}
+function gameOver(reason){
+  state='over';sel=-1;
+  const prev=hi,rec=score>prev;
+  if(rec){hi=score;saveHi(hi);S.record();
+    for(let i=0;i<40;i++)burst(40+Math.random()*320,120+Math.random()*200,PAL[(Math.random()*8)|0][0],1,'conf');
+  }else S.over();
+  overInfo={reason:reason,rec:rec,need:prev-score+1};
+  if (window.SC) SC.over(score);                        // 匿名數據回報
+}
+
+// ================== 輸入 ==================
+function inRect(x,y,rx,ry,rw,rh){return x>=rx&&x<=rx+rw&&y>=ry&&y<=ry+rh}
+function press(x,y){
+  audio();
+  if(Math.hypot(x-MUTE_BTN.x,y-MUTE_BTN.y)<20){muted=!muted;toast(muted?'音效關閉':'音效開啟');S.pick();return}
+  if(state==='title'){startRun();return}
+  if(state==='clear'){if(clearT>.6)clearT=99;return}    // 點擊跳過過關演出，零摩擦
+  if(state==='over'){
+    if(inRect(x,y,70,398,260,56)){retrySame();return}
+    if(inRect(x,y,70,468,260,46)){startRun();return}
+    return;
+  }
+  if(Math.hypot(x-UNDO_BTN.x,y-UNDO_BTN.y)<36){undo();return}
+  for(let i=0;i<jars.length;i++){
+    const j=jars[i];
+    if(x>j.x-10&&x<j.x+66&&y>j.y-26&&y<j.y+160){tapJar(i);return}
+  }
+  sel=-1;                                               // 點空白取消選取
+}
+cv.addEventListener('pointerdown',e=>{
+  e.preventDefault();
+  const r=cv.getBoundingClientRect();
+  press((e.clientX-r.left)/r.width*W,(e.clientY-r.top)/r.height*H); // 視覺/判定共用同一換算
+});
+// 來電/切視窗：清輸入狀態防卡（本作無持續按鍵，保守取消進行中的點選狀態即可）
+addEventListener('pointercancel',()=>{});
+addEventListener('blur',()=>{});
+addEventListener('keydown',e=>{
+  audio();
+  const k=e.key;
+  if(state==='title'&&(k==='Enter'||k===' ')){e.preventDefault();startRun();return}
+  if(state==='over'&&(k==='Enter'||k===' ')){e.preventDefault();retrySame();return}
+  if(state==='clear'&&(k==='Enter'||k===' ')){e.preventDefault();if(clearT>.6)clearT=99;return}
+  if(state!=='play')return;
+  if(k>='0'&&k<='9'){e.preventDefault();const i=(k==='0')?9:(+k-1);if(i<jars.length)tapJar(i);return}
+  if(k==='z'||k==='Z'||k==='u'||k==='U'){undo();return}
+  if(k==='m'||k==='M'){muted=!muted;return}
+  if(k==='Escape')sel=-1;
+});
+
+// ================== 更新（deltaTime，不假設 60fps）==================
+function update(dt){
+  gTime+=dt;
+  jars.forEach((j,i)=>{
+    j.lift+=(((sel===i)?1:0)-j.lift)*Math.min(1,dt*14); // 選取浮起
+    if(j.shake>0)j.shake=Math.max(0,j.shake-dt*2.5);
+    if(j.pop>0)j.pop=Math.max(0,j.pop-dt*2);
+  });
+  if(shakeT>0)shakeT=Math.max(0,shakeT-dt);
+  if(toastT>0)toastT-=dt;
+  for(let i=particles.length-1;i>=0;i--){const p=particles[i];
+    p.vy+=240*dt;p.x+=p.vx*dt;p.y+=p.vy*dt;p.rot+=p.vr*dt;p.life-=dt;
+    if(p.life<=0)particles.splice(i,1)}
+  for(let i=floats.length-1;i>=0;i--){const f=floats[i];
+    f.y-=34*dt;f.life-=dt;if(f.life<=0)floats.splice(i,1)}
+  if(state==='play'){
+    const before=Math.ceil(timeLeft);
+    timeLeft-=dt;
+    if(timeLeft<=15&&timeLeft>0&&Math.ceil(timeLeft)!==before)S.tick(); // 最後 15 秒滴答
+    if(timeLeft<=0){timeLeft=0;gameOver('cold');return}
+    if(pour){
+      pour.t+=dt;
+      while(pour.landed<pour.n&&pour.t>=pour.landed*.09+.3){ // 一格一格落罐
+        const B=jars[pour.di];
+        B.segs.push({c:pour.c,hid:false});
+        S.glug(B.segs.length);
+        const m=mouth(pour.di);
+        burst(m.x,m.y+10,PAL[pour.c][0],4,'dot');
+        pour.landed++;
+      }
+      if(pour&&pour.landed>=pour.n)finishPour();
+    }
+  }else if(state==='clear'){
+    clearT+=dt;
+    if(Math.random()<dt*18)burst(Math.random()*W,60,PAL[(Math.random()*8)|0][0],1,'conf');
+    if(clearT>1.6){level++;startLevel(level);state='play'}
+  }
+}
+
+// ================== 繪圖 ==================
+function drawPaws(){
+  PAWS.forEach(p=>{
+    ctx.fillStyle='rgba(255,255,255,'+p.a+')';
+    ctx.beginPath();ctx.arc(p.x,p.y,p.r,0,7);ctx.fill();
+    for(let k=0;k<3;k++){ctx.beginPath();ctx.arc(p.x+(k-1)*p.r*.8,p.y-p.r*1.1,p.r*.35,0,7);ctx.fill()}
+  });
+}
+function drawJar(j,i){
+  const bounce=j.pop>0?Math.sin(j.pop*Math.PI)*.12:0;   // 凝固 squash-stretch 彈跳
+  const liftY=-14*j.lift;
+  const sx=j.shake>0?Math.sin(j.shake*45)*5*j.shake:0;
+  const x=j.x+sx,y=j.y+liftY,w=56,h=150;
+  ctx.save();
+  ctx.translate(x+w/2,y+h);ctx.scale(1+bounce,1-bounce);ctx.translate(-(x+w/2),-(y+h));
+  if(sel===i){ctx.shadowColor='#ffffff';ctx.shadowBlur=16}
+  else if(nearMiss(j)){ctx.shadowColor='#ffe066';ctx.shadowBlur=10+Math.sin(gTime*6)*6} // 差一格！金光癢
+  else if(j.sealed){ctx.shadowColor=PAL[j.segs[0].c][0];ctx.shadowBlur=12}
+  rr(x,y,w,h,14);ctx.fillStyle='rgba(255,255,255,0.06)';ctx.fill();
+  ctx.shadowBlur=0;
+  const segH=(h-10)/CAP;
+  for(let k=0;k<j.segs.length;k++){
+    const s=j.segs[k],syTop=y+h-5-(k+1)*segH,isTop=(k===j.segs.length-1);
+    rr(x+4,syTop+1,w-8,segH-2,k===0?10:4);
+    if(s.hid){                                          // 蓋牌層：倒開才揭曉
+      ctx.fillStyle='#3b3550';ctx.fill();
+      ctx.fillStyle='#8a80a8';ctx.font='bold 16px system-ui,sans-serif';ctx.textAlign='center';
+      ctx.fillText('?',x+w/2,syTop+segH/2+6);
+    }else{
+      ctx.fillStyle=PAL[s.c][0];ctx.fill();
+      if(isTop&&!j.sealed){                             // 頂格液面長出貓耳＋瞇瞇眼（貓是液體）
+        ctx.fillStyle=PAL[s.c][0];
+        tri(x+12,syTop+2,x+22,syTop+2,x+17,syTop-8);
+        tri(x+34,syTop+2,x+44,syTop+2,x+39,syTop-8);
+        ctx.strokeStyle=PAL[s.c][1];ctx.lineWidth=2;ctx.lineCap='round';
+        ctx.beginPath();ctx.arc(x+20,syTop+13,3.5,Math.PI,Math.PI*2);ctx.stroke();
+        ctx.beginPath();ctx.arc(x+36,syTop+13,3.5,Math.PI,Math.PI*2);ctx.stroke();
+      }
+    }
+  }
+  ctx.fillStyle='rgba(255,255,255,0.10)';rr(x+7,y+10,8,h-22,4);ctx.fill(); // 玻璃光澤
+  rr(x,y,w,h,14);
+  ctx.strokeStyle=(sel===i)?'#ffffff':(nearMiss(j)?'#ffe066':'rgba(255,255,255,0.35)');
+  ctx.lineWidth=(sel===i)?3:2;ctx.stroke();
+  rr(x-4,y-6,w+8,10,5);ctx.fillStyle='rgba(255,255,255,0.25)';ctx.fill(); // 罐口
+  if(j.sealed)drawSealFace(x,y,w,h,j.segs[0].c);
+  ctx.restore();
+  if(i>=0){                                             // 鍵盤數字提示
+    ctx.fillStyle='rgba(255,255,255,0.3)';ctx.font='12px system-ui,sans-serif';ctx.textAlign='center';
+    ctx.fillText(String((i+1)%10),j.x+w/2,j.y+h+16);
+  }
+}
+function drawSealFace(x,y,w,h,c){                        // 凝固後的呼嚕貓臉＋木塞蓋
+  rr(x+4,y-14,w-8,14,5);ctx.fillStyle='#c98f4e';ctx.fill();
+  ctx.strokeStyle='#8a5a26';ctx.lineWidth=2;ctx.stroke();
+  const cx=x+w/2,cy=y+h*.42;
+  ctx.strokeStyle='rgba(40,30,20,0.75)';ctx.lineWidth=2.5;ctx.lineCap='round';
+  ctx.beginPath();ctx.arc(cx-11,cy,5,Math.PI,Math.PI*2);ctx.stroke();   // ^ ^ 瞇眼
+  ctx.beginPath();ctx.arc(cx+11,cy,5,Math.PI,Math.PI*2);ctx.stroke();
+  ctx.beginPath();ctx.arc(cx-3,cy+10,3,0,Math.PI);ctx.arc(cx+3,cy+10,3,0,Math.PI);ctx.stroke(); // ω 嘴
+  ctx.lineWidth=1.5;ctx.beginPath();
+  ctx.moveTo(cx-16,cy+7);ctx.lineTo(cx-26,cy+5);ctx.moveTo(cx-16,cy+11);ctx.lineTo(cx-26,cy+13);
+  ctx.moveTo(cx+16,cy+7);ctx.lineTo(cx+26,cy+5);ctx.moveTo(cx+16,cy+11);ctx.lineTo(cx+26,cy+13);
+  ctx.stroke();
+  ctx.fillStyle='rgba(255,120,150,0.4)';
+  ctx.beginPath();ctx.arc(cx-15,cy+6,4,0,7);ctx.fill();
+  ctx.beginPath();ctx.arc(cx+15,cy+6,4,0,7);ctx.fill();
+}
+function drawPourBlobs(){                                // 倒湯的弧線水滴（帶小貓耳）
+  if(!pour)return;
+  const a=mouth(pour.si),b=mouth(pour.di);
+  const mx=(a.x+b.x)/2,my=Math.min(a.y,b.y)-70;
+  for(let i=pour.landed;i<pour.n;i++){
+    let p=(pour.t-i*.09)/.3;if(p<0)p=0;if(p>1)p=1;
+    const ix=(1-p)*(1-p)*a.x+2*(1-p)*p*mx+p*p*b.x;
+    const iy=(1-p)*(1-p)*a.y+2*(1-p)*p*my+p*p*b.y;
+    ctx.fillStyle=PAL[pour.c][0];
+    ctx.beginPath();ctx.arc(ix,iy,10,0,7);ctx.fill();
+    tri(ix-9,iy-3,ix-1,iy-7,ix-7,iy-12);
+    tri(ix+9,iy-3,ix+1,iy-7,ix+7,iy-12);
+  }
+}
+function drawHUD(){
+  ctx.textAlign='center';ctx.fillStyle='#fff';ctx.font='bold 22px system-ui,sans-serif';
+  ctx.fillText(score+' 分',W/2,32);
+  ctx.textAlign='right';ctx.fillStyle='#ffe066';ctx.font='bold 14px system-ui,sans-serif';
+  ctx.fillText('最高 '+Math.max(hi,score),W-14,30);
+  ctx.textAlign='left';ctx.fillStyle='#cfc6e8';ctx.font='bold 15px system-ui,sans-serif';
+  ctx.fillText('第 '+level+' 關',14,62);
+  // 湯溫計（時間）：湯冷掉就輸了
+  const ratio=Math.max(0,timeLeft/timeMax),bx=88,bw=212,by=50,bh=12;
+  ctx.font='14px system-ui,sans-serif';ctx.fillText('🍲',66,62);
+  rr(bx,by,bw,bh,6);ctx.fillStyle='rgba(255,255,255,0.12)';ctx.fill();
+  if(ratio>0){
+    rr(bx,by,Math.max(8,bw*ratio),bh,6);
+    ctx.fillStyle=ratio>.5?'#7ed957':ratio>.25?'#ffb347':'#ff6b6b';
+    if(timeLeft<=15)ctx.globalAlpha=.6+Math.sin(gTime*10)*.4;
+    ctx.fill();ctx.globalAlpha=1;
+  }
+  ctx.fillStyle=timeLeft<=15?'#ff6b6b':'#cfc6e8';ctx.font='bold 13px system-ui,sans-serif';
+  ctx.fillText(Math.ceil(timeLeft)+'s',bx+bw+8,by+11);
+  ctx.textAlign='center';ctx.font='16px system-ui,sans-serif';
+  ctx.fillText(muted?'🔇':'🔊',MUTE_BTN.x,MUTE_BTN.y+6);
+  // 悔棋按鈕
+  ctx.beginPath();ctx.arc(UNDO_BTN.x,UNDO_BTN.y,30,0,7);
+  ctx.fillStyle=undosLeft>0?'rgba(255,255,255,0.14)':'rgba(255,255,255,0.05)';ctx.fill();
+  ctx.strokeStyle='rgba(255,255,255,0.35)';ctx.lineWidth=2;ctx.stroke();
+  ctx.fillStyle=undosLeft>0?'#fff':'#666';ctx.font='bold 22px system-ui,sans-serif';
+  ctx.fillText('↩',UNDO_BTN.x,UNDO_BTN.y+7);
+  ctx.font='bold 12px system-ui,sans-serif';
+  ctx.fillText('悔棋 ×'+undosLeft,UNDO_BTN.x,UNDO_BTN.y+44);
+  ctx.textAlign='left';ctx.fillStyle='rgba(255,255,255,0.25)';ctx.font='11px system-ui,sans-serif';
+  ctx.fillText('1-9 選罐 / Z 悔棋 / M 靜音',14,590);
+  if(level===1&&!firstPourDone){                         // 第一關零教學引導
+    ctx.textAlign='center';ctx.fillStyle='rgba(255,255,255,0.85)';ctx.font='bold 15px system-ui,sans-serif';
+    ctx.fillText('👆 點一罐選起來，再點另一罐倒過去',W/2,478);
+    ctx.fillStyle='rgba(255,255,255,0.55)';ctx.font='13px system-ui,sans-serif';
+    ctx.fillText('同色才能疊，集滿一罐凝固成貓！',W/2,500);
+  }
+}
+function drawParticles(){
+  particles.forEach(p=>{
+    ctx.globalAlpha=Math.max(0,Math.min(1,p.life));
+    if(p.type==='heart'){ctx.fillStyle=p.col;ctx.font='12px system-ui,sans-serif';ctx.textAlign='center';ctx.fillText('♥',p.x,p.y)}
+    else if(p.type==='conf'){ctx.save();ctx.translate(p.x,p.y);ctx.rotate(p.rot);ctx.fillStyle=p.col;ctx.fillRect(-3,-2,6,4);ctx.restore()}
+    else{ctx.fillStyle=p.col;ctx.beginPath();ctx.arc(p.x,p.y,3,0,7);ctx.fill()}
+  });
+  ctx.globalAlpha=1;
+}
+function drawFloats(){
+  floats.forEach(f=>{
+    ctx.globalAlpha=Math.max(0,Math.min(1,f.life));
+    ctx.font='bold '+f.size+'px system-ui,sans-serif';ctx.textAlign='center';
+    ctx.strokeStyle='rgba(0,0,0,0.5)';ctx.lineWidth=3;ctx.strokeText(f.txt,f.x,f.y);
+    ctx.fillStyle=f.col;ctx.fillText(f.txt,f.x,f.y);
+  });
+  ctx.globalAlpha=1;
+}
+function drawToast(){
+  if(toastT<=0)return;
+  ctx.globalAlpha=Math.max(0,Math.min(1,toastT));
+  ctx.font='bold 14px system-ui,sans-serif';ctx.textAlign='center';
+  const w=ctx.measureText(toastMsg).width+28;
+  rr(W/2-w/2,436,w,28,14);ctx.fillStyle='rgba(0,0,0,0.65)';ctx.fill();
+  ctx.fillStyle='#ffe066';ctx.fillText(toastMsg,W/2,455);
+  ctx.globalAlpha=1;
+}
+function drawTitle(){
+  ctx.textAlign='center';
+  ctx.fillStyle='#ffe066';ctx.font='bold 38px system-ui,sans-serif';
+  ctx.fillText('🍵 貓湯倒倒樂',W/2,96);
+  ctx.fillStyle='#cfc6e8';ctx.font='bold 16px system-ui,sans-serif';
+  ctx.fillText('貓是液體！同色貓湯倒在一起',W/2,134);
+  ctx.fillText('集滿一罐就凝固成貓',W/2,158);
+  DEMO.forEach(j=>drawJar(j,-9));
+  ctx.textAlign='center';ctx.fillStyle='rgba(255,255,255,0.75)';ctx.font='14px system-ui,sans-serif';
+  ctx.fillText('📱 點來源罐 → 點目標罐　💻 數字鍵選罐、Z 悔棋',W/2,392);
+  ctx.fillText('每關悔棋 3 次｜湯冷掉（時間到）就結束',W/2,416);
+  ctx.fillStyle='#7ed957';ctx.font='bold 22px system-ui,sans-serif';
+  ctx.fillText('▶ 點擊開始',W/2,478+Math.sin(gTime*4)*4);
+  ctx.fillStyle='#ffe066';ctx.font='bold 15px system-ui,sans-serif';
+  ctx.fillText('最高分 '+hi,W/2,522);
+  ctx.font='16px system-ui,sans-serif';ctx.fillStyle='#cfc6e8';
+  ctx.fillText(muted?'🔇':'🔊',MUTE_BTN.x,MUTE_BTN.y+6);
+}
+function drawClear(){
+  ctx.fillStyle='rgba(0,0,0,0.45)';ctx.fillRect(0,0,W,H);
+  ctx.textAlign='center';ctx.fillStyle='#ffe066';ctx.font='bold 34px system-ui,sans-serif';
+  ctx.fillText('第 '+level+' 關完成！',W/2,240);
+  ctx.fillStyle='#fff';ctx.font='16px system-ui,sans-serif';
+  clearBonusTxt.forEach((t,i)=>ctx.fillText(t,W/2,285+i*26));
+  ctx.fillStyle='rgba(255,255,255,0.7)';ctx.font='14px system-ui,sans-serif';
+  ctx.fillText('馬上進入下一關…（點擊跳過）',W/2,388);
+}
+function drawOver(){
+  ctx.fillStyle='rgba(10,6,20,0.8)';ctx.fillRect(0,0,W,H);
+  ctx.textAlign='center';
+  ctx.fillStyle='#ff8fab';ctx.font='bold 32px system-ui,sans-serif';
+  ctx.fillText(overInfo.reason==='cold'?'湯冷掉了…喵':'卡死了…喵',W/2,180);
+  ctx.fillStyle='rgba(255,255,255,0.6)';ctx.font='14px system-ui,sans-serif';
+  ctx.fillText(overInfo.reason==='cold'?'下次倒快一點！':'這盤是自己倒出來的，不怪別人 😹',W/2,210);
+  ctx.fillStyle='#fff';ctx.font='bold 40px system-ui,sans-serif';
+  ctx.fillText(score+' 分',W/2,272);
+  ctx.fillStyle='#cfc6e8';ctx.font='15px system-ui,sans-serif';
+  ctx.fillText('到達第 '+level+' 關',W/2,300);
+  if(overInfo.rec){ctx.fillStyle='#ffe066';ctx.font='bold 24px system-ui,sans-serif';
+    ctx.fillText('🎉 新紀錄！',W/2,346)}
+  else{ctx.fillStyle='#ffe066';ctx.font='bold 18px system-ui,sans-serif';
+    ctx.fillText('差 '+overInfo.need+' 分破紀錄！',W/2,346)}    // near-miss：把失敗包裝成邀請
+  rr(70,398,260,56,14);ctx.fillStyle='#7ed957';ctx.fill();
+  ctx.fillStyle='#173010';ctx.font='bold 20px system-ui,sans-serif';
+  ctx.fillText('🔄 再戰第 '+level+' 關',W/2,433);
+  rr(70,468,260,46,12);ctx.fillStyle='rgba(255,255,255,0.12)';ctx.fill();
+  ctx.strokeStyle='rgba(255,255,255,0.35)';ctx.lineWidth=2;ctx.stroke();
+  ctx.fillStyle='#fff';ctx.font='bold 16px system-ui,sans-serif';
+  ctx.fillText('↺ 從第 1 關重來',W/2,497);
+  ctx.fillStyle='rgba(255,255,255,0.4)';ctx.font='13px system-ui,sans-serif';
+  ctx.fillText('Enter＝再戰',W/2,540);
+}
+function render(){
+  const g=ctx.createLinearGradient(0,0,0,H);
+  g.addColorStop(0,'#2b2440');g.addColorStop(1,'#171226');
+  ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
+  ctx.save();
+  if(shakeT>0)ctx.translate((Math.random()-.5)*10*shakeT,(Math.random()-.5)*10*shakeT);
+  drawPaws();
+  if(state==='title'){drawTitle();drawToast();ctx.restore();return}
+  drawHUD();
+  jars.forEach((j,i)=>drawJar(j,i));
+  drawPourBlobs();
+  drawParticles();
+  drawFloats();
+  drawToast();
+  if(state==='clear')drawClear();
+  if(state==='over')drawOver();
+  ctx.restore();
+}
+
+// ================== 主迴圈（deltaTime + 上限鉗制，120Hz 不會變快）==================
+let last=performance.now();
+function loop(now){
+  let dt=(now-last)/1000;last=now;
+  if(dt>.1)dt=.1;                                       // 切視窗回來不暴衝
+  update(dt);
+  render();
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+</script>
+<script src="../../sc_config.js"></script>
+<script src="../../stats.js"></script>
+</body>
+</html>
