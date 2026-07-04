@@ -1,0 +1,494 @@
+<!--GAMEMETA {"title":"喵喵發車啦","emoji":"🚌","genre":"益智","inspiration":"Bus Traffic Fever!","desc":"點開沒被擋住的貓巴士接走同色小貓，別塞爆候車墊！"}-->
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<title>喵喵發車啦 🚌</title>
+<style>
+html,body{margin:0;padding:0;background:#14162a;height:100%;overflow:hidden;font-family:system-ui,sans-serif}
+body{display:flex;align-items:center;justify-content:center}
+#game{touch-action:none;display:block;border-radius:8px;box-shadow:0 8px 40px rgba(0,0,0,.5)}
+#back{position:fixed;top:8px;left:10px;z-index:9;color:#8b93b8;text-decoration:none;font-size:14px;background:rgba(26,28,44,.75);padding:4px 10px;border-radius:12px}
+#back:hover{color:#fff}
+</style>
+</head>
+<body>
+<a id="back" href="../../index.html">← 回遊戲區</a>
+<canvas id="game" width="400" height="600"></canvas>
+<script>
+'use strict';
+/* ===== 喵喵發車啦 — 貓巴士接駁益智 =====
+   核心迴圈：看隊伍顏色 → 點沒被擋住的巴士 → 同色小貓上車 → 滿載發車空出墊子
+   輸法：候車墊全滿且接不到下一隻小貓（錯誤全是自己的出車順序造成 → 歸因於己）*/
+
+const cv=document.getElementById('game'),ctx=cv.getContext('2d');
+const W=400,H=600;
+function fit(){const s=Math.min(innerWidth/W,innerHeight/H);cv.style.width=(W*s|0)+'px';cv.style.height=(H*s|0)+'px';}
+addEventListener('resize',fit);fit();
+
+/* ---- 色票：五個隊色（貓巴士＋小貓共用） ---- */
+const CP=[
+ {f:'#ff6b7a',d:'#b23a48'},
+ {f:'#ffd43b',d:'#b8860b'},
+ {f:'#4dabf7',d:'#1864ab'},
+ {f:'#8ce99a',d:'#2b8a3e'},
+ {f:'#b197fc',d:'#6741d9'}
+];
+
+/* ---- 版面常數 ---- */
+const CELL=58,GCOLS=6,GOX=(W-GCOLS*CELL)/2;
+const PADY=84,QY=148;
+const padX=i=>62+i*92;         // 四塊候車墊的中心 x
+const qtx=i=>40+Math.min(i,10)*30; // 排隊小貓的目標 x
+
+/* ---- 遊戲狀態 ---- */
+let state='title',level=1,score=0,best=0,gt=0;
+let rows=6,GOY=190;
+let buses=[],queue=[],hops=[],parts=[],floats=[],tweens=[];
+let pads=[null,null,null,null];
+let boardCd=0,chainN=0,chainT=0,combo=0,lastDep=-99999;
+let overT=0,clearT=0,introT=0,padFlash=0,reason='',newRec=false,remainAtOver=0;
+let hasReleased=false,kb=false,cur={c:2,r:5};
+try{best=parseInt(localStorage.getItem('slimecat_meowbus_best'))||0;}catch(e){}
+
+/* ---- 小工具 ---- */
+const rnd=n=>Math.floor(Math.random()*n);
+function shuffle(a){for(let i=a.length-1;i>0;i--){const j=rnd(i+1),t=a[i];a[i]=a[j];a[j]=t;}return a;}
+const eOut=t=>1-Math.pow(1-t,3),eIn=t=>t*t*t;
+function tw(o,to,dur,ease,done){const from={};for(const k in to)from[k]=o[k];tweens.push({o,from,to,dur,t:0,ease,done});}
+function upTweens(dt){
+ const fin=[];
+ for(const t of tweens.slice()){
+  t.t+=dt;const p=Math.min(1,t.t/t.dur),e=t.ease(p);
+  for(const k in t.to)t.o[k]=t.from[k]+(t.to[k]-t.from[k])*e;
+  if(p>=1)fin.push(t);
+ }
+ if(fin.length){tweens=tweens.filter(t=>fin.indexOf(t)<0);fin.forEach(t=>{if(t.done)t.done();});}
+}
+
+/* ---- WebAudio 合成音效（零外部資源） ---- */
+let AC=null;
+function ac(){try{if(!AC)AC=new (window.AudioContext||window.webkitAudioContext)();if(AC&&AC.state==='suspended')AC.resume();}catch(e){}return AC;}
+function tone(f0,f1,dur,type,vol,dl){try{const a=ac();if(!a)return;const t=a.currentTime+(dl||0);
+ const o=a.createOscillator(),g=a.createGain();o.type=type;
+ o.frequency.setValueAtTime(Math.max(f0,1),t);o.frequency.exponentialRampToValueAtTime(Math.max(f1,1),t+dur);
+ g.gain.setValueAtTime(vol,t);g.gain.exponentialRampToValueAtTime(0.001,t+dur);
+ o.connect(g);g.connect(a.destination);o.start(t);o.stop(t+dur+0.05);}catch(e){}}
+const sSwoosh=()=>tone(240,900,0.16,'sine',0.14);
+const sThud=()=>tone(130,55,0.12,'square',0.16);
+const sPop=n=>tone(430+n*45,650+n*45,0.09,'triangle',0.2);
+const sLand=()=>tone(300,180,0.1,'sine',0.15);
+const sHonk=()=>{tone(392,392,0.12,'square',0.12);tone(523,523,0.16,'square',0.12,0.1);};
+const sUi=()=>tone(660,880,0.05,'sine',0.07);
+const sClear=()=>{[523,659,784,1047].forEach((f,i)=>tone(f,f,0.14,'triangle',0.16,i*0.09));};
+const sOver=()=>{[392,311,262,196].forEach((f,i)=>tone(f,f*0.9,0.2,'sine',0.15,i*0.14));};
+const sRec=()=>{[523,659,784,1047,1319].forEach((f,i)=>tone(f,f,0.12,'square',0.1,i*0.08));};
+
+/* ---- 關卡生成：先求出一組「保證可解的出車順序」再倒推排隊隊伍 ---- */
+function levelCfg(n){
+ return{
+  colorsN:Math.min(2+Math.floor(n/2),5),      // 顏色數 2→5
+  busN:Math.min(4+(n-1)*2,16),                // 巴士數 4→16
+  rows:Math.min(3+Math.floor((n-1)/2),6),     // 車陣列數 3→6
+  chunk:n===1?1:(n<4?2:3)                     // 隊伍交錯深度（越大越燒腦，≤墊子數）
+ };
+}
+function solveOrder(bs,R){ // 模擬「一台台放行」找可行順序，卡死回傳 null
+ const occ=new Map();bs.forEach((b,i)=>occ.set(b.col+','+b.row,i));
+ const rem=new Set(bs.map((_,i)=>i)),order=[];
+ while(rem.size){
+  const ok=[];
+  rem.forEach(i=>{
+   const b=bs[i],dc=[0,1,0,-1][b.dir],dr=[-1,0,1,0][b.dir];
+   let c=b.col+dc,r=b.row+dr,clear=true;
+   while(c>=0&&c<GCOLS&&r>=0&&r<R){if(occ.has(c+','+r)){clear=false;break;}c+=dc;r+=dr;}
+   if(clear)ok.push(i);
+  });
+  if(!ok.length)return null;
+  const pick=ok[rnd(ok.length)];
+  order.push(pick);rem.delete(pick);occ.delete(bs[pick].col+','+bs[pick].row);
+ }
+ return order;
+}
+function buildQueue(bs,order,cfg){ // 按可解順序分塊、塊內洗牌 → 一定有解但要動腦
+ const q=[];
+ for(let k=0;k<order.length;k+=cfg.chunk){
+  const pool=[];
+  order.slice(k,k+cfg.chunk).forEach(i=>{for(let j=0;j<4;j++)pool.push(bs[i].ci);});
+  shuffle(pool);
+  for(const c of pool)q.push(c);
+ }
+ return q;
+}
+function genLevel(n){
+ const cfg=levelCfg(n);
+ for(let at=0;at<250;at++){
+  const cells=[];
+  for(let c=0;c<GCOLS;c++)for(let r=0;r<cfg.rows;r++)cells.push([c,r]);
+  shuffle(cells);
+  const bs=cells.slice(0,cfg.busN).map(p=>({col:p[0],row:p[1],dir:rnd(4),ci:0}));
+  const cl=[];for(let i=0;i<cfg.busN;i++)cl.push(i%cfg.colorsN);
+  shuffle(cl);bs.forEach((b,i)=>{b.ci=cl[i];});
+  const order=solveOrder(bs,cfg.rows);
+  if(order)return{bs,q:buildQueue(bs,order,cfg),rows:cfg.rows};
+ }
+ // 保底佈局：全部朝上、由上而下必可解（理論上跑不到這裡）
+ const bs=[];let i2=0;
+ for(let r=0;r<cfg.rows&&i2<cfg.busN;r++)for(let c=0;c<GCOLS&&i2<cfg.busN;c++){bs.push({col:c,row:r,dir:0,ci:i2%cfg.colorsN});i2++;}
+ return{bs,q:buildQueue(bs,bs.map((_,i)=>i),cfg),rows:cfg.rows};
+}
+function loadLevel(n){
+ const g=genLevel(n);
+ rows=g.rows;GOY=190+Math.floor((6-rows)*CELL/2);
+ buses=g.bs.map((b,i)=>({col:b.col,row:b.row,dir:b.dir,ci:b.ci,id:i,
+  x:GOX+b.col*CELL+CELL/2,y:GOY+b.row*CELL+CELL/2,
+  state:'grid',on:0,res:0,sq:1,shk:0,flash:0,padIdx:-1}));
+ queue=g.q.map((ci,i)=>({ci,x:qtx(i)+240+i*5,bob:Math.random()*6})); // 小貓從右邊走進來
+ pads=[null,null,null,null];hops=[];tweens=[];
+ boardCd=350;chainN=0;chainT=0;combo=0;lastDep=-99999;padFlash=0;
+ cur={c:2,r:rows-1};introT=1300;
+}
+function restartRun(){level=1;score=0;newRec=false;hasReleased=false;loadLevel(1);state='play';}
+
+/* ---- 路徑檢查（視覺/判定共用同一套格子座標） ---- */
+function gridBusAt(c,r){for(const b of buses)if(b.state==='grid'&&b.col===c&&b.row===r)return b;return null;}
+function pathBlocker(b){
+ const dc=[0,1,0,-1][b.dir],dr=[-1,0,1,0][b.dir];
+ let c=b.col+dc,r=b.row+dr;
+ while(c>=0&&c<GCOLS&&r>=0&&r<rows){const o=gridBusAt(c,r);if(o)return o;c+=dc;r+=dr;}
+ return null;
+}
+
+/* ---- 特效 ---- */
+function addFloat(x,y,t2,col,size){floats.push({x,y,txt:t2,col,size:size||14,t:0,dur:900});}
+function dust(x,y,col){for(let i=0;i<10;i++)parts.push({x,y,vx:(Math.random()-.5)*3,vy:-Math.random()*2.5,g:.12,t:0,dur:500+Math.random()*300,r:2+Math.random()*3,col});}
+function confetti(x,y,n){for(let i=0;i<n;i++)parts.push({x,y,vx:(Math.random()-.5)*6,vy:-2-Math.random()*4,g:.15,t:0,dur:900+Math.random()*600,r:2+Math.random()*3,col:CP[rnd(5)].f});}
+
+/* ---- 放行巴士 ---- */
+function tryRelease(b){
+ if(state!=='play'||!b||b.state!=='grid')return;
+ const pi=pads.indexOf(null);
+ if(pi<0){padFlash=600;sThud();addFloat(W/2,PADY+42,'候車墊滿了！','#ff8787',15);return;}
+ const blk=pathBlocker(b);
+ if(blk){b.shk=280;blk.flash=450;sThud();return;} // 被擋：自己抖＋擋路的閃紅（教玩家看路）
+ hasReleased=true;sSwoosh();
+ try{if(navigator.vibrate)navigator.vibrate(12);}catch(e){}
+ b.state='out';b.padIdx=pi;pads[pi]=b;
+ const dc=[0,1,0,-1][b.dir],dr=[-1,0,1,0][b.dir];
+ let steps=0,c=b.col+dc,r=b.row+dr;
+ while(c>=0&&c<GCOLS&&r>=0&&r<rows){steps++;c+=dc;r+=dr;}
+ const dist=(steps+1)*CELL+20;
+ tw(b,{x:b.x+dc*dist,y:b.y+dr*dist},110+steps*40,eIn,()=>{ // 先加速滑出車陣
+  tw(b,{x:padX(pi),y:PADY},330,eOut,()=>{                  // 再飛到候車墊
+   b.state='pad';b.sq=0.5;sLand();dust(padX(pi),PADY+22,CP[b.ci].f);
+  });
+ });
+}
+function departBus(b){ // 滿載發車！
+ b.state='depart';if(b.padIdx>=0)pads[b.padIdx]=null;b.padIdx=-1;
+ sHonk();
+ combo=(gt-lastDep<4000)?combo+1:1;lastDep=gt;
+ const bonus=30*combo;score+=bonus;
+ addFloat(b.x,b.y-36,combo>1?('連鎖 ×'+combo+'　+'+bonus):('滿載發車！+'+bonus),combo>1?'#ffd43b':'#8ce99a',combo>1?18:14);
+ dust(b.x,b.y,CP[b.ci].f);confetti(b.x,b.y-10,8);
+ tw(b,{x:W+110},430,eIn,()=>{b.state='gone';});
+}
+function gameOver(){
+ state='over';overT=0;remainAtOver=queue.length;
+ newRec=score>best;
+ if(newRec){best=score;try{localStorage.setItem('slimecat_meowbus_best',''+best);}catch(e){}sRec();confetti(W/2,240,60);}
+ else sOver();
+ try{if(window.SC)SC.over(score);}catch(e){}
+}
+
+/* ---- 每幀更新 ---- */
+function update(dt){
+ gt+=dt;
+ upTweens(dt);
+ for(const p of parts){p.t+=dt;p.x+=p.vx;p.y+=p.vy;p.vy+=p.g;}
+ parts=parts.filter(p=>p.t<p.dur);
+ for(const f of floats){f.t+=dt;f.y-=0.04*dt;}
+ floats=floats.filter(f=>f.t<f.dur);
+ for(const b of buses){b.sq+=(1-b.sq)*0.18;if(b.shk>0)b.shk-=dt;if(b.flash>0)b.flash-=dt;}
+ if(padFlash>0)padFlash-=dt;
+ if(introT>0)introT-=dt;
+ if(chainT>0){chainT-=dt;if(chainT<=0)chainN=0;}
+ for(let i=0;i<queue.length;i++){const k=queue[i],t=qtx(i);k.x+=(t-k.x)*Math.min(1,dt*0.008);} // 人龍前移＝看得見的進度條
+ for(const h of hops.slice()){ // 上車中的小貓
+  h.t+=dt;
+  if(h.t>=h.dur){
+   hops.splice(hops.indexOf(h),1);
+   h.bus.on++;h.bus.sq=0.7;score+=10;
+   addFloat(h.tx,h.ty-32,'+10','#fff',12);
+   if(h.bus.on>=4)departBus(h.bus);
+  }
+ }
+ if(state==='play'){
+  boardCd-=dt;
+  if(boardCd<=0&&queue.length){ // 隊伍最前面的小貓找同色巴士
+   const f=queue[0];let cand=null;
+   for(const p of pads)if(p&&p.state==='pad'&&p.res<4&&p.ci===f.ci){if(!cand||p.res>cand.res)cand=p;} // 優先填快滿的車
+   if(cand){
+    cand.res++;const k=queue.shift();
+    hops.push({ci:k.ci,sx:k.x,sy:QY,tx:padX(cand.padIdx),ty:PADY,t:0,dur:280,bus:cand});
+    chainN++;chainT=900;sPop(Math.min(chainN,12));boardCd=130; // 連續上車音階越墊越高
+   }
+  }
+  // 過關 / 卡死判定（等所有動畫落地才判，不冤枉玩家）
+  const transit=buses.some(b=>b.state==='out'||b.state==='depart');
+  if(!transit&&!hops.length){
+   if(!queue.length){
+    if(buses.every(b=>b.state==='gone')){
+     const bonus=100+level*50;score+=bonus;
+     sClear();confetti(W/2,300,40);
+     addFloat(W/2,270,'過關獎勵 +'+bonus,'#ffd43b',18);
+     state='clear';clearT=0;
+    }
+   }else{
+    const canBoard=pads.some(p=>p&&p.res<4&&p.ci===queue[0].ci);
+    if(!canBoard){
+     const freePad=pads.some(p=>!p);
+     const gridLeft=buses.some(b=>b.state==='grid');
+     const removable=buses.some(b=>b.state==='grid'&&!pathBlocker(b));
+     if(!(freePad&&gridLeft&&removable)){ // 沒車能上、也放不出新車 → 輸
+      reason=!freePad?'候車墊全滿，前面的小貓上不了車…':'剩下的巴士互相卡死了…';
+      gameOver();
+     }
+    }
+   }
+  }
+ }else if(state==='clear'){
+  clearT+=dt;
+  if(clearT>1500){level++;loadLevel(level);state='play';}
+ }else if(state==='over'){
+  overT+=dt;
+ }
+}
+
+/* ---- 繪圖 ---- */
+function rr(x,y,w,h,r){ctx.beginPath();ctx.moveTo(x+r,y);ctx.arcTo(x+w,y,x+w,y+h,r);ctx.arcTo(x+w,y+h,x,y+h,r);ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);ctx.closePath();}
+function txt(s,x,y,size,col,bold,align){
+ ctx.font=(bold?'bold ':'')+size+'px "Microsoft JhengHei","PingFang TC",sans-serif';
+ ctx.fillStyle=col||'#fff';ctx.textAlign=align||'center';ctx.textBaseline='middle';
+ ctx.fillText(s,x,y);
+}
+function drawKit(x,y,ci,r,ph){ // 史萊姆小貓乘客
+ const C=CP[ci],bob=Math.sin(gt*0.005+(ph||0))*2;
+ ctx.save();ctx.translate(x,y+bob);
+ ctx.fillStyle=C.f;ctx.strokeStyle=C.d;ctx.lineWidth=1.5;
+ ctx.beginPath();ctx.moveTo(-r*0.7,-r*0.5);ctx.lineTo(-r*0.45,-r*1.35);ctx.lineTo(-r*0.1,-r*0.8);ctx.closePath();ctx.fill();ctx.stroke();
+ ctx.beginPath();ctx.moveTo(r*0.7,-r*0.5);ctx.lineTo(r*0.45,-r*1.35);ctx.lineTo(r*0.1,-r*0.8);ctx.closePath();ctx.fill();ctx.stroke();
+ ctx.beginPath();ctx.ellipse(0,0,r,r*0.92,0,0,Math.PI*2);ctx.fill();ctx.stroke();
+ ctx.fillStyle='#26283a';
+ ctx.beginPath();ctx.arc(-r*0.35,-r*0.1,1.8,0,Math.PI*2);ctx.arc(r*0.35,-r*0.1,1.8,0,Math.PI*2);ctx.fill();
+ ctx.strokeStyle='#26283a';ctx.lineWidth=1;
+ ctx.beginPath();ctx.arc(-2,r*0.28,2.2,0,Math.PI);ctx.stroke();
+ ctx.beginPath();ctx.arc(2,r*0.28,2.2,0,Math.PI);ctx.stroke();
+ ctx.fillStyle='rgba(255,255,255,.4)';
+ ctx.beginPath();ctx.ellipse(-r*0.35,-r*0.45,r*0.22,r*0.14,-0.5,0,Math.PI*2);ctx.fill();
+ ctx.restore();
+}
+function drawBus(b,sc){ // 史萊姆貓巴士（貓耳＋臉＋輪子）
+ sc=sc||1;
+ const w=50*sc,h=40*sc,C=CP[b.ci];
+ const ox=b.shk>0?(Math.random()-.5)*6:0;
+ ctx.save();ctx.translate(b.x+ox,b.y);ctx.scale(2-b.sq,b.sq); // squash-stretch
+ ctx.fillStyle=C.f;ctx.strokeStyle=C.d;ctx.lineWidth=2*sc;
+ rr(-w/2,-h/2,w,h,9*sc);ctx.fill();ctx.stroke();
+ ctx.beginPath();ctx.moveTo(-w/2+4*sc,-h/2+2);ctx.lineTo(-w/2+9*sc,-h/2-9*sc);ctx.lineTo(-w/2+16*sc,-h/2+2);ctx.closePath();ctx.fill();ctx.stroke();
+ ctx.beginPath();ctx.moveTo(w/2-4*sc,-h/2+2);ctx.lineTo(w/2-9*sc,-h/2-9*sc);ctx.lineTo(w/2-16*sc,-h/2+2);ctx.closePath();ctx.fill();ctx.stroke();
+ ctx.fillStyle='rgba(255,255,255,.25)';rr(-w/2+5*sc,-h/2+5*sc,w-10*sc,10*sc,4*sc);ctx.fill();
+ ctx.fillStyle='#26283a';
+ ctx.beginPath();ctx.arc(-7*sc,2*sc,2.4*sc,0,Math.PI*2);ctx.arc(7*sc,2*sc,2.4*sc,0,Math.PI*2);ctx.fill();
+ ctx.strokeStyle='#26283a';ctx.lineWidth=1.4*sc;
+ ctx.beginPath();ctx.arc(-2.6*sc,7*sc,2.6*sc,0,Math.PI);ctx.stroke();
+ ctx.beginPath();ctx.arc(2.6*sc,7*sc,2.6*sc,0,Math.PI);ctx.stroke();
+ ctx.fillStyle='#26283a';
+ ctx.beginPath();ctx.arc(-w/4,h/2,4*sc,0,Math.PI*2);ctx.arc(w/4,h/2,4*sc,0,Math.PI*2);ctx.fill();
+ if(b.state==='grid'){ // 行進方向箭頭
+  ctx.save();ctx.rotate(b.dir*Math.PI/2);
+  ctx.strokeStyle=C.d;ctx.lineWidth=3;ctx.lineCap='round';
+  ctx.beginPath();ctx.moveTo(-6,-7);ctx.lineTo(0,-14);ctx.lineTo(6,-7);ctx.stroke();
+  ctx.restore();
+ }
+ if(b.flash>0){ // 擋路提示閃紅
+  ctx.globalAlpha=0.4+0.4*Math.sin(gt*0.03);
+  ctx.strokeStyle='#ff6b6b';ctx.lineWidth=3;rr(-w/2-3,-h/2-3,w+6,h+6,10);ctx.stroke();
+  ctx.globalAlpha=1;
+ }
+ if(b.state==='pad'||b.state==='depart'){ // 乘客小點（幾隻上車了）
+  for(let i=0;i<4;i++){
+   ctx.beginPath();ctx.arc(-15+i*10,h/2+9,3,0,Math.PI*2);
+   if(i<b.on){ctx.fillStyle='#fff';ctx.fill();}
+   else{ctx.strokeStyle='rgba(255,255,255,.4)';ctx.lineWidth=1;ctx.stroke();}
+  }
+ }
+ ctx.restore();
+}
+function drawHUD(){
+ txt('分數',16,20,11,'#8b93b8',false,'left');
+ txt(''+score,16,42,20,'#fff',true,'left');
+ txt('第 '+level+' 關',W/2,30,15,'#ffd43b',true);
+ if(combo>1&&gt-lastDep<4000)txt('連鎖 ×'+combo,W/2,52,13,'#ffd43b',true);
+ txt('最高',384,20,11,'#8b93b8',false,'right');
+ txt(''+best,384,42,20,'#fff',true,'right');
+}
+function drawPads(){
+ const used=pads.filter(Boolean).length;
+ for(let i=0;i<4;i++){
+  const x=padX(i);
+  let sc2='#41466e';
+  if(used>=4)sc2='#ff6b6b';else if(used===3)sc2='#ffa94d'; // 墊子越滿越紅＝漸進壓力
+  if(padFlash>0&&Math.floor(gt/90)%2)sc2='#ff6b6b';
+  rr(x-42,PADY-30,84,60,12);ctx.fillStyle='#262a4a';ctx.fill();
+  ctx.strokeStyle=sc2;ctx.lineWidth=2;ctx.stroke();
+  if(!pads[i]){ctx.globalAlpha=.22;txt('🐾',x,PADY+2,18);ctx.globalAlpha=1;}
+ }
+}
+function drawQueue(){
+ ctx.fillStyle='#41466e';ctx.fillRect(14,QY-24,2,22);
+ rr(2,QY-40,36,18,4);ctx.fill();
+ txt('候車',20,QY-31,10,'#cdd3f0');
+ for(let i=0;i<queue.length&&i<11;i++)drawKit(queue[i].x,QY,queue[i].ci,12,queue[i].bob);
+ if(queue.length>11)txt('+'+(queue.length-11),374,QY+2,12,'#8b93b8');
+ txt('剩 '+queue.length+' 隻',374,QY-26,10,'#8b93b8','','right');
+ if(queue.length){
+  const danger=state==='play'&&pads.filter(Boolean).length===4&&!pads.some(p=>p&&p.state==='pad'&&p.res<4&&p.ci===queue[0].ci);
+  const bx=queue[0].x,by=QY-26-Math.abs(Math.sin(gt*0.006))*4;
+  if(danger)txt('❗',bx,by,15,'#ff6b6b',true);
+  else txt('▼',bx,by,12,'#ffd43b');
+ }
+}
+function drawGrid(){
+ rr(GOX-8,GOY-8,GCOLS*CELL+16,rows*CELL+16,14);
+ ctx.fillStyle='#20233e';ctx.fill();ctx.strokeStyle='#33375c';ctx.lineWidth=2;ctx.stroke();
+ ctx.strokeStyle='rgba(255,255,255,.05)';ctx.lineWidth=1;
+ for(let c=0;c<GCOLS;c++)for(let r=0;r<rows;r++)ctx.strokeRect(GOX+c*CELL+3,GOY+r*CELL+3,CELL-6,CELL-6);
+ if(level===1&&!hasReleased){ // 第一關教學：可放行的巴士發光
+  const a=0.35+0.3*Math.sin(gt*0.006);
+  for(const b of buses){
+   if(b.state==='grid'&&!pathBlocker(b)){
+    ctx.globalAlpha=a;ctx.strokeStyle='#ffd43b';ctx.lineWidth=3;
+    rr(b.x-29,b.y-26,58,52,10);ctx.stroke();ctx.globalAlpha=1;
+   }
+  }
+  txt('提示：點「前方沒車」的巴士放行！',W/2,GOY+rows*CELL+30,13,'#ffd43b');
+ }
+}
+function drawCursor(){
+ if(kb&&state==='play'){
+  ctx.strokeStyle='#ffd43b';ctx.lineWidth=2;ctx.setLineDash([5,4]);
+  ctx.strokeRect(GOX+cur.c*CELL+2,GOY+cur.r*CELL+2,CELL-4,CELL-4);
+  ctx.setLineDash([]);
+ }
+}
+function drawFx(){
+ for(const p of parts){ctx.globalAlpha=Math.max(0,1-p.t/p.dur);ctx.fillStyle=p.col;ctx.beginPath();ctx.arc(p.x,p.y,p.r,0,Math.PI*2);ctx.fill();}
+ ctx.globalAlpha=1;
+ for(const f of floats){ctx.globalAlpha=Math.max(0,1-f.t/f.dur);txt(f.txt,f.x,f.y,f.size,f.col,true);}
+ ctx.globalAlpha=1;
+}
+function drawTitle(){
+ txt('🚌',W/2,110+Math.sin(gt*0.003)*6,50);
+ txt('喵喵發車啦',W/2,178,36,'#ffd43b',true);
+ drawBus({x:W/2,y:252,ci:3,sq:1,shk:0,flash:0,state:'t',on:0,dir:0},2.2);
+ const cs=[0,1,2,4];
+ for(let i=0;i<4;i++)drawKit(W/2-54+i*36,330,cs[i],13,i);
+ txt('點「前方沒車」的貓巴士出場接小貓！',W/2,384,16,'#fff',true);
+ txt('同色小貓自動上車，滿 4 隻就發車得分',W/2,410,13,'#aab0d0');
+ txt('候車墊只有 4 塊，塞滿就輸了',W/2,430,13,'#aab0d0');
+ txt('📱 觸控：點巴士　⌨️ 鍵盤：方向鍵＋空白鍵',W/2,466,12,'#8b93b8');
+ txt('歷史最高分　'+best,W/2,498,13,'#ffd43b');
+ ctx.globalAlpha=0.5+0.5*Math.sin(gt*0.005);
+ txt('— 點一下開始 —',W/2,542,16,'#fff',true);
+ ctx.globalAlpha=1;
+}
+function drawClear(){
+ ctx.fillStyle='rgba(16,18,36,.78)';ctx.fillRect(0,236,W,120);
+ txt('第 '+level+' 關 通過！🎉',W/2,284,26,'#ffd43b',true);
+ txt('小貓全部接走，準備下一關…',W/2,322,13,'#cdd3f0');
+}
+function drawOver(){
+ const a=Math.min(1,overT/500);
+ ctx.globalAlpha=a*0.8;ctx.fillStyle='#0c0d1a';ctx.fillRect(0,0,W,H);
+ ctx.globalAlpha=a;
+ rr(36,128,328,346,18);ctx.fillStyle='#232748';ctx.fill();ctx.strokeStyle='#41466e';ctx.lineWidth=2;ctx.stroke();
+ txt('遊戲結束',W/2,176,28,'#ff8787',true);
+ txt(reason,W/2,212,13,'#cdd3f0');
+ txt('還有 '+remainAtOver+' 隻小貓沒接到 QQ',W/2,238,13,'#cdd3f0');
+ txt('本局分數',W/2,282,13,'#8b93b8');
+ txt(''+score,W/2,318,34,'#fff',true);
+ if(newRec)txt('🎉 新紀錄！',W/2,360,20,'#ffd43b',true);
+ else txt('差 '+(best-score+1)+' 分就破紀錄！',W/2,360,15,'#ffd43b',true);
+ txt('本次到第 '+level+' 關 · 歷史最高 '+best,W/2,392,12,'#8b93b8');
+ ctx.globalAlpha=a*(0.5+0.5*Math.sin(gt*0.005));
+ txt('點一下馬上再來！',W/2,440,17,'#8ce99a',true);
+ ctx.globalAlpha=1;
+}
+function draw(){
+ const g=ctx.createLinearGradient(0,0,0,H);
+ g.addColorStop(0,'#23264a');g.addColorStop(1,'#14162a');
+ ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
+ if(state==='title'){drawTitle();drawFx();return;}
+ drawHUD();drawPads();drawQueue();drawGrid();
+ for(const b of buses)if(b.state==='grid')drawBus(b);
+ drawCursor();
+ for(const b of buses)if(b.state==='pad')drawBus(b);
+ for(const b of buses)if(b.state==='out'||b.state==='depart')drawBus(b);
+ for(const h of hops){ // 小貓跳上車的拋物線
+  const p=h.t/h.dur,x=h.sx+(h.tx-h.sx)*p,y=h.sy+(h.ty-h.sy)*p-Math.sin(p*Math.PI)*46;
+  drawKit(x,y,h.ci,11,0);
+ }
+ if(introT>0&&state==='play'){
+  ctx.globalAlpha=Math.min(1,introT/300);
+  txt('第 '+level+' 關',W/2,310,32,'#fff',true);
+  ctx.globalAlpha=1;
+ }
+ if(state==='clear')drawClear();
+ if(state==='over')drawOver();
+ drawFx();
+}
+
+/* ---- 輸入：觸控/滑鼠 ＋ 鍵盤 ---- */
+cv.addEventListener('pointerdown',e=>{
+ ac();
+ const rect=cv.getBoundingClientRect();
+ const x=(e.clientX-rect.left)*W/rect.width,y=(e.clientY-rect.top)*H/rect.height;
+ if(state==='title'){restartRun();return;}
+ if(state==='over'){if(overT>500)restartRun();return;} // 一鍵重來，零等待
+ if(state!=='play')return;
+ const c=Math.floor((x-GOX)/CELL),r=Math.floor((y-GOY)/CELL);
+ if(c>=0&&c<GCOLS&&r>=0&&r<rows){
+  const b=gridBusAt(c,r);
+  if(b)tryRelease(b);
+ }
+});
+addEventListener('keydown',e=>{
+ const k=e.key;
+ if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].indexOf(k)>=0)e.preventDefault();
+ ac();
+ if(state==='title'){if(k===' '||k==='Enter')restartRun();return;}
+ if(state==='over'){if(overT>500&&(k===' '||k==='Enter'||k==='r'||k==='R'))restartRun();return;}
+ if(state!=='play')return;
+ if(k==='ArrowLeft'){kb=true;cur.c=Math.max(0,cur.c-1);sUi();}
+ else if(k==='ArrowRight'){kb=true;cur.c=Math.min(GCOLS-1,cur.c+1);sUi();}
+ else if(k==='ArrowUp'){kb=true;cur.r=Math.max(0,cur.r-1);sUi();}
+ else if(k==='ArrowDown'){kb=true;cur.r=Math.min(rows-1,cur.r+1);sUi();}
+ else if(k===' '||k==='Enter'){kb=true;const b=gridBusAt(cur.c,cur.r);if(b)tryRelease(b);else sThud();}
+});
+
+/* ---- 主迴圈 ---- */
+let last=0;
+function loop(ts){
+ if(!last)last=ts;
+ const dt=Math.min(40,ts-last);last=ts;
+ try{update(dt);draw();}catch(err){/* 防呆：單幀錯誤不中斷遊戲 */}
+ requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+</script>
+<script src="../../sc_config.js"></script>
+<script src="../../stats.js"></script>
+</body>
+</html>
