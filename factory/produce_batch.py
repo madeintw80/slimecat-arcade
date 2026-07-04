@@ -96,8 +96,13 @@ def main() -> int:
     for i in range(1, n + 1):
         log(f"────── 批量進度 {i}/{n} ──────")
         try:
+            # capture 再轉印：make_game 的詳細過程才會進 factory.log（失敗時好查原因）
             r = subprocess.run([sys.executable, str(HERE / "make_game.py")],
-                               timeout=PER_GAME_TIMEOUT)
+                               capture_output=True, text=True, encoding="utf-8",
+                               errors="replace", timeout=PER_GAME_TIMEOUT)
+            print(r.stdout, end="", flush=True)
+            if r.stderr.strip():
+                print(r.stderr[-1500:], flush=True)
             ok = (r.returncode == 0)
         except subprocess.TimeoutExpired:
             log(f"❌ 第 {i} 款超過 {PER_GAME_TIMEOUT//60} 分鐘，強制跳過")

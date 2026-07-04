@@ -97,6 +97,16 @@
       "inspiration": "Amaze GO! - 箭頭解謎（Oakever Games）",
       "desc": "看穿誰擋誰，依正確順序點貓衝出格子，全部放光！",
       "ai_score": 38
+    },
+    {
+      "id": "2026-07-04-009",
+      "title": "喵嗚三連爆",
+      "emoji": "💥",
+      "genre": "消除",
+      "date": "2026-07-04",
+      "inspiration": "Royal Kingdom",
+      "desc": "拖曳交換史萊姆貓三連爆漿，四連生火箭五連召彩虹，限步收集目標貓過關",
+      "ai_score": 42
     }
   ]
 }
