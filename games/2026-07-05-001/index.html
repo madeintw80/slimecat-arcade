@@ -1,0 +1,717 @@
+<!--GAMEMETA {"title":"喵陣連環砲","emoji":"🧨","genre":"滑動策略防守","inspiration":"原創組合：滑動全盤×行列消除×自動執行×稀缺道具","desc":"滑動排陣讓砲貓自動守家，湊滿整行整列轟出清屏大爆炸！"}-->
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>喵陣連環砲</title>
+<style>
+html,body{margin:0;padding:0;background:#12121f;height:100%;overflow:hidden;font-family:system-ui,"Microsoft JhengHei",sans-serif;-webkit-user-select:none;user-select:none}
+#wrap{position:fixed;inset:0;display:flex;align-items:center;justify-content:center}
+canvas{touch-action:none;display:block}
+#back{position:fixed;top:8px;left:8px;z-index:10;color:#9ad;text-decoration:none;font-size:13px;background:rgba(0,0,0,.45);padding:4px 9px;border-radius:8px}
+</style>
+</head>
+<body>
+<a id="back" href="../../index.html">← 回遊戲區</a>
+<div id="wrap"><canvas id="cv"></canvas></div>
+<script>
+'use strict';
+(function(){
+// ===== 基本常數 =====
+var W=400,H=600;
+var COLS=6,ROWS=6,CELL=48;
+var GX=(W-COLS*CELL)/2;      // 56：棋盤左緣
+var GY=300;                  // 棋盤上緣
+var LANE_TOP=46,BASE_Y=280;  // 敵道範圍
+var LANE_H=BASE_Y-LANE_TOP;
+var LANE_CELL=LANE_H/8;      // 敵道一格高度
+var SLIDE_DUR=0.3,SLIDE_CD=0.4,WAVE_LEN=25;
+var HIKEY='sc_nyanCannon_hi';
+
+var cv=document.getElementById('cv'),ctx=cv.getContext('2d');
+var viewScale=1;
+function resize(){
+  viewScale=Math.min(innerWidth/W,innerHeight/H);
+  var dpr=Math.min(window.devicePixelRatio||1,3);
+  cv.width=Math.round(W*viewScale*dpr);cv.height=Math.round(H*viewScale*dpr);
+  cv.style.width=(W*viewScale)+'px';cv.style.height=(H*viewScale)+'px';
+}
+addEventListener('resize',resize);resize();
+
+// ===== 遊戲狀態 =====
+var state='title';
+var grid=null,enemies=[],shots=[],parts=[],floats=[],rowFx=[],beamFx=[];
+var score=0,hi=0,kills=0,baseHP=10,wave=1,waveT=0,spawnIv=3,activeLanes=[],laneT=[];
+var tickets=3,nextQ=[],slideAnims=null,animT=0,slideCd=0,pendingSpawn=true;
+var freezeT=0,shake=0,flashRed=0,tFlash=0,timeScale=1,slowT=0;
+var banner={txt:'',t:0},comboTxt='',comboT=0,overInfo=null,overT=0;
+var tGlobal=0,lastShotS=-9,lastHitS=-9,hbT=0,warnT=-99,muted=false;
+var pStart=null;
+try{hi=parseInt(localStorage.getItem(HIKEY)||'0',10)||0;}catch(e){}
+function saveHi(){try{localStorage.setItem(HIKEY,''+hi);}catch(e){}}
+
+// 背景星星（裝飾）
+var stars=[];
+for(var i=0;i<46;i++)stars.push({x:Math.random()*W,y:Math.random()*H,r:Math.random()*1.4+0.4,tw:Math.random()*6});
+
+// ===== 音效（WebAudio 合成）=====
+var AC=null;
+function initAC(){
+  if(!AC){try{AC=new (window.AudioContext||window.webkitAudioContext)();}catch(e){AC=null;}}
+  if(AC&&AC.state==='suspended'){try{AC.resume();}catch(e){}}
+}
+function tone(f0,f1,dur,type,vol,when){
+  if(!AC||muted)return;
+  try{
+    var o=AC.createOscillator(),g=AC.createGain(),t=AC.currentTime+(when||0);
+    o.type=type;o.frequency.setValueAtTime(Math.max(1,f0),t);
+    o.frequency.exponentialRampToValueAtTime(Math.max(1,f1),t+dur);
+    g.gain.setValueAtTime(vol,t);g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
+    o.connect(g);g.connect(AC.destination);o.start(t);o.stop(t+dur+0.03);
+  }catch(e){}
+}
+function noiseS(dur,vol){
+  if(!AC||muted)return;
+  try{
+    var n=Math.floor(AC.sampleRate*dur),b=AC.createBuffer(1,n,AC.sampleRate),d=b.getChannelData(0);
+    for(var i=0;i<n;i++)d[i]=(Math.random()*2-1)*(1-i/n);
+    var s=AC.createBufferSource(),g=AC.createGain();
+    s.buffer=b;g.gain.value=vol;s.connect(g);g.connect(AC.destination);s.start();
+  }catch(e){}
+}
+function sShoot(t){tone(t==='B'?300:640,t==='B'?120:320,0.07,'square',0.04);}
+function sHit(){tone(160,90,0.05,'sawtooth',0.05);}
+function sKill(){tone(520,980,0.12,'triangle',0.1);}
+function sRow(){noiseS(0.35,0.22);tone(150,45,0.4,'sawtooth',0.28);}
+function sBeam(){tone(240,1500,0.4,'sawtooth',0.16);tone(1200,200,0.35,'square',0.08);}
+function sCombo(){var a=[523,659,784,1047];for(var i=0;i<a.length;i++)tone(a[i],a[i],0.12,'square',0.12,i*0.07);}
+function sTicket(){tone(880,440,0.18,'square',0.16);tone(880,440,0.18,'square',0.16,0.22);noiseS(0.15,0.1);}
+function sBase(){tone(100,40,0.35,'sine',0.35);noiseS(0.2,0.25);}
+function sWave(){tone(392,784,0.22,'triangle',0.12);}
+function sOver(){var a=[400,300,220,150];for(var i=0;i<a.length;i++)tone(a[i],a[i]*0.8,0.25,'sawtooth',0.14,i*0.16);}
+function sRecord(){var a=[523,659,784,1047,1319];for(var i=0;i<a.length;i++)tone(a[i],a[i],0.2,'triangle',0.14,i*0.1);}
+function sSlide(){tone(200,330,0.09,'sine',0.06);}
+function sSpawn(){tone(600,950,0.08,'triangle',0.08);}
+function sInvalid(){tone(130,90,0.09,'square',0.06);}
+function sHeart(){tone(70,45,0.16,'sine',0.2);}
+
+// ===== 小工具 =====
+function cx(c){return GX+c*CELL+CELL/2;}
+function cy(r){return GY+r*CELL+CELL/2;}
+function rr(x,y,w,h,r){ctx.beginPath();ctx.moveTo(x+r,y);ctx.arcTo(x+w,y,x+w,y+h,r);ctx.arcTo(x+w,y+h,x,y+h,r);ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);ctx.closePath();}
+function ell(x,y,rx,ry){ctx.beginPath();ctx.ellipse(x,y,rx,ry,0,0,6.2832);ctx.fill();}
+function tri(x1,y1,x2,y2,x3,y3){ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);ctx.lineTo(x3,y3);ctx.closePath();ctx.fill();}
+function txt(s,x,y,size,col,align,bold){ctx.fillStyle=col;ctx.font=(bold?'bold ':'')+size+'px system-ui,"Microsoft JhengHei",sans-serif';ctx.textAlign=align||'center';ctx.textBaseline='middle';ctx.fillText(s,x,y);}
+function shuffle(a){for(var i=a.length-1;i>0;i--){var j=(Math.random()*(i+1))|0,t=a[i];a[i]=a[j];a[j]=t;}return a;}
+function catColor(t){return t==='O'?'#f2a44a':t==='B'?'#63aaf2':t==='P'?'#f293c8':'#7ed957';}
+function rollType(){var r=Math.random();return r<0.7?'O':r<0.9?'B':'P';}
+function countCats(){var n=0;for(var r=0;r<ROWS;r++)for(var c=0;c<COLS;c++)if(grid[r][c])n++;return n;}
+function addFloat(x,y,s,col,size){floats.push({x:x,y:y,txt:s,col:col,size:size||14,t:1.1});}
+function addParts(x,y,col,n,spd,life){
+  for(var i=0;i<n;i++){var a=Math.random()*6.2832,v=spd*(0.4+Math.random()*0.8);
+    parts.push({x:x,y:y,vx:Math.cos(a)*v,vy:Math.sin(a)*v-30,g:180,t:life*(0.6+Math.random()*0.6),col:col,r:1.5+Math.random()*2.5});}
+}
+
+// ===== 開新局 =====
+function startGame(){
+  state='play';
+  grid=[];for(var r=0;r<ROWS;r++){grid.push([]);for(var c=0;c<COLS;c++)grid[r].push(null);}
+  enemies=[];shots=[];parts=[];floats=[];rowFx=[];beamFx=[];
+  score=0;kills=0;baseHP=10;wave=1;tickets=3;
+  freezeT=0;shake=0;flashRed=0;tFlash=0;timeScale=1;slowT=0;
+  slideAnims=null;animT=0;slideCd=0;comboT=0;comboTxt='';hbT=0;warnT=-99;
+  nextQ=[rollType(),rollType()];
+  // 前 15 秒安全：預埋 6 隻貓在下兩排，馬上有火力也快湊出第一排
+  var cells=[];for(var rr2=4;rr2<6;rr2++)for(var cc=0;cc<COLS;cc++)cells.push([rr2,cc]);
+  shuffle(cells);
+  var types=shuffle(['O','O','O','O','B','P']);
+  for(var k=0;k<6;k++){var p=cells[k];grid[p[0]][p[1]]={t:types[k],cd:Math.random()*0.8,pop:0};}
+  setupWave();
+}
+function pickLanes(n){var a=shuffle([0,1,2,3,4,5]);return a.slice(0,n);}
+function setupWave(){
+  waveT=0;
+  var n=wave<=3?1:wave<=6?2:wave<=9?3:Math.min(3+Math.floor((wave-9)/4),6);
+  activeLanes=pickLanes(n);
+  spawnIv=Math.max(1.3,3.0-0.07*wave);
+  if(wave%5===0)spawnIv*=1.4;
+  laneT=[];for(var i=0;i<activeLanes.length;i++)laneT.push(1+i*1.1);
+  var bt='第 '+wave+' 波';
+  if(wave%5===0){enemies.push(mkEnemy(activeLanes[(Math.random()*activeLanes.length)|0],'boss'));bt+='　⚠ BOSS 來襲';}
+  banner={txt:bt,t:1.8};
+  if(wave>1)sWave();
+}
+function mkEnemy(lane,kind){
+  var hpB=Math.max(2,Math.round(2*Math.pow(1.18,wave)));
+  var spB=9.2*Math.pow(1.08,Math.floor((wave-1)/3));
+  var hp=hpB,dmg=1,rad=11,spd=spB;
+  if(kind==='big'){hp=hpB*3;dmg=2;rad=15;spd=spB*0.85;}
+  if(kind==='boss'){hp=hpB*15;dmg=3;rad=21;spd=spB*0.5;}
+  return{lane:lane,y:LANE_TOP+8,hp:hp,maxhp:hp,dmg:dmg,r:rad,spd:spd,kind:kind,flash:0,dead:false,seed:Math.random()*10};
+}
+
+// ===== 滑動（2048 式壓實，無合成）=====
+function computeSlide(dx,dy){
+  var ng=[],anims=[],moved=false,r,c,i;
+  for(r=0;r<ROWS;r++){ng.push([]);for(c=0;c<COLS;c++)ng[r].push(null);}
+  if(dx!==0){
+    for(r=0;r<ROWS;r++){
+      var line=[];
+      for(i=0;i<COLS;i++){var sc=dx<0?i:COLS-1-i;if(grid[r][sc])line.push({cat:grid[r][sc],c:sc});}
+      for(i=0;i<line.length;i++){
+        var nc=dx<0?i:COLS-1-i;
+        ng[r][nc]=line[i].cat;
+        if(nc!==line[i].c)moved=true;
+        anims.push({cat:line[i].cat,fx:cx(line[i].c),fy:cy(r),tx:cx(nc),ty:cy(r)});
+      }
+    }
+  }else{
+    for(c=0;c<COLS;c++){
+      var col=[];
+      for(i=0;i<ROWS;i++){var sr=dy<0?i:ROWS-1-i;if(grid[sr][c])col.push({cat:grid[sr][c],r:sr});}
+      for(i=0;i<col.length;i++){
+        var nr=dy<0?i:ROWS-1-i;
+        ng[nr][c]=col[i].cat;
+        if(nr!==col[i].r)moved=true;
+        anims.push({cat:col[i].cat,fx:cx(c),fy:cy(col[i].r),tx:cx(c),ty:cy(nr)});
+      }
+    }
+  }
+  return{grid:ng,anims:anims,moved:moved};
+}
+function trySlide(dx,dy){
+  if(state!=='play'||slideCd>0||slideAnims)return;
+  var res=computeSlide(dx,dy);
+  if(!res.moved){sInvalid();shake=Math.max(shake,2);return;} // 無效滑動不生貓
+  grid=res.grid;slideAnims=res.anims;animT=0;slideCd=SLIDE_CD;pendingSpawn=true;sSlide();
+}
+function spawnOne(){
+  var emp=[];for(var r=0;r<ROWS;r++)for(var c=0;c<COLS;c++)if(!grid[r][c])emp.push([r,c]);
+  if(!emp.length)return false;
+  var p=emp[(Math.random()*emp.length)|0];
+  var t=nextQ.shift();nextQ.push(rollType());
+  grid[p[0]][p[1]]={t:t,cd:Math.random()*0.6,pop:0.25};
+  addParts(cx(p[1]),cy(p[0]),catColor(t),6,90,0.3);sSpawn();
+  return true;
+}
+function afterSettle(sp){
+  checkLines();
+  if(sp){spawnOne();if(wave>=8&&Math.random()<0.3)spawnOne();}
+  checkLines(); // 新貓剛好補滿缺口 → 立刻引爆（落在缺口＝狂喜）
+  if(countCats()===0){spawnOne();spawnOne();} // 防空盤鎖死
+}
+
+// ===== 行列引爆 =====
+function checkLines(){
+  var fr=[],fc=[],r,c,e,i;
+  for(r=0;r<ROWS;r++){var full=true;for(c=0;c<COLS;c++)if(!grid[r][c]){full=false;break;}if(full)fr.push(r);}
+  for(c=0;c<COLS;c++){var full2=true;for(r=0;r<ROWS;r++)if(!grid[r][c]){full2=false;break;}if(full2)fc.push(c);}
+  var n=fr.length+fc.length;
+  if(!n)return;
+  var mult=Math.pow(1.5,n-1);
+  for(i=0;i<fr.length;i++){
+    r=fr[i];rowFx.push({r:r,t:0.45});
+    for(c=0;c<COLS;c++)if(grid[r][c]){addParts(cx(c),cy(r),catColor(grid[r][c].t),9,160,0.5);grid[r][c]=null;}
+  }
+  for(i=0;i<fc.length;i++){
+    c=fc[i];beamFx.push({c:c,t:0.5});
+    for(r=0;r<ROWS;r++)if(grid[r][c]){addParts(cx(c),cy(r),catColor(grid[r][c].t),9,160,0.5);grid[r][c]=null;}
+  }
+  if(fr.length){
+    var dmg=Math.round(18*fr.length*mult);
+    for(i=0;i<enemies.length;i++){e=enemies[i];if(!e.dead)damageEnemy(e,dmg,true);}
+    sRow();addFloat(W/2,255,'整列齊射！全場 -'+dmg,'#ffd75e',18);
+  }
+  if(fc.length){
+    for(i=0;i<fc.length;i++){
+      c=fc[i];
+      for(var j=0;j<enemies.length;j++){e=enemies[j];if(!e.dead&&e.lane===c)damageEnemy(e,99999,true);}
+      var nb=[c-1,c+1];
+      for(var b=0;b<2;b++){var nc=nb[b];if(nc<0||nc>=COLS)continue;
+        for(var j2=0;j2<enemies.length;j2++){e=enemies[j2];if(!e.dead&&e.lane===nc)e.y=Math.max(LANE_TOP+4,e.y-2*LANE_CELL);}}
+    }
+    sBeam();addFloat(W/2,230,'光束貫穿！鄰道擊退！','#9fe8ff',17);
+  }
+  shake=Math.max(shake,5+3*n);
+  if(n>=2){
+    score+=100*(n-1);
+    comboTxt='你的陣型！ ×'+n+' COMBO';comboT=1.5;sCombo();
+    addFloat(W/2,290,'+'+(100*(n-1)),'#ffd75e',20);
+  }
+  enemies=enemies.filter(function(x){return !x.dead;});
+}
+
+// ===== 重排券 =====
+function reshuffle(){
+  if(state!=='play'||tickets<=0||slideAnims)return;
+  tickets--;
+  var cats=[],r,c;
+  for(r=0;r<ROWS;r++)for(c=0;c<COLS;c++)if(grid[r][c]){cats.push({cat:grid[r][c],x:cx(c),y:cy(r)});grid[r][c]=null;}
+  var cells=[];for(r=0;r<ROWS;r++)for(c=0;c<COLS;c++)cells.push([r,c]);
+  shuffle(cells);
+  slideAnims=[];
+  for(var i=0;i<cats.length;i++){
+    var p=cells[i];grid[p[0]][p[1]]=cats[i].cat;
+    slideAnims.push({cat:cats[i].cat,fx:cats[i].x,fy:cats[i].y,tx:cx(p[1]),ty:cy(p[0])});
+  }
+  animT=0;pendingSpawn=false;
+  freezeT=1;tFlash=0.9;shake=6;sTicket();
+}
+
+// ===== 傷害與擊殺 =====
+function laneEnemies(c){
+  return enemies.filter(function(e){return !e.dead&&e.lane===c;}).sort(function(a,b){return b.y-a.y;});
+}
+function damageEnemy(e,d,isExp){
+  if(e.dead)return;
+  e.hp-=d;e.flash=0.1;
+  if(!isExp&&tGlobal-lastHitS>0.08){lastHitS=tGlobal;sHit();}
+  if(e.hp<=0){e.dead=true;killEnemy(e,isExp);}
+}
+function killEnemy(e,isExp){
+  kills++;
+  var base=e.kind==='boss'?150:e.kind==='big'?30:10;
+  if(isExp)base*=2;
+  score+=base;
+  addFloat(cx(e.lane),Math.max(60,e.y),'+'+base,isExp?'#ffd75e':'#fff',isExp?16:12);
+  addParts(cx(e.lane),e.y,e.kind==='boss'?'#c9a2ff':'#b98ae8',isExp?14:8,isExp?150:90,0.45);
+  if(tGlobal-lastShotS>0.05)sKill();
+  // 敵人在基地前一格被清屏轟掉 → 慢動作 0.2 秒
+  if(isExp&&e.y>BASE_Y-LANE_CELL*1.3){timeScale=0.25;slowT=0.22;addFloat(cx(e.lane),e.y-22,'好險！','#ff9f43',18);}
+}
+
+// ===== 結束 =====
+function doGameOver(){
+  state='over';overT=0;
+  var bonus=tickets*500,fin=score+bonus,prevHi=hi,rec=fin>prevHi;
+  if(rec){hi=fin;saveHi();}
+  overInfo={final:fin,bonus:bonus,newRec:rec,prevHi:prevHi};
+  if(rec)sRecord();else sOver();
+  shake=12;flashRed=0.6;
+  if (window.SC) SC.over(fin);
+}
+
+// ===== 更新 =====
+function update(dt){
+  tGlobal+=dt;
+  shake=Math.max(0,shake-(shake*6+2)*dt);
+  if(flashRed>0)flashRed-=dt;
+  if(tFlash>0)tFlash-=dt;
+  if(banner.t>0)banner.t-=dt;
+  if(comboT>0)comboT-=dt;
+  var i,r,c,e;
+  for(i=0;i<floats.length;i++){floats[i].t-=dt;floats[i].y-=26*dt;}
+  floats=floats.filter(function(f){return f.t>0;});
+  for(i=0;i<parts.length;i++){var p=parts[i];p.t-=dt;p.x+=p.vx*dt;p.y+=p.vy*dt;p.vy+=p.g*dt;}
+  parts=parts.filter(function(p){return p.t>0;});
+  for(i=0;i<shots.length;i++)shots[i].t-=dt;
+  shots=shots.filter(function(s){return s.t>0;});
+  for(i=0;i<rowFx.length;i++)rowFx[i].t-=dt;
+  rowFx=rowFx.filter(function(f){return f.t>0;});
+  for(i=0;i<beamFx.length;i++)beamFx[i].t-=dt;
+  beamFx=beamFx.filter(function(f){return f.t>0;});
+  if(state==='over'){overT+=dt;return;}
+  if(state!=='play')return;
+
+  if(slowT>0){slowT-=dt;if(slowT<=0)timeScale=1;}
+  var sdt=dt*timeScale;
+  if(freezeT>0)freezeT-=dt;
+  if(slideCd>0)slideCd-=dt;
+  // 貓的落地彈跳計時
+  for(r=0;r<ROWS;r++)for(c=0;c<COLS;c++)if(grid[r][c]&&grid[r][c].pop>0)grid[r][c].pop-=dt;
+  // 滑動動畫結束 → 結算
+  if(slideAnims){animT+=dt;if(animT>=SLIDE_DUR){slideAnims=null;afterSettle(pendingSpawn);}}
+  // 波次
+  waveT+=sdt;
+  if(waveT>=WAVE_LEN){
+    score+=100*wave;
+    addFloat(W/2,220,'第'+wave+'波防守成功 +'+(100*wave),'#ffd75e',17);
+    wave++;setupWave();
+  }
+  // 出怪
+  if(freezeT<=0){
+    for(i=0;i<activeLanes.length;i++){
+      laneT[i]-=sdt;
+      if(laneT[i]<=0){
+        var kind=(wave>=6&&Math.random()<0.18)?'big':'n';
+        enemies.push(mkEnemy(activeLanes[i],kind));
+        laneT[i]=spawnIv*(0.75+Math.random()*0.5);
+      }
+    }
+  }
+  // 敵人前進 / 咬基地
+  for(i=0;i<enemies.length;i++){
+    e=enemies[i];if(e.dead)continue;
+    if(e.flash>0)e.flash-=dt;
+    if(freezeT<=0){
+      e.y+=e.spd*sdt;
+      if(e.y>=BASE_Y-6){
+        e.dead=true;baseHP-=e.dmg;shake=10;flashRed=0.4;sBase();
+        addFloat(cx(e.lane),BASE_Y-16,'-'+e.dmg+'❤','#ff6b6b',18);
+        if(baseHP<=0){baseHP=0;doGameOver();}
+      }
+    }
+  }
+  enemies=enemies.filter(function(x){return !x.dead;});
+  if(state!=='play')return;
+  // 砲貓自動開火（滑動中暫停）
+  if(!slideAnims){
+    var pinks=[0,0,0,0,0,0];
+    for(r=0;r<ROWS;r++)for(c=0;c<COLS;c++)if(grid[r][c]&&grid[r][c].t==='P')pinks[c]++;
+    for(r=0;r<ROWS;r++)for(c=0;c<COLS;c++){
+      var cat=grid[r][c];
+      if(!cat||cat.t==='P')continue;
+      var rate=(cat.t==='O'?1:0.5)*(1+0.3*pinks[c]);
+      cat.cd-=rate*sdt;
+      if(cat.cd<=0){
+        var ts=laneEnemies(c);
+        if(!ts.length){cat.cd=0;continue;}
+        cat.cd=1;
+        var pierce=cat.t==='B'?2:1,dmg=cat.t==='B'?3:1;
+        for(var k=0;k<Math.min(pierce,ts.length);k++){
+          var tg=ts[k];
+          shots.push({x1:cx(c),y1:cy(r)-16,x2:cx(c),y2:tg.y,t:0.08,col:cat.t==='B'?'#8fc4ff':'#ffcf7a'});
+          damageEnemy(tg,dmg,false);
+        }
+        addParts(cx(c),cy(r)-18,cat.t==='B'?'#8fc4ff':'#ffd27a',2,60,0.15);
+        if(tGlobal-lastShotS>0.07){lastShotS=tGlobal;sShoot(cat.t);}
+      }
+    }
+    enemies=enemies.filter(function(x){return !x.dead;});
+  }
+  // 盤面壓力警告
+  if(countCats()>=28&&tGlobal-warnT>6){warnT=tGlobal;addFloat(W/2,420,'陣地快滿了！壓一排出來！','#ff9f43',16);}
+  // 低血心跳
+  if(baseHP<=3){hbT+=dt;if(hbT>1.1){hbT=0;sHeart();}}
+}
+
+// ===== 畫圖 =====
+function drawCat(x,y,t,s){
+  var C=t==='O'?['#f2a44a','#b5751f']:t==='B'?['#63aaf2','#3a77c2']:t==='P'?['#f293c8','#c25f97']:['#7ed957','#4e9c34'];
+  ctx.save();ctx.translate(x,y);ctx.scale(s,s);
+  var a=Math.sin(tGlobal*5+(x+y)*0.05)*0.045;
+  ctx.scale(1+a,1-a);
+  // 砲管（橘/藍）或應援愛心（粉）
+  if(t==='O'){ctx.fillStyle='#5a6175';rr(-3.5,-24,7,11,2);ctx.fill();}
+  else if(t==='B'){ctx.fillStyle='#455066';rr(-5,-26,10,13,2);ctx.fill();}
+  // 貓耳
+  ctx.fillStyle=C[1];
+  tri(-13,-6,-17,-20,-5,-12);tri(13,-6,17,-20,5,-12);
+  // 身體（史萊姆）
+  ctx.fillStyle=C[0];ell(0,0,16,13.5);
+  ctx.fillStyle='rgba(255,255,255,0.35)';ell(-6,-6,4.5,3);
+  // 臉
+  ctx.fillStyle='#2b2b2b';ell(-5.5,-1.5,2,2);ell(5.5,-1.5,2,2);
+  ctx.strokeStyle='#2b2b2b';ctx.lineWidth=1.2;
+  ctx.beginPath();ctx.arc(-2.5,2.5,2.4,0,Math.PI);ctx.stroke();
+  ctx.beginPath();ctx.arc(2.5,2.5,2.4,0,Math.PI);ctx.stroke();
+  if(t==='P'){ // 愛心
+    ctx.fillStyle='#ff6fa5';ell(-3,-19,3.2,3.2);ell(3,-19,3.2,3.2);tri(-5.9,-17.6,5.9,-17.6,0,-11);
+  }
+  ctx.restore();
+}
+function drawEnemy(e){
+  var x=cx(e.lane),y=e.y;
+  var col=e.kind==='boss'?'#8a4fe0':e.kind==='big'?'#e06a5f':'#a76fe8';
+  ctx.save();ctx.translate(x,y);
+  var a=Math.sin(tGlobal*6+e.seed)*0.06;
+  ctx.scale(1+a,1-a);
+  if(e.y>BASE_Y-46){ // 逼近基地：紅色警告光
+    ctx.fillStyle='rgba(255,80,80,'+(0.15+0.12*Math.sin(tGlobal*10))+')';ell(0,0,e.r+7,e.r*0.9+7);
+  }
+  ctx.fillStyle=col;ell(0,0,e.r,e.r*0.85);
+  if(e.flash>0){ctx.fillStyle='rgba(255,255,255,0.75)';ell(0,0,e.r,e.r*0.85);}
+  // 兇臉
+  ctx.fillStyle='#fff';ell(-e.r*0.35,-e.r*0.15,e.r*0.2,e.r*0.22);ell(e.r*0.35,-e.r*0.15,e.r*0.2,e.r*0.22);
+  ctx.fillStyle='#1d1d2e';ell(-e.r*0.35,-e.r*0.1,e.r*0.1,e.r*0.12);ell(e.r*0.35,-e.r*0.1,e.r*0.1,e.r*0.12);
+  ctx.strokeStyle='#1d1d2e';ctx.lineWidth=1.5;
+  ctx.beginPath();ctx.moveTo(-e.r*0.55,-e.r*0.45);ctx.lineTo(-e.r*0.15,-e.r*0.3);ctx.stroke();
+  ctx.beginPath();ctx.moveTo(e.r*0.55,-e.r*0.45);ctx.lineTo(e.r*0.15,-e.r*0.3);ctx.stroke();
+  if(e.kind==='boss'){ // 皇冠
+    ctx.fillStyle='#ffd75e';
+    tri(-12,-e.r-2,-12,-e.r-14,-4,-e.r-2);tri(-6,-e.r-2,0,-e.r-16,6,-e.r-2);tri(4,-e.r-2,12,-e.r-14,12,-e.r-2);
+  }
+  ctx.restore();
+  if(e.hp<e.maxhp||e.kind==='boss'){
+    var bw=e.r*2;
+    ctx.fillStyle='rgba(0,0,0,0.5)';ctx.fillRect(x-e.r,y-e.r-9,bw,3.5);
+    ctx.fillStyle='#ff7b7b';ctx.fillRect(x-e.r,y-e.r-9,bw*Math.max(0,e.hp/e.maxhp),3.5);
+  }
+  if(freezeT>0)txt('❄',x,y-e.r-16,11,'#bfe8ff');
+}
+function nearMissCells(){
+  var out=[],r,c,n,idx;
+  for(r=0;r<ROWS;r++){n=0;idx=-1;for(c=0;c<COLS;c++){if(grid[r][c])n++;else idx=c;}if(n===5)out.push([r,idx]);}
+  for(c=0;c<COLS;c++){n=0;idx=-1;for(r=0;r<ROWS;r++){if(grid[r][c])n++;else idx=r;}if(n===5)out.push([idx,c]);}
+  return out;
+}
+function draw(){
+  var dpr=Math.min(window.devicePixelRatio||1,3);
+  ctx.setTransform(viewScale*dpr,0,0,viewScale*dpr,0,0);
+  // 夜空底色
+  var g=ctx.createLinearGradient(0,0,0,H);
+  g.addColorStop(0,'#141425');g.addColorStop(1,'#1b2036');
+  ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
+  for(var i=0;i<stars.length;i++){var st=stars[i];
+    ctx.fillStyle='rgba(255,255,255,'+(0.18+0.18*Math.sin(tGlobal*2+st.tw))+')';
+    ctx.fillRect(st.x,st.y,st.r,st.r);}
+  // 震動
+  if(shake>0)ctx.translate((Math.random()*2-1)*shake,(Math.random()*2-1)*shake);
+
+  var r,c,e;
+  if(grid){
+    // 敵道
+    for(c=0;c<COLS;c++){
+      ctx.fillStyle='rgba(255,255,255,0.045)';rr(cx(c)-20,LANE_TOP,40,LANE_H,6);ctx.fill();
+      ctx.strokeStyle='rgba(255,255,255,0.05)';ctx.lineWidth=1;
+      for(var k2=1;k2<8;k2++){var ly=LANE_TOP+k2*LANE_CELL;
+        ctx.beginPath();ctx.moveTo(cx(c)-16,ly);ctx.lineTo(cx(c)+16,ly);ctx.stroke();}
+    }
+    if(state==='play'||state==='pause'){
+      for(i=0;i<activeLanes.length;i++)
+        txt('▼',cx(activeLanes[i]),LANE_TOP+10,13,'rgba(255,107,107,'+(0.5+0.3*Math.sin(tGlobal*5))+')');
+    }
+    // 基地圍欄
+    ctx.fillStyle='#5d4630';rr(GX-6,BASE_Y,COLS*CELL+12,11,4);ctx.fill();
+    ctx.fillStyle='#4a3624';
+    for(var px=GX;px<GX+COLS*CELL;px+=16)ctx.fillRect(px,BASE_Y+1,2,9);
+    // 敵人
+    for(i=0;i<enemies.length;i++)drawEnemy(enemies[i]);
+    // 光束特效
+    for(i=0;i<beamFx.length;i++){
+      var bf=beamFx[i],al=bf.t/0.5,bx=cx(bf.c);
+      ctx.fillStyle='rgba(159,232,255,'+(al*0.6)+')';ctx.fillRect(bx-16,LANE_TOP,32,LANE_H);
+      ctx.fillStyle='rgba(255,255,255,'+(al*0.85)+')';ctx.fillRect(bx-6,LANE_TOP,12,LANE_H);
+      ctx.fillStyle='rgba(159,232,255,'+(al*0.25)+')';ctx.fillRect(bx-20,GY,40,ROWS*CELL);
+    }
+    // 棋盤
+    ctx.fillStyle='#181c2e';rr(GX-8,GY-8,COLS*CELL+16,ROWS*CELL+16,10);ctx.fill();
+    var pressure=countCats()>=25;
+    for(r=0;r<ROWS;r++)for(c=0;c<COLS;c++){
+      ctx.fillStyle='#232945';rr(GX+c*CELL+2,GY+r*CELL+2,CELL-4,CELL-4,7);ctx.fill();
+    }
+    // Near-miss：只差一格的行列，缺口金光呼吸
+    if(state==='play'){
+      var nm=nearMissCells();
+      for(i=0;i<nm.length;i++){
+        var mr=nm[i][0],mc=nm[i][1],pu=0.35+0.3*Math.sin(tGlobal*6);
+        ctx.fillStyle='rgba(255,215,94,'+(pu*0.25)+')';rr(GX+mc*CELL+2,GY+mr*CELL+2,CELL-4,CELL-4,7);ctx.fill();
+        ctx.strokeStyle='rgba(255,215,94,'+pu+')';ctx.lineWidth=2.5;
+        rr(GX+mc*CELL+3,GY+mr*CELL+3,CELL-6,CELL-6,6);ctx.stroke();
+      }
+    }
+    // 整列引爆特效
+    for(i=0;i<rowFx.length;i++){
+      var rf=rowFx[i],al2=rf.t/0.45;
+      ctx.fillStyle='rgba(255,215,94,'+(al2*0.55)+')';ctx.fillRect(GX,GY+rf.r*CELL,COLS*CELL,CELL);
+    }
+    // 砲貓
+    if(slideAnims){
+      var pgs=Math.min(1,animT/SLIDE_DUR),ez=1-Math.pow(1-pgs,3);
+      for(i=0;i<slideAnims.length;i++){
+        var an=slideAnims[i];
+        drawCat(an.fx+(an.tx-an.fx)*ez,an.fy+(an.ty-an.fy)*ez,an.cat.t,1);
+      }
+    }else{
+      for(r=0;r<ROWS;r++)for(c=0;c<COLS;c++){
+        var cat=grid[r][c];if(!cat)continue;
+        var s=1;
+        if(cat.pop>0){var u=1-cat.pop/0.25;s=u<0.7?(u/0.7)*1.18:1.18-((u-0.7)/0.3)*0.18;}
+        var jx=pressure?Math.sin(tGlobal*32+(r*6+c))*1.1:0;
+        drawCat(cx(c)+jx,cy(r),cat.t,s);
+      }
+    }
+    // 彈道
+    for(i=0;i<shots.length;i++){
+      var sh=shots[i];
+      ctx.strokeStyle=sh.col;ctx.globalAlpha=Math.max(0,sh.t/0.08);ctx.lineWidth=2.5;
+      ctx.beginPath();ctx.moveTo(sh.x1,sh.y1);ctx.lineTo(sh.x2,sh.y2);ctx.stroke();
+      ctx.globalAlpha=1;
+    }
+    // 粒子
+    for(i=0;i<parts.length;i++){
+      var pp=parts[i];
+      ctx.globalAlpha=Math.max(0,Math.min(1,pp.t*2.5));
+      ctx.fillStyle=pp.col;ell(pp.x,pp.y,pp.r,pp.r);
+    }
+    ctx.globalAlpha=1;
+    // 凍結提示
+    if(freezeT>0&&state==='play'){
+      ctx.fillStyle='rgba(160,220,255,0.08)';ctx.fillRect(GX-8,LANE_TOP,COLS*CELL+16,LANE_H);
+      txt('❄ 敵人凍結 '+Math.max(0,freezeT).toFixed(1)+'s',W/2,150,16,'#bfe8ff','center',true);
+    }
+    // 飄字
+    for(i=0;i<floats.length;i++){
+      var fl=floats[i];
+      ctx.globalAlpha=Math.max(0,Math.min(1,fl.t*1.6));
+      txt(fl.txt,fl.x,fl.y,fl.size,fl.col,'center',true);
+    }
+    ctx.globalAlpha=1;
+  }
+
+  // HUD（遊戲中）
+  if(grid&&(state==='play'||state==='pause')){
+    txt(''+score,W/2,24,22,'#fff','center',true);
+    txt('❤ '+baseHP,394,17,15,baseHP<=3?'#ff6b6b':'#ff9aa2','right',true);
+    txt('第 '+wave+' 波',394,36,12,'#aab','right');
+    // 波次進度條
+    ctx.fillStyle='rgba(255,255,255,0.12)';ctx.fillRect(GX,41,COLS*CELL,3);
+    ctx.fillStyle='#ffd75e';ctx.fillRect(GX,41,COLS*CELL*Math.min(1,waveT/WAVE_LEN),3);
+    // 靜音鈕
+    ctx.fillStyle='rgba(0,0,0,0.35)';ell(24,64,13,13);
+    txt(muted?'🔇':'🔊',24,64,13,'#fff');
+    // 下一隻預告
+    ctx.fillStyle='rgba(0,0,0,0.35)';rr(4,522,48,64,8);ctx.fill();
+    txt('下一隻',28,534,10,'#9ab');
+    if(nextQ.length)drawCat(28,560,nextQ[0],0.62);
+    // 重排券按鈕
+    var tOn=tickets>0;
+    ctx.fillStyle=tOn?'rgba(210,60,60,0.85)':'rgba(80,80,90,0.6)';rr(348,522,48,64,8);ctx.fill();
+    if(tOn&&countCats()>=28){ctx.strokeStyle='rgba(255,215,94,'+(0.5+0.4*Math.sin(tGlobal*7))+')';ctx.lineWidth=2;rr(348,522,48,64,8);ctx.stroke();}
+    txt('🔀',372,543,18,'#fff');
+    txt('重排',372,562,11,'#fff','center',true);
+    txt('×'+tickets,372,577,12,tOn?'#ffd75e':'#889','center',true);
+  }
+  // 波次橫幅
+  if(banner.t>0&&grid){
+    ctx.globalAlpha=Math.min(1,banner.t/0.4);
+    ctx.fillStyle='rgba(0,0,0,0.45)';ctx.fillRect(0,162,W,40);
+    txt(banner.txt,W/2,182,24,'#ffd75e','center',true);
+    ctx.globalAlpha=1;
+  }
+  // COMBO 大字（功勞還給玩家）
+  if(comboT>0){
+    var cs=1+0.3*Math.max(0,(comboT-1.2))/0.3;
+    ctx.save();ctx.translate(W/2,208);ctx.scale(cs,cs);
+    ctx.globalAlpha=Math.min(1,comboT*1.4);
+    txt(comboTxt,0,0,22,'#ffd75e','center',true);
+    ctx.restore();ctx.globalAlpha=1;
+  }
+  // 重排券紅框警示
+  if(tFlash>0){
+    ctx.globalAlpha=Math.min(1,tFlash*1.4);
+    ctx.strokeStyle='#ff4b4b';ctx.lineWidth=8;ctx.strokeRect(4,4,W-8,H-8);
+    txt('🔀 緊急重排！剩 '+tickets+' 張','center'===1?0:W/2,120,22,'#ff8f8f','center',true);
+    ctx.globalAlpha=1;
+  }
+  // 受擊紅閃 / 低血暈影
+  if(flashRed>0){ctx.fillStyle='rgba(255,40,40,'+Math.min(0.35,flashRed)+')';ctx.fillRect(0,0,W,H);}
+  if(grid&&state==='play'&&baseHP<=3){
+    ctx.fillStyle='rgba(255,40,40,'+(0.05+0.05*Math.sin(tGlobal*5))+')';ctx.fillRect(0,0,W,H);
+  }
+
+  // ===== 各狀態覆蓋層 =====
+  if(state==='title'){
+    txt('喵陣連環砲',W/2,80,36,'#aef19a','center',true);
+    drawCat(W/2,150,'G',2.6);
+    txt('滑動全盤砲貓排陣型，貓砲自動開火退敵',W/2,214,15,'#fff');
+    txt('湊滿一整行 / 一整列 ＝ 整排引爆大清屏！',W/2,238,15,'#ffd75e','center',true);
+    drawCat(90,290,'O',1.1);drawCat(200,290,'B',1.1);drawCat(310,290,'P',1.1);
+    txt('橘貓・標準砲',90,322,12,'#f2a44a');
+    txt('藍貓・貫穿重砲',200,322,12,'#63aaf2');
+    txt('粉貓・同欄加速',310,322,12,'#f293c8');
+    txt('👆 上下左右滑動（或方向鍵）移動全部砲貓',W/2,366,13,'#ccd');
+    txt('🔀 重排券只有 3 張（按鈕或 R）：用一張痛一張',W/2,390,13,'#ccd');
+    txt('❤ 基地 10 血，別讓史萊姆軍團爬到底！',W/2,414,13,'#ccd');
+    txt('最高分 '+hi,W/2,456,14,'#9ab');
+    ctx.globalAlpha=0.6+0.4*Math.sin(tGlobal*4);
+    txt('— 點擊開始（或按 Enter）—',W/2,516,20,'#ffd75e','center',true);
+    ctx.globalAlpha=1;
+  }else if(state==='pause'){
+    ctx.fillStyle='rgba(0,0,0,0.6)';ctx.fillRect(0,0,W,H);
+    txt('⏸ 已暫停',W/2,270,28,'#fff','center',true);
+    txt('點擊繼續',W/2,314,16,'#ffd75e');
+  }else if(state==='over'&&overInfo){
+    ctx.fillStyle='rgba(0,0,0,0.72)';ctx.fillRect(0,0,W,H);
+    txt('遊戲結束',W/2,140,32,'#ff8f8f','center',true);
+    txt('撐到第 '+wave+' 波・擊退 '+kills+' 隻',W/2,184,15,'#ccd');
+    txt('最終分數',W/2,226,14,'#9ab');
+    txt(''+overInfo.final,W/2,262,40,'#ffd75e','center',true);
+    if(overInfo.bonus>0)
+      txt('（含捏住重排券 ×'+(overInfo.bonus/500)+' ＋'+overInfo.bonus+'）',W/2,296,13,'#9fe8ff');
+    if(overInfo.newRec){
+      ctx.globalAlpha=0.7+0.3*Math.sin(tGlobal*6);
+      txt('🎉 新紀錄！',W/2,340,22,'#ffd75e','center',true);
+      ctx.globalAlpha=1;
+    }else{
+      txt('差 '+(overInfo.prevHi-overInfo.final+1)+' 分破紀錄，再壓一排就到了！',W/2,340,16,'#fff','center',true);
+    }
+    txt('最高分 '+hi,W/2,372,13,'#9ab');
+    if(overT>0.6){
+      ctx.globalAlpha=0.6+0.4*Math.sin(tGlobal*4);
+      txt('— 點擊再來一局 —',W/2,460,20,'#aef19a','center',true);
+      ctx.globalAlpha=1;
+    }
+  }
+}
+
+// ===== 輸入 =====
+function ptXY(ev){
+  var rc=cv.getBoundingClientRect();
+  return{x:(ev.clientX-rc.left)/rc.width*W,y:(ev.clientY-rc.top)/rc.height*H};
+}
+cv.addEventListener('pointerdown',function(ev){
+  ev.preventDefault();initAC();
+  var p=ptXY(ev);
+  if(state==='title'){startGame();return;}
+  if(state==='pause'){state='play';return;}
+  if(state==='over'){if(overT>0.6)startGame();return;}
+  // 靜音鈕
+  if(Math.hypot(p.x-24,p.y-64)<17){muted=!muted;return;}
+  // 重排券按鈕
+  if(p.x>=346&&p.x<=400&&p.y>=520&&p.y<=588){reshuffle();return;}
+  pStart={x:p.x,y:p.y};
+});
+cv.addEventListener('pointermove',function(ev){
+  if(!pStart||state!=='play')return;
+  var p=ptXY(ev),dx=p.x-pStart.x,dy=p.y-pStart.y;
+  if(Math.abs(dx)<26&&Math.abs(dy)<26)return;
+  if(Math.abs(dx)>Math.abs(dy))trySlide(dx>0?1:-1,0);
+  else trySlide(0,dy>0?1:-1);
+  pStart=null;
+});
+cv.addEventListener('pointerup',function(){pStart=null;});
+cv.addEventListener('pointercancel',function(){pStart=null;});
+addEventListener('keydown',function(ev){
+  var k=ev.key;
+  if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].indexOf(k)>=0)ev.preventDefault();
+  initAC();
+  if(k==='m'||k==='M'){muted=!muted;return;}
+  if(state==='title'){if(k==='Enter'||k===' ')startGame();return;}
+  if(state==='pause'){state='play';return;}
+  if(state==='over'){if((k==='Enter'||k===' ')&&overT>0.6)startGame();return;}
+  if(state!=='play')return;
+  if(k==='ArrowLeft'||k==='a'||k==='A')trySlide(-1,0);
+  else if(k==='ArrowRight'||k==='d'||k==='D')trySlide(1,0);
+  else if(k==='ArrowUp'||k==='w'||k==='W')trySlide(0,-1);
+  else if(k==='ArrowDown'||k==='s'||k==='S')trySlide(0,1);
+  else if(k==='r'||k==='R')reshuffle();
+});
+// 切視窗 / 來電：清輸入 + 自動暫停（防卡鍵、防燒血）
+addEventListener('blur',function(){pStart=null;if(state==='play')state='pause';});
+document.addEventListener('visibilitychange',function(){
+  if(document.hidden){pStart=null;if(state==='play')state='pause';}
+});
+
+// ===== 主迴圈：固定時間步長（120Hz 不會變兩倍速）=====
+var last=performance.now(),acc=0,STEP=1/60;
+function frame(now){
+  try{
+    var dt=(now-last)/1000;last=now;
+    if(dt>0.25)dt=0.25;
+    acc+=dt;
+    var guard=0;
+    while(acc>=STEP&&guard<8){update(STEP);acc-=STEP;guard++;}
+    if(guard>=8)acc=0;
+    draw();
+  }catch(e){}
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+})();
+</script>
+<script src="../../sc_config.js"></script>
+<script src="../../stats.js"></script>
+</body>
+</html>

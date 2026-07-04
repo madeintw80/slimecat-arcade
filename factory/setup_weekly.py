@@ -1,5 +1,8 @@
 # -*- coding: utf-8 -*-
-"""建立「每週日 18:00 檢討」排程（run_weekly.bat + schtasks，冪等可重跑）。"""
+"""建立「每週三＋週日 18:00 檢討」排程（run_weekly.bat + schtasks，冪等可重跑）。
+
+想隨時手動開檢討會 → python factory/review_now.py（或 Telegram 打「立即檢討」）。
+"""
 import subprocess
 import sys
 from pathlib import Path
@@ -27,12 +30,13 @@ def write_bat() -> None:
 
 
 def create_task() -> int:
+    # WEEKLY 的 /D 可以逗號列多天（MONTHLY 才有單日限制）
     cmd = ["schtasks", "/Create", "/TN", TASK_NAME, "/TR", str(BAT),
-           "/SC", "WEEKLY", "/D", "SUN", "/ST", "18:00", "/F"]
+           "/SC", "WEEKLY", "/D", "WED,SUN", "/ST", "18:00", "/F"]
     proc = subprocess.run(cmd, capture_output=True)
     print((proc.stdout + proc.stderr).decode("cp950", errors="replace").strip())
     if proc.returncode == 0:
-        print(f"✅ 排程「{TASK_NAME}」已建立：每週日 18:00 檢討")
+        print(f"✅ 排程「{TASK_NAME}」已建立：每週三＋週日 18:00 檢討")
     return proc.returncode
 
 

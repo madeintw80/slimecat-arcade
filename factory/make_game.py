@@ -308,37 +308,17 @@ def notify_fail(reason: str) -> None:
         pass
 
 
-# ---------------------------------------------------------------- 主流程
-def main() -> int:
-    log("🏭 SlimeCat 遊戲工作室 v2 開工（解構 → 設計 → 品管 → 自評）")
-    try:
-        trends = fetch_trends.fetch()
-        log(f"📈 榜單 OK（{trends['source']}，{len(trends['games'])} 款）")
-    except Exception as e:
-        log(f"❌ 抓榜單失敗：{e}")
-        notify_fail(f"抓榜單失敗：{e}")
-        return 1
+# ---------------------------------------------------------------- 生產管線（共用）
+def produce_from_decon(decon: dict) -> int:
+    """帶著企劃資料跑完 設計→實作→品管→自評→上架→部署。
 
+    decon = {source, title, genre, doc}——doc 是解構筆記（臨摹模式，make_game）
+    或原創企劃書（原創模式，original_mode.py），管線本身完全相同。
+    """
     history = (json.loads(HISTORY_FILE.read_text(encoding="utf-8"))
                if HISTORY_FILE.exists() else {"used": []})
     data = json.loads(GAMES_JSON.read_text(encoding="utf-8"))
     today = datetime.date.today().isoformat()
-
-    # ── 解構 ──
-    try:
-        log("🔍 策劃解構中（挑一款熱門遊戲、拆解上癮機制）…")
-        decon = stage_deconstruct(trends, history, data["games"])
-        DECON_DIR.mkdir(parents=True, exist_ok=True)
-        slug = re.sub(r"[^\w一-鿿-]+", "_", decon["source"])[:40]
-        decon_file = DECON_DIR / f"{today}-{slug}.md"
-        decon_file.write_text(decon["doc"], encoding="utf-8")
-        log(f"📖 解構完成：{decon['source']} → {decon_file.name}")
-    except Exception as e:
-        log(f"❌ 解構階段失敗：{e}")
-        notify_fail(f"解構階段失敗：{e}")
-        return 1
-
-    # ── 設計 + 實作（失敗重試一次）──
     feedback = ""
     for attempt in range(1, MAX_ATTEMPTS + 1):
         log(f"🛠️ 第 {attempt}/{MAX_ATTEMPTS} 次實作（model={MODEL}，最多等 {GEN_TIMEOUT//60} 分鐘）…")
@@ -403,6 +383,39 @@ def main() -> int:
     log("❌ 重試後仍失敗，今天停產（明天排程會再試）")
     notify_fail(feedback)
     return 1
+
+
+# ---------------------------------------------------------------- 主流程（臨摹模式）
+def main() -> int:
+    log("🏭 SlimeCat 遊戲工作室 v2 開工（解構 → 設計 → 品管 → 自評）")
+    try:
+        trends = fetch_trends.fetch()
+        log(f"📈 榜單 OK（{trends['source']}，{len(trends['games'])} 款）")
+    except Exception as e:
+        log(f"❌ 抓榜單失敗：{e}")
+        notify_fail(f"抓榜單失敗：{e}")
+        return 1
+
+    history = (json.loads(HISTORY_FILE.read_text(encoding="utf-8"))
+               if HISTORY_FILE.exists() else {"used": []})
+    data = json.loads(GAMES_JSON.read_text(encoding="utf-8"))
+    today = datetime.date.today().isoformat()
+
+    # ── 解構 ──
+    try:
+        log("🔍 策劃解構中（挑一款熱門遊戲、拆解上癮機制）…")
+        decon = stage_deconstruct(trends, history, data["games"])
+        DECON_DIR.mkdir(parents=True, exist_ok=True)
+        slug = re.sub(r"[^\w一-鿿-]+", "_", decon["source"])[:40]
+        decon_file = DECON_DIR / f"{today}-{slug}.md"
+        decon_file.write_text(decon["doc"], encoding="utf-8")
+        log(f"📖 解構完成：{decon['source']} → {decon_file.name}")
+    except Exception as e:
+        log(f"❌ 解構階段失敗：{e}")
+        notify_fail(f"解構階段失敗：{e}")
+        return 1
+
+    return produce_from_decon(decon)
 
 
 if __name__ == "__main__":

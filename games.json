@@ -157,6 +157,16 @@
       "inspiration": "Family Style: Co-op Kitchen",
       "desc": "照訂單由下往上疊出貓咪漢堡，限時出餐衝小費combo！",
       "ai_score": 38
+    },
+    {
+      "id": "2026-07-05-001",
+      "title": "喵陣連環砲",
+      "emoji": "🧨",
+      "genre": "滑動策略防守",
+      "date": "2026-07-05",
+      "inspiration": "原創組合：滑動全盤×行列消除×自動執行×稀缺道具",
+      "desc": "滑動排陣讓砲貓自動守家，湊滿整行整列轟出清屏大爆炸！",
+      "ai_score": 38
     }
   ]
 }
