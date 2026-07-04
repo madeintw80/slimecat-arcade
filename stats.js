@@ -1,9 +1,11 @@
-// SlimeCat 遊戲區 — 匿名數據回報（點擊率 / 停留時長 / 回訪留存）
+// SlimeCat 遊戲區 — 匿名數據回報（點擊率 / 活躍時長 / 回訪留存）
 // 原理：sendBeacon 把小事件丟到 Google Apps Script → 寫進「SlimeCat Analytics」Sheet。
 // 沒設定 SC_ANALYTICS_URL 時整支自動休眠，遊戲照常玩。
+// 自己人排除：在瀏覽器 console 跑 localStorage.sc_ignore = 1 → 這台裝置從此不回報。
 (function () {
   const URL = window.SC_ANALYTICS_URL || "";
   if (!URL) return;
+  try { if (localStorage.getItem("sc_ignore")) return; } catch (e) {}
 
   // 這是哪一款遊戲（大廳 = arcade）
   const m = location.pathname.match(/games\/([^/]+)\//);
@@ -39,13 +41,26 @@
   // 事件 1：打開（= 點擊率的分子）
   send("open");
 
-  // 事件 2：離開時回報這次玩了幾秒（= 停留時長）
-  const t0 = Date.now();
+  // 事件 2：離開時回報「活躍秒數」——只累積有互動的時間。
+  // 兩次互動間隔超過 30 秒的部分不計，所以頁面開著掛機不會灌水。
+  const IDLE_GAP = 30000;
+  let activeMs = 0;
+  let lastPoke = Date.now();
+  function poke() {
+    const now = Date.now();
+    activeMs += Math.min(now - lastPoke, IDLE_GAP);
+    lastPoke = now;
+  }
+  ["pointerdown", "pointermove", "touchstart", "touchmove", "keydown"].forEach(
+    (e) => addEventListener(e, poke, { passive: true })
+  );
+
   let sent = false;
   function bye() {
     if (sent) return;
     sent = true;
-    send("session", Math.round((Date.now() - t0) / 1000));
+    poke(); // 把最後一段活躍時間結清
+    send("session", Math.round(activeMs / 1000));
   }
   addEventListener("pagehide", bye);
   document.addEventListener("visibilitychange", () => {

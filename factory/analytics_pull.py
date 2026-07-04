@@ -4,9 +4,10 @@
 指標（單機小站版的點擊率/留存率）：
   - opens        開啟次數（點擊率分子）
   - devices      不重複裝置數
-  - avg_session  平均停留秒數
+  - med_session  停留中位秒數（前端只回報「活躍時間」，掛機不計；中位數抗極端值）
   - return_rate  回訪率＝「首訪隔天以後又來的裝置」比例（D1+ 留存 proxy）
-  - avg_score    平均分數（over 事件）
+  - med_score    分數中位數（over 事件；防 console 偽造分數污染）
+  - 事件的遊戲 id 只認 games.json 名錄（含 retired），垃圾 id 整筆排除
 
 認證：借用 Portfolio 專案現成的 OAuth token（同一個 Google 帳號、同 Sheets scope）。
 用法：
@@ -15,6 +16,7 @@
 """
 import datetime
 import json
+import statistics
 import sys
 from collections import defaultdict
 from pathlib import Path
@@ -26,6 +28,19 @@ SUMMARY_FILE = HERE / "analytics_summary.json"
 
 SHEET_ID = "1lWyPRyRXr3hB6i-lVksq6pozFl0CXQYZa9RhnkDyRoA"  # SlimeCat Analytics
 PORTFOLIO_TOKEN = Path("C:/Users/User/projects/Portfolio/token.json")
+GAMES_JSON = HERE.parent / "games.json"
+
+
+def known_ids():
+    """大廳 + 上架中 + 已下架的遊戲 id——事件只認這些，垃圾 id 不進報表也不進週報。"""
+    ids = {"arcade"}
+    try:
+        data = json.loads(GAMES_JSON.read_text(encoding="utf-8"))
+        for g in data.get("games", []) + data.get("retired", []):
+            ids.add(g["id"])
+    except Exception:
+        pass
+    return ids
 
 
 def fetch_rows():
@@ -41,13 +56,19 @@ def fetch_rows():
 
 
 def summarize(rows):
-    """rows: [時間, 事件, 遊戲, 數值, 裝置ID, 距首訪天數, 手機]"""
+    """rows: [時間, 事件, 遊戲, 數值, 裝置ID, 距首訪天數, 手機]
+    回傳 (每款統計, 被排除的未知事件數)。"""
+    known = known_ids()
+    unknown = 0
     g = defaultdict(lambda: {"opens": 0, "devices": set(), "return_devices": set(),
                              "sessions": [], "scores": [], "mobile": 0})
     for r in rows:
         r = r + [""] * (7 - len(r))  # 短列補齊
         _, ev, game, val, did, days, mob = r[:7]
         if not game:
+            continue
+        if game not in known:  # 只認名錄裡的遊戲，垃圾/偽造 id 直接排除
+            unknown += 1
             continue
         s = g[game]
         try:
@@ -73,13 +94,16 @@ def summarize(rows):
         out[game] = {
             "opens": s["opens"],
             "devices": len(s["devices"]),
+            # 中位數比平均抗灌水：單一極端值（掛機/偽造）拉不動它
+            "med_session_sec": round(statistics.median(s["sessions"]), 1) if s["sessions"] else 0,
             "avg_session_sec": round(sum(s["sessions"]) / len(s["sessions"]), 1) if s["sessions"] else 0,
             "plays_reported": len(s["scores"]),
+            "med_score": round(statistics.median(s["scores"]), 1) if s["scores"] else 0,
             "avg_score": round(sum(s["scores"]) / len(s["scores"]), 1) if s["scores"] else 0,
             "return_rate": round(len(s["return_devices"]) / n_dev, 2),
             "mobile_ratio": round(s["mobile"] / s["opens"], 2) if s["opens"] else 0,
         }
-    return out
+    return out, unknown
 
 
 def report_text(summary) -> str:
@@ -91,9 +115,9 @@ def report_text(summary) -> str:
         name = "🏠 大廳" if game == "arcade" else f"《{game}》"
         lines.append(f"{name}")
         lines.append(f"  開啟 {s['opens']} 次｜{s['devices']} 台裝置｜手機占比 {int(s['mobile_ratio']*100)}%")
-        lines.append(f"  平均停留 {s['avg_session_sec']} 秒｜回訪率 {int(s['return_rate']*100)}%")
+        lines.append(f"  活躍停留中位 {s['med_session_sec']} 秒｜回訪率 {int(s['return_rate']*100)}%")
         if s["plays_reported"]:
-            lines.append(f"  回報 {s['plays_reported']} 局｜平均分 {s['avg_score']}")
+            lines.append(f"  回報 {s['plays_reported']} 局｜分數中位 {s['med_score']}")
     return "\n".join(lines)
 
 
@@ -106,14 +130,17 @@ def main() -> int:
         print("   （還沒部署 Apps Script？看 SETUP_ANALYTICS.md；"
               "或 Portfolio token 過期，跑 portfolio_cli.py status 重新 OAuth）")
         return 1
-    summary = summarize(rows)
+    summary, unknown = summarize(rows)
     SUMMARY_FILE.write_text(json.dumps({
         "updated_at": datetime.datetime.now().isoformat(timespec="seconds"),
         "total_events": len(rows),
+        "unknown_events": unknown,
         "games": summary,
     }, ensure_ascii=False, indent=2), encoding="utf-8")
     if not quiet:
         print(report_text(summary))
+        if unknown:
+            print(f"\n⚠️ 另有 {unknown} 筆未知遊戲 id 的事件已排除（垃圾或測試資料）")
         print(f"\n（共 {len(rows)} 筆事件，已存 {SUMMARY_FILE.name}）")
     return 0
 
