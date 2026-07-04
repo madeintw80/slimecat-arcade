@@ -1,0 +1,654 @@
+<!--GAMEMETA {"title":"喵砲轟轟","emoji":"💥","genre":"物理彈射","inspiration":"Castle Busters","desc":"拉彈弓轟垮點心塔，把打盹的胖貓全部震下來！"}-->
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>喵砲轟轟</title>
+<style>
+  html,body{margin:0;padding:0;height:100%;background:#31243d;overflow:hidden;
+    font-family:"Microsoft JhengHei","PingFang TC",system-ui,sans-serif;}
+  #wrap{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;}
+  canvas{display:block;touch-action:none;user-select:none;-webkit-user-select:none;
+    border-radius:10px;box-shadow:0 8px 40px rgba(0,0,0,.45);}
+  #back{position:fixed;top:8px;left:10px;z-index:9;color:#d9c8ff;text-decoration:none;
+    font-size:14px;background:rgba(0,0,0,.35);padding:4px 10px;border-radius:14px;}
+  #back:hover{background:rgba(0,0,0,.55);}
+</style>
+</head>
+<body>
+<a id="back" href="../../index.html">← 回遊戲區</a>
+<div id="wrap"><canvas id="cv"></canvas></div>
+<script>
+'use strict';
+(function(){
+// ===== 基本常數（邏輯座標固定 400x600）=====
+const W=400, H=600, GROUND=548;      // 地板 y
+const G=1500;                        // 重力 px/s^2
+const VMAX=920, MAXPULL=95;          // 最大初速 / 最大拉距
+const STEP=1/60;                     // 固定時間步長（不可假設 60fps）
+const ANCHOR={x:72,y:450};           // 彈弓錨點
+const cv=document.getElementById('cv');
+const ctx=cv.getContext('2d');
+
+// ===== 縮放與高 DPI（緩衝 = 顯示尺寸 x dpr，邏輯座標維持 400x600）=====
+let scale=1, dpr=1;
+function resize(){
+  dpr=Math.min(window.devicePixelRatio||1,3);
+  scale=Math.min(window.innerWidth/W, window.innerHeight/H)*0.99;
+  cv.style.width=(W*scale)+'px'; cv.style.height=(H*scale)+'px';
+  cv.width=Math.round(W*scale*dpr); cv.height=Math.round(H*scale*dpr);
+}
+window.addEventListener('resize',resize); resize();
+
+// ===== 音效（WebAudio 合成，零外部資源）=====
+let AC=null, master=null;
+function initAudio(){
+  if(AC){ try{ if(AC.state==='suspended')AC.resume(); }catch(e){} return; }
+  try{
+    AC=new (window.AudioContext||window.webkitAudioContext)();
+    master=AC.createGain(); master.gain.value=0.4; master.connect(AC.destination);
+  }catch(e){ AC=null; }
+}
+function tone(f0,f1,dur,type,vol,when){
+  if(!AC)return;
+  try{
+    const t=AC.currentTime+(when||0);
+    const o=AC.createOscillator(), g=AC.createGain();
+    o.type=type; o.frequency.setValueAtTime(Math.max(f0,1),t);
+    o.frequency.exponentialRampToValueAtTime(Math.max(f1,1),t+dur);
+    g.gain.setValueAtTime(vol,t); g.gain.exponentialRampToValueAtTime(0.001,t+dur);
+    o.connect(g); g.connect(master); o.start(t); o.stop(t+dur+0.03);
+  }catch(e){}
+}
+const snd={
+  shoot(){ tone(280,950,0.18,'sine',0.25); },
+  thud(){ tone(150,55,0.14,'triangle',0.45); },
+  pop(n){ tone(280+n*55,470+n*55,0.09,'square',0.2,(n%12)*0.028); }, // 連鎖音階往上爬
+  meow(){ tone(760,520,0.12,'sawtooth',0.22); tone(620,330,0.16,'sawtooth',0.16,0.1); },
+  land(){ tone(120,60,0.07,'triangle',0.16); },
+  bounce(){ tone(230,140,0.06,'sine',0.12); },
+  ding(n){ tone(700+n*180,700+n*180,0.2,'triangle',0.28); },
+  clear(){ [523,659,784,1047].forEach((f,i)=>tone(f,f,0.16,'triangle',0.24,i*0.09)); },
+  over(){ [392,311,262,196].forEach((f,i)=>tone(f,f*0.92,0.22,'sine',0.22,i*0.13)); },
+  record(){ [523,659,784,1047,1319].forEach((f,i)=>tone(f,f,0.13,'square',0.2,i*0.08)); }
+};
+
+// ===== 最高分（localStorage 一律 try-catch，無痕模式會 throw）=====
+function loadBest(){ try{ return +localStorage.getItem('slimecat_cannon_best')||0; }catch(e){ return 0; } }
+function saveBest(v){ try{ localStorage.setItem('slimecat_cannon_best',String(v)); }catch(e){} }
+
+// ===== 遊戲狀態 =====
+let state='title', stateT=0, tG=0;
+let level=1, score=0, best=loadBest(), ammo=0;
+let blocks=[], cats=[], proj=null;
+let parts=[], floats=[], comboDisp=null;
+let combo=0, shake=0, quiet=0, flightT=0;
+let clearT=0, earnedStars=0, starsShown=0, clearBonus=0;
+let newRecord=false, catsRemainAtOver=0, lastLandSnd=0;
+let aim=null;                                   // 拖曳中 {sx,sy,cx,cy}
+let kb={ang:52,pow:0.72}, kbActive=false;       // 鍵盤瞄準
+
+const rnd=(a,b)=>a+Math.random()*(b-a);
+const PALETTE=[ // 點心積木配色：餅乾 / 草莓威化 / 巧克力 / 奶油酥
+  {c:'#e7a94e',d:'#b57c28',deco:'cookie'},
+  {c:'#f4a7bd',d:'#cf7592',deco:'wafer'},
+  {c:'#7a4a2b',d:'#54301b',deco:'choco'},
+  {c:'#f7e3b0',d:'#cdb37e',deco:'cream'}
+];
+const CATCOL=['#f2a35c','#a8a8b8','#f5f0e6','#c98f68'];
+
+// ===== 關卡生成（資料驅動：重心與高度控制難度）=====
+function buildLevel(n){
+  blocks=[]; cats=[]; parts=[]; floats=[]; comboDisp=null; proj=null;
+  const tcount=Math.min(3, 1+Math.floor(n/2));               // 塔數 1→2→3
+  const xs= tcount===1?[295] : tcount===2?[245,345] : [205,290,368];
+  const nbBase=3+Math.min(3, Math.floor((n-1)/2));           // 每塔層數 3~6
+  for(let t=0;t<tcount;t++){
+    const tx=xs[t];
+    let nb=nbBase + ((n>=3&&Math.random()<0.4)?1:0); nb=Math.min(nb,6);
+    let y=GROUND;
+    let topBlock=null, wBoost=Math.min(8,n);                 // 高關卡積木略寬=較穩
+    for(let i=0;i<nb;i++){
+      const w=(i===0?rnd(52,64):rnd(38,54))+ (i===0?wBoost:wBoost*0.5);
+      const h=rnd(24,29);
+      const jx=i===0?0:rnd(-5,5);                            // 上層故意疊歪
+      const b={x:tx+jx, y:y-h/2, w:w, h:h, angle:0, vx:0, vy:0, va:0,
+               state:0, alpha:1, grounded:false, dead:false,
+               pal:PALETTE[(Math.random()*PALETTE.length)|0]};
+      blocks.push(b); topBlock=b; y-=h;
+    }
+    // 每塔頂放一隻打盹胖貓
+    cats.push({x:topBlock.x, y:y-13, r:14, block:topBlock, state:0, gone:false,
+               angle:0, vx:0, vy:0, va:0, col:CATCOL[(Math.random()*CATCOL.length)|0]});
+  }
+  ammo=cats.length + (n>=8?1:2);                             // 彈藥＝貓數＋餘裕（後期收緊）
+}
+function catsLeft(){ let k=0; for(const c of cats) if(c.state===0&&!c.gone)k++; return k; }
+
+// ===== 特效小工具 =====
+function mkFloat(x,y,txt,col,size){ floats.push({x,y,txt,col,size,life:1}); }
+function spawn(x,y,col,n,spd,g,r){
+  for(let i=0;i<n;i++){ const a=Math.random()*Math.PI*2, s=rnd(spd*0.3,spd);
+    parts.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s-spd*0.3,life:rnd(0.3,0.7),max:0.7,
+                col:col,r:rnd(2,r||4),g:g===undefined?900:g}); }
+}
+function addShake(v){ shake=Math.min(shake+v,14); }
+
+// ===== 擊倒邏輯（分數雨＝崩塌回饋）=====
+function knockBlock(b,vx,vy){
+  if(b.state!==0||b.dead)return;
+  b.state=1; b.vx=vx; b.vy=vy;
+  b.va=(rnd(2,6))*(vx<0?-1:1);
+  combo++;
+  const pts=20+(combo-1)*10; score+=pts;
+  mkFloat(b.x,b.y-12,'+'+pts,'#ff8c1a',15);
+  if(combo>=3) comboDisp={n:combo,t:0.9};
+  snd.pop(Math.min(combo,10)); addShake(2);
+  spawn(b.x,b.y,b.pal.d,6,150,900,3);
+}
+function knockCat(c,vx,vy,direct){
+  if(c.state!==0||c.gone)return;
+  c.state=1; c.vx=vx; c.vy=vy; c.va=(Math.random()<0.5?-1:1)*rnd(3,6);
+  combo++;
+  const pts=(direct?250:150)+(combo-1)*50; score+=pts;
+  mkFloat(c.x,c.y-24,direct?'直擊喵！':'喵嗚！！','#ff4d6d',18);
+  mkFloat(c.x,c.y-4,'+'+pts,'#ffd60a',20);
+  if(combo>=3) comboDisp={n:combo,t:0.9};
+  snd.meow(); addShake(5);
+  spawn(c.x,c.y,'#ffd60a',10,220,700,4);
+}
+
+// ===== 支撐檢查（失去支撐→整串崩塌，這裡湧現「打底座」策略）=====
+function checkSupports(){
+  let changed=true, guard=0;
+  while(changed && guard++<10){
+    changed=false;
+    for(const b of blocks){
+      if(b.state!==0||b.dead)continue;
+      if(b.y+b.h/2>=GROUND-4)continue;                       // 直接站在地上
+      let sup=false;
+      for(const s of blocks){
+        if(s===b||s.dead||s.state!==0)continue;
+        if(Math.abs((b.y+b.h/2)-(s.y-s.h/2))<8){
+          const ov=Math.min(b.x+b.w/2,s.x+s.w/2)-Math.max(b.x-b.w/2,s.x-s.w/2);
+          if(ov>Math.min(b.w,s.w)*0.25){ sup=true; break; }
+        }
+      }
+      if(!sup){ knockBlock(b,rnd(-40,80),-20); changed=true; }
+    }
+  }
+}
+
+// ===== 瞄準（視覺 / 預覽 / 判定共用同一函式 —— 鐵則）=====
+function getLaunch(){
+  if(aim){
+    const dx=aim.sx-aim.cx, dy=aim.sy-aim.cy;
+    const len=Math.hypot(dx,dy);
+    if(len<12)return null;
+    const cl=Math.min(len,MAXPULL), ux=dx/len, uy=dy/len;
+    const v=cl/MAXPULL*VMAX;
+    let vx=ux*v, vy=uy*v;
+    vx=Math.max(vx,50);                                      // 不准往左射出界浪費彈藥
+    const px=ANCHOR.x-ux*cl*0.55;
+    const py=Math.min(ANCHOR.y-uy*cl*0.55, GROUND-18);
+    return {px,py,vx,vy};
+  }
+  if(kbActive){
+    const a=kb.ang*Math.PI/180, v=kb.pow*VMAX;
+    const vx=Math.cos(a)*v, vy=-Math.sin(a)*v;
+    return {px:ANCHOR.x-Math.cos(a)*kb.pow*48, py:ANCHOR.y+Math.sin(a)*kb.pow*48, vx, vy};
+  }
+  return null;
+}
+function fire(){
+  const L=getLaunch(); if(!L)return;
+  proj={x:L.px,y:L.py,vx:L.vx,vy:L.vy,r:13,trail:[]};
+  ammo--; combo=0; quiet=0; flightT=0; aim=null;
+  state='flying'; stateT=0;
+  snd.shoot();
+}
+function killProj(){
+  if(!proj)return;
+  spawn(proj.x,proj.y,'#8be05a',8,180,700,4);
+  proj=null;
+}
+
+// ===== 回合結算 =====
+function resolveShot(){
+  if(state!=='flying')return;
+  if(catsLeft()===0){
+    earnedStars= ammo>=2?3 : ammo===1?2 : 1;                 // 剩彈越多星越多
+    clearBonus=ammo*100; score+=clearBonus;
+    clearT=0; starsShown=0;
+    state='clear'; stateT=0;
+    snd.clear(); addShake(4);
+  }else if(ammo>0){
+    state='aim'; stateT=0;
+  }else{
+    gameOver();
+  }
+}
+function forceSettle(){
+  killProj();
+  for(const b of blocks) if(b.state===1&&!b.dead){ b.dead=true; }
+  for(const c of cats) if(c.state===1&&!c.gone){ c.gone=true; }
+}
+function gameOver(){
+  state='over'; stateT=0;
+  catsRemainAtOver=catsLeft();
+  newRecord=score>best;
+  if(newRecord){ best=score; saveBest(best); snd.record(); }
+  else snd.over();
+  if(window.SC) SC.over(score);                              // 匿名數據回報
+}
+function startGame(){
+  level=1; score=0; buildLevel(1);
+  state='aim'; stateT=0; combo=0;
+}
+function nextLevel(){
+  level++; buildLevel(level);
+  state='aim'; stateT=0;
+}
+
+// ===== 更新（固定步長呼叫）=====
+function update(dt){
+  tG+=dt; stateT+=dt;
+  if(shake>0)shake=Math.max(0,shake-dt*30);
+  for(let i=parts.length-1;i>=0;i--){ const p=parts[i];
+    p.vy+=p.g*dt; p.x+=p.vx*dt; p.y+=p.vy*dt; p.life-=dt;
+    if(p.life<=0)parts.splice(i,1); }
+  for(let i=floats.length-1;i>=0;i--){ const f=floats[i];
+    f.y-=45*dt; f.life-=dt*0.8; if(f.life<=0)floats.splice(i,1); }
+  if(comboDisp){ comboDisp.t-=dt; if(comboDisp.t<=0)comboDisp=null; }
+
+  if(state==='clear'){
+    clearT+=dt;
+    if(starsShown<earnedStars && clearT>0.3+starsShown*0.3){
+      starsShown++; snd.ding(starsShown); addShake(2);
+    }
+    return;
+  }
+  if(state!=='flying')return;
+
+  flightT+=dt;
+  // --- 砲彈 ---
+  if(proj){
+    const p=proj;
+    p.vy+=G*dt; p.x+=p.vx*dt; p.y+=p.vy*dt;
+    p.trail.push({x:p.x,y:p.y}); if(p.trail.length>10)p.trail.shift();
+    // 撞靜止積木：直接擊飛（可貫穿多塊）
+    for(const b of blocks){
+      if(b.dead||b.state!==0)continue;
+      const nx=Math.max(b.x-b.w/2,Math.min(p.x,b.x+b.w/2));
+      const ny=Math.max(b.y-b.h/2,Math.min(p.y,b.y+b.h/2));
+      if((p.x-nx)*(p.x-nx)+(p.y-ny)*(p.y-ny) < p.r*p.r){
+        knockBlock(b, p.vx*0.55+rnd(-30,30), p.vy*0.35-80);
+        p.vx*=0.5; p.vy*=0.6; snd.thud(); addShake(4);
+      }
+    }
+    // 直擊貓咪
+    for(const c of cats){
+      if(c.gone||c.state!==0)continue;
+      const dx=p.x-c.x, dy=p.y-c.y;
+      if(dx*dx+dy*dy < (p.r+c.r)*(p.r+c.r)){
+        knockCat(c, p.vx*0.5, -250, true); p.vy*=0.6;
+      }
+    }
+    // 地板反彈
+    if(p.y+p.r>GROUND){
+      p.y=GROUND-p.r;
+      if(p.vy>0){ p.vy*=-0.42; p.vx*=0.72; if(Math.abs(p.vy)>90)snd.bounce(); }
+      if(Math.hypot(p.vx,p.vy)<70)killProj();
+    }
+    if(proj && (proj.x<-30||proj.x>W+30||flightT>6))killProj();
+  }
+  // --- 動態積木（假物理：墜落＋翻滾）---
+  for(const b of blocks){
+    if(b.dead||b.state!==1)continue;
+    if(!b.grounded){
+      b.vy+=G*dt*0.95; b.x+=b.vx*dt; b.y+=b.vy*dt; b.angle+=b.va*dt;
+      // 高速中的積木撞倒別的積木＝連鎖
+      const sp=Math.hypot(b.vx,b.vy);
+      if(sp>150){
+        for(const s of blocks){
+          if(s===b||s.dead||s.state!==0)continue;
+          if(Math.abs(b.x-s.x)<(b.w+s.w)/2 && Math.abs(b.y-s.y)<(b.h+s.h)/2)
+            knockBlock(s, b.vx*0.5, -60);
+        }
+        for(const c of cats){
+          if(c.gone||c.state!==0)continue;
+          if(Math.abs(b.x-c.x)<b.w/2+c.r && Math.abs(b.y-c.y)<b.h/2+c.r)
+            knockCat(c, b.vx*0.5, -200, false);
+        }
+      }
+      if(b.y+b.h/2>GROUND){
+        b.y=GROUND-b.h/2;
+        if(b.vy>140){ b.vy*=-0.3; b.vx*=0.6; b.va*=0.6; }
+        else{
+          b.grounded=true; b.vy=0;
+          if(tG-lastLandSnd>0.08){ snd.land(); lastLandSnd=tG; }
+          spawn(b.x,GROUND-4,'#cbb08a',5,120,-100,3);
+        }
+      }
+      if(b.x<-60||b.x>W+60)b.dead=true;
+    }else{
+      b.alpha-=dt*1.6; b.x+=b.vx*dt*0.3;                     // 落地後淡出清場
+      if(b.alpha<=0)b.dead=true;
+    }
+  }
+  checkSupports();
+  // --- 貓咪 ---
+  for(const c of cats){
+    if(c.gone)continue;
+    if(c.state===0){
+      if(c.block.state!==0||c.block.dead)knockCat(c, c.block.vx*0.6, -230, false);
+    }else{
+      c.vy+=G*dt; c.x+=c.vx*dt; c.y+=c.vy*dt; c.angle+=c.va*dt;
+      if(c.y+c.r>GROUND){
+        c.gone=true;
+        spawn(c.x,GROUND-8,'#ddd',12,200,-150,4); snd.thud(); addShake(3);
+      }
+      if(c.x<-40||c.x>W+40)c.gone=true;
+    }
+  }
+  // --- 靜止偵測 → 結算 ---
+  const busy = proj
+    || blocks.some(b=>b.state===1&&!b.dead&&!b.grounded)
+    || cats.some(c=>c.state===1&&!c.gone);
+  if(!busy){ quiet+=dt; if(quiet>0.45)resolveShot(); } else quiet=0;
+  if(flightT>7){ forceSettle(); resolveShot(); }
+}
+
+// ===== 繪圖 =====
+function rrect(x,y,w,h,r){
+  ctx.beginPath();
+  ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r);
+  ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath();
+}
+function drawBg(){
+  const g=ctx.createLinearGradient(0,0,0,H);
+  g.addColorStop(0,'#ffe8c9'); g.addColorStop(1,'#ffd2b8');
+  ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
+  ctx.globalAlpha=0.18; ctx.fillStyle='#fff';                // 暖色 bokeh
+  for(let i=0;i<5;i++){ ctx.beginPath();
+    ctx.arc(60+i*80,(90+i*47)%260+40,18+(i%3)*10,0,7); ctx.fill(); }
+  ctx.globalAlpha=1;
+  ctx.fillStyle='#9a734d'; ctx.fillRect(0,GROUND,W,H-GROUND); // 木桌地板
+  ctx.fillStyle='#7b5a3a'; ctx.fillRect(0,GROUND,W,6);
+  ctx.fillStyle='#8a6543';
+  for(let i=0;i<8;i++)ctx.fillRect(i*54+10,GROUND+18,30,3);
+}
+function drawSlingshot(L){
+  ctx.strokeStyle='#8a5a30'; ctx.lineCap='round'; ctx.lineWidth=9;
+  ctx.beginPath(); ctx.moveTo(72,545); ctx.lineTo(72,492); ctx.stroke();
+  ctx.lineWidth=7;
+  ctx.beginPath(); ctx.moveTo(72,494); ctx.lineTo(58,452); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(72,494); ctx.lineTo(86,452); ctx.stroke();
+  ctx.strokeStyle='#c0392b'; ctx.lineWidth=4;
+  if(L){                                                     // 橡皮筋拉到彈體
+    ctx.beginPath(); ctx.moveTo(58,452); ctx.lineTo(L.px,L.py); ctx.lineTo(86,452); ctx.stroke();
+  }else{
+    ctx.beginPath(); ctx.moveTo(58,452); ctx.quadraticCurveTo(72,462,86,452); ctx.stroke();
+  }
+}
+function drawSlime(x,y,ang,sx,sy){
+  ctx.save(); ctx.translate(x,y); ctx.rotate(ang); ctx.scale(sx,sy);
+  ctx.fillStyle='#8be05a'; ctx.strokeStyle='#55a832'; ctx.lineWidth=2;
+  ctx.beginPath(); ctx.arc(0,0,13,0,7); ctx.fill(); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(-9,-8); ctx.lineTo(-6,-17); ctx.lineTo(-1,-10); // 貓耳
+  ctx.moveTo(9,-8); ctx.lineTo(6,-17); ctx.lineTo(1,-10);
+  ctx.fill(); ctx.stroke();
+  ctx.fillStyle='#234d12';
+  ctx.beginPath(); ctx.arc(-4,-2,1.8,0,7); ctx.arc(4,-2,1.8,0,7); ctx.fill();
+  ctx.strokeStyle='#234d12'; ctx.lineWidth=1.4;
+  ctx.beginPath(); ctx.arc(0,3,3.4,0.15*Math.PI,0.85*Math.PI); ctx.stroke();
+  ctx.restore();
+}
+function drawBlock(b){
+  ctx.save(); ctx.translate(b.x,b.y); ctx.rotate(b.angle); ctx.globalAlpha=b.alpha;
+  ctx.fillStyle=b.pal.c; ctx.strokeStyle=b.pal.d; ctx.lineWidth=2;
+  rrect(-b.w/2,-b.h/2,b.w,b.h,5); ctx.fill(); ctx.stroke();
+  if(b.pal.deco==='cookie'){ ctx.fillStyle=b.pal.d;
+    for(let i=0;i<4;i++){ ctx.beginPath();
+      ctx.arc(-b.w/2+8+((i*13)%(b.w-14)), (i%2?-4:4), 2.2,0,7); ctx.fill(); } }
+  else if(b.pal.deco==='wafer'){ ctx.fillStyle='rgba(255,255,255,.4)';
+    ctx.fillRect(-b.w/2+4,-2,b.w-8,3); }
+  else if(b.pal.deco==='choco'){ ctx.strokeStyle='rgba(0,0,0,.25)'; ctx.lineWidth=1.5;
+    ctx.beginPath(); ctx.moveTo(0,-b.h/2+3); ctx.lineTo(0,b.h/2-3); ctx.stroke(); }
+  else{ ctx.fillStyle='rgba(255,255,255,.45)';
+    ctx.fillRect(-b.w/2+4,-b.h/2+3,b.w-8,3); }
+  ctx.restore();
+}
+function drawCat(c){
+  ctx.save(); ctx.translate(c.x,c.y); ctx.rotate(c.angle);
+  ctx.fillStyle=c.col; ctx.strokeStyle='rgba(0,0,0,.28)'; ctx.lineWidth=2;
+  ctx.beginPath(); ctx.ellipse(0,2,16,13,0,0,7); ctx.fill(); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(-13,-4); ctx.lineTo(-10,-16); ctx.lineTo(-3,-8); // 耳朵
+  ctx.moveTo(13,-4); ctx.lineTo(10,-16); ctx.lineTo(3,-8);
+  ctx.fill(); ctx.stroke();
+  ctx.fillStyle='#f7b2c4';
+  ctx.beginPath(); ctx.arc(-9,-9,2,0,7); ctx.arc(9,-9,2,0,7); ctx.fill();
+  ctx.strokeStyle='#4a3428'; ctx.lineWidth=1.6;
+  if(c.state===0){                                            // 睡臉
+    ctx.beginPath(); ctx.arc(-5,0,3,0.15*Math.PI,0.85*Math.PI);
+    ctx.arc(5,0,3,0.15*Math.PI,0.85*Math.PI); ctx.stroke();
+    ctx.beginPath(); ctx.arc(-2,5,2,0.1*Math.PI,0.9*Math.PI);
+    ctx.arc(2,5,2,0.1*Math.PI,0.9*Math.PI); ctx.stroke();
+  }else{                                                      // 嚇醒臉
+    ctx.fillStyle='#fff';
+    ctx.beginPath(); ctx.arc(-5,0,3.4,0,7); ctx.arc(5,0,3.4,0,7); ctx.fill();
+    ctx.fillStyle='#222';
+    ctx.beginPath(); ctx.arc(-5,0,1.6,0,7); ctx.arc(5,0,1.6,0,7); ctx.fill();
+    ctx.fillStyle='#a33';
+    ctx.beginPath(); ctx.ellipse(0,6,3,4,0,0,7); ctx.fill();
+  }
+  ctx.globalAlpha=0.35; ctx.fillStyle='#e58';
+  ctx.beginPath(); ctx.arc(-10,3,2.5,0,7); ctx.arc(10,3,2.5,0,7); ctx.fill();
+  ctx.restore();
+  if(c.state===0){                                            // Zzz 漂浮
+    const bob=(tG*1.5)%1.5;
+    ctx.globalAlpha=Math.max(0,1-bob/1.5)*0.8;
+    ctx.fillStyle='#6b7fd4'; ctx.font='bold 13px sans-serif'; ctx.textAlign='left';
+    ctx.fillText('z',c.x+14,c.y-18-bob*14);
+    ctx.font='bold 9px sans-serif'; ctx.fillText('z',c.x+22,c.y-26-bob*14);
+    ctx.globalAlpha=1;
+  }
+}
+function drawPreview(L){
+  let px=L.px, py=L.py, vx=L.vx, vy=L.vy;
+  const dtp=0.045;
+  ctx.fillStyle='#fff';
+  for(let i=0;i<16;i++){
+    vy+=G*dtp; px+=vx*dtp; py+=vy*dtp;
+    if(py>GROUND)break;
+    ctx.globalAlpha=(1-i/16)*0.75;
+    ctx.beginPath(); ctx.arc(px,py,3,0,7); ctx.fill();
+  }
+  ctx.globalAlpha=1;
+}
+function drawHUD(){
+  ctx.textAlign='left'; ctx.fillStyle='#6b4a2f'; ctx.font='bold 16px "Microsoft JhengHei",sans-serif';
+  ctx.fillText('分數 '+score,10,26);
+  ctx.textAlign='right'; ctx.fillText('最高 '+best,W-10,26);
+  ctx.textAlign='center'; ctx.fillText('第 '+level+' 塔',W/2,26);
+  ctx.font='13px "Microsoft JhengHei",sans-serif';
+  ctx.fillText('😴 貓還剩 '+catsLeft()+' 隻',W/2,46);
+  ctx.textAlign='left'; ctx.fillText('彈藥',10,H-14);
+  for(let i=0;i<ammo;i++)drawSlime(58+i*26,H-19,0,0.7,0.7);
+  if(state==='aim'&&ammo===1){                                // 最後一發心跳
+    ctx.globalAlpha=0.5+0.5*Math.sin(tG*8);
+    ctx.textAlign='center'; ctx.fillStyle='#e63946';
+    ctx.font='bold 22px "Microsoft JhengHei",sans-serif';
+    ctx.fillText('最後一發！',W/2,120);
+    ctx.globalAlpha=1;
+  }
+  if(kbActive&&state==='aim'){
+    ctx.textAlign='left'; ctx.fillStyle='rgba(107,74,47,.7)'; ctx.font='12px sans-serif';
+    ctx.fillText('角度 '+Math.round(kb.ang)+'°  力道 '+Math.round(kb.pow*100)+'%',10,H-42);
+  }
+}
+function dim(a){ ctx.fillStyle='rgba(40,25,20,'+a+')'; ctx.fillRect(0,0,W,H); }
+function centerText(txt,y,size,col,bold){
+  ctx.textAlign='center'; ctx.fillStyle=col;
+  ctx.font=(bold?'bold ':'')+size+'px "Microsoft JhengHei",sans-serif';
+  ctx.fillText(txt,W/2,y);
+}
+function render(){
+  const s=scale*dpr;
+  ctx.setTransform(s,0,0,s,0,0);
+  const shx=(Math.random()*2-1)*shake, shy=(Math.random()*2-1)*shake;
+  ctx.translate(shx,shy);
+  drawBg();
+
+  if(state==='title'){
+    const bob=Math.sin(tG*2.5)*6;
+    drawSlingshot(null);
+    drawSlime(ANCHOR.x,ANCHOR.y,0,1,1);
+    ctx.save(); ctx.translate(W/2,215+bob); ctx.scale(2.6,2.6); drawSlime(0,0,0,1,1); ctx.restore();
+    centerText('💥 喵砲轟轟 🐱',120,40,'#5a3520',true);
+    centerText('拉彈弓轟垮點心塔',285,20,'#7a4a2b',true);
+    centerText('把打盹的胖貓全震下來！',313,20,'#7a4a2b',true);
+    centerText('👆 按住拖曳拉弓，放開發射',370,15,'#8a6543');
+    centerText('⌨️ 方向鍵瞄準・空白鍵發射',394,15,'#8a6543');
+    centerText('彈藥用完前清光貓咪就攻陷',418,15,'#8a6543');
+    if(best>0)centerText('🏆 最高分 '+best,455,16,'#b8762a',true);
+    ctx.globalAlpha=0.55+0.45*Math.sin(tG*4);
+    centerText('點 擊 畫 面 開 始',505,22,'#e07b2a',true);
+    ctx.globalAlpha=1;
+    return;
+  }
+
+  // 世界
+  const L=(state==='aim')?getLaunch():null;
+  drawSlingshot(L);
+  for(const b of blocks)if(!b.dead)drawBlock(b);
+  for(const c of cats)if(!c.gone)drawCat(c);
+  if(state==='aim'){
+    if(L){ drawPreview(L); drawSlime(L.px,L.py,Math.atan2(L.vy,L.vx)*0.3,1.05,0.95); }
+    else drawSlime(ANCHOR.x,ANCHOR.y,0,1,1);
+  }
+  if(proj){
+    for(let i=0;i<proj.trail.length;i++){ const t=proj.trail[i];
+      ctx.globalAlpha=i/proj.trail.length*0.3; ctx.fillStyle='#8be05a';
+      ctx.beginPath(); ctx.arc(t.x,t.y,8,0,7); ctx.fill(); }
+    ctx.globalAlpha=1;
+    const sp=Math.hypot(proj.vx,proj.vy), q=Math.min(sp/1500,0.25);
+    drawSlime(proj.x,proj.y,Math.atan2(proj.vy,proj.vx),1+q,1-q);
+  }
+  for(const p of parts){
+    ctx.globalAlpha=Math.max(0,p.life/p.max); ctx.fillStyle=p.col;
+    ctx.beginPath(); ctx.arc(p.x,p.y,p.r,0,7); ctx.fill();
+  }
+  ctx.globalAlpha=1;
+  for(const f of floats){
+    ctx.globalAlpha=Math.min(1,f.life*2);
+    ctx.textAlign='center'; ctx.fillStyle=f.col;
+    ctx.font='bold '+f.size+'px "Microsoft JhengHei",sans-serif';
+    ctx.strokeStyle='rgba(255,255,255,.8)'; ctx.lineWidth=3;
+    ctx.strokeText(f.txt,f.x,f.y); ctx.fillText(f.txt,f.x,f.y);
+  }
+  ctx.globalAlpha=1;
+  if(comboDisp){
+    const pop=1+Math.max(0,comboDisp.t-0.6)*2;
+    ctx.save(); ctx.translate(W/2,150); ctx.scale(pop,pop);
+    ctx.textAlign='center'; ctx.fillStyle='#ff6b1a';
+    ctx.font='bold 30px "Microsoft JhengHei",sans-serif';
+    ctx.strokeStyle='#fff'; ctx.lineWidth=5;
+    ctx.strokeText('連鎖 ×'+comboDisp.n+'！',0,0);
+    ctx.fillText('連鎖 ×'+comboDisp.n+'！',0,0);
+    ctx.restore();
+  }
+  drawHUD();
+
+  if(state==='clear'){
+    if(clearT<0.4){ ctx.fillStyle='rgba(255,255,255,'+(0.5-clearT*1.25)+')'; ctx.fillRect(0,0,W,H); }
+    dim(0.62);
+    centerText('🎉 第 '+level+' 塔攻陷！',210,30,'#ffd166',true);
+    ctx.textAlign='center'; ctx.font='46px sans-serif';
+    let stTxt='';
+    for(let i=0;i<3;i++)stTxt+=(i<starsShown?'★':'☆');
+    ctx.fillStyle='#ffd60a'; ctx.fillText(stTxt,W/2,278);
+    centerText('剩彈獎勵 +'+clearBonus,325,20,'#8be05a',true);
+    centerText('分數 '+score,360,18,'#fff');
+    ctx.globalAlpha=0.55+0.45*Math.sin(tG*4);
+    centerText('點一下 → 挑戰下一塔',430,20,'#ffe8c9',true);
+    ctx.globalAlpha=1;
+  }else if(state==='over'){
+    dim(0.68);
+    centerText('彈藥用光了…',185,32,'#ffb4a2',true);
+    centerText('攻陷 '+(level-1)+' 座塔',235,18,'#ffe8c9');
+    centerText('分數 '+score,285,30,'#fff',true);
+    if(catsRemainAtOver===1)
+      centerText('就差一隻貓就攻陷了！',330,18,'#ffd166',true);
+    if(newRecord){
+      ctx.globalAlpha=0.7+0.3*Math.sin(tG*6);
+      centerText('🎉 新紀錄！',375,26,'#ffd60a',true);
+      ctx.globalAlpha=1;
+    }else{
+      centerText('差 '+(best-score+1)+' 分破紀錄',375,20,'#8be05a',true);
+    }
+    ctx.globalAlpha=0.55+0.45*Math.sin(tG*4);
+    centerText('點一下馬上再來！',450,22,'#ffe8c9',true);
+    ctx.globalAlpha=1;
+  }
+}
+
+// ===== 輸入（座標一律 rect 比例換算回邏輯座標）=====
+function toXY(e){
+  const r=cv.getBoundingClientRect();
+  return {x:(e.clientX-r.left)/r.width*W, y:(e.clientY-r.top)/r.height*H};
+}
+cv.addEventListener('pointerdown',e=>{
+  e.preventDefault(); initAudio();
+  const p=toXY(e);
+  if(state==='title'){ startGame(); }
+  else if(state==='aim'){ aim={sx:p.x,sy:p.y,cx:p.x,cy:p.y}; kbActive=false; }
+  else if(state==='clear'){ if(stateT>0.35)nextLevel(); }
+  else if(state==='over'){ if(stateT>0.35)startGame(); }
+},{passive:false});
+window.addEventListener('pointermove',e=>{
+  if(aim){ const p=toXY(e); aim.cx=p.x; aim.cy=p.y; }
+});
+window.addEventListener('pointerup',e=>{
+  if(aim&&state==='aim'){
+    const p=toXY(e); aim.cx=p.x; aim.cy=p.y;
+    if(getLaunch())fire(); else aim=null;
+  }
+});
+// 來電 / 切視窗 / 取消 → 清輸入狀態，防卡鍵
+window.addEventListener('pointercancel',()=>{ aim=null; });
+window.addEventListener('blur',()=>{ aim=null; });
+cv.addEventListener('contextmenu',e=>e.preventDefault());
+
+window.addEventListener('keydown',e=>{
+  const k=e.key;
+  if(['ArrowLeft','ArrowRight','ArrowUp','ArrowDown',' '].includes(k))e.preventDefault();
+  initAudio();
+  if(state==='title'){ if(k===' '||k==='Enter')startGame(); return; }
+  if(state==='clear'){ if((k===' '||k==='Enter')&&stateT>0.35)nextLevel(); return; }
+  if(state==='over'){ if((k===' '||k==='Enter')&&stateT>0.35)startGame(); return; }
+  if(state!=='aim')return;
+  if(k==='ArrowLeft'){ kb.ang=Math.min(85,kb.ang+2); kbActive=true; aim=null; }
+  else if(k==='ArrowRight'){ kb.ang=Math.max(15,kb.ang-2); kbActive=true; aim=null; }
+  else if(k==='ArrowUp'){ kb.pow=Math.min(1,kb.pow+0.04); kbActive=true; aim=null; }
+  else if(k==='ArrowDown'){ kb.pow=Math.max(0.25,kb.pow-0.04); kbActive=true; aim=null; }
+  else if(k===' '||k==='Enter'){ if(kbActive)fire(); }
+});
+
+// ===== 主迴圈（fixed timestep accumulator，120Hz 不會變兩倍速）=====
+let last=0, acc=0;
+function frame(t){
+  if(!last)last=t;
+  let d=Math.min(0.1,(t-last)/1000); last=t; acc+=d;
+  while(acc>=STEP){ update(STEP); acc-=STEP; }
+  render();
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+})();
+</script>
+<script src="../../sc_config.js"></script>
+<script src="../../stats.js"></script>
+</body>
+</html>
