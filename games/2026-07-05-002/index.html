@@ -1,0 +1,713 @@
+<!--GAMEMETA {"title":"字裡藏喵","emoji":"🈶","genre":"文字益智","inspiration":"天天拼詞王","desc":"點筆畫拆大字，把藏在字裡的小字喵通通抓出來！"}-->
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>字裡藏喵</title>
+<style>
+html,body{margin:0;padding:0;height:100%;overflow:hidden;background:#131b15;}
+body{display:flex;align-items:center;justify-content:center;-webkit-user-select:none;user-select:none;}
+canvas{display:block;touch-action:none;}
+#back{position:fixed;top:8px;left:10px;z-index:9;color:#8fcf9a;text-decoration:none;
+ font:14px "Microsoft JhengHei","PingFang TC",sans-serif;opacity:.85;background:rgba(0,0,0,.25);
+ padding:3px 8px;border-radius:8px;}
+#back:hover{opacity:1;}
+</style>
+</head>
+<body>
+<a id="back" href="../../index.html">← 回遊戲區</a>
+<canvas id="cv"></canvas>
+<script>
+'use strict';
+/* ===== 字裡藏喵 =====
+   核心玩法：大漢字被拆成一根根筆畫，點選筆畫按「組字」，
+   拼出藏在字裡的小字就抓到一隻史萊姆貓；筆畫可重複使用。 */
+
+const W=400,H=600;
+const cv=document.getElementById('cv'),ctx=cv.getContext('2d');
+let S=1,DPR=1;
+const FF='"Microsoft JhengHei","PingFang TC","Heiti TC",sans-serif';
+
+/* ---- 高 DPI 縮放：實體緩衝 = 顯示尺寸 × dpr(上限3)，邏輯座標固定 400×600 ---- */
+function resize(){
+  DPR=Math.min(3,window.devicePixelRatio||1);
+  S=Math.min(window.innerWidth/W,window.innerHeight/H);
+  cv.style.width=(W*S)+'px';cv.style.height=(H*S)+'px';
+  cv.width=Math.round(W*S*DPR);cv.height=Math.round(H*S*DPR);
+}
+window.addEventListener('resize',resize);
+resize();
+
+/* ---- WebAudio 合成音效（零外部資源）---- */
+let AC=null;
+function ac(){
+  if(!AC){try{const A=window.AudioContext||window.webkitAudioContext;if(A)AC=new A();}catch(e){AC=null;}}
+  if(AC&&AC.state==='suspended'){try{AC.resume();}catch(e){}}
+  return AC;
+}
+function beep(f,dur,type,vol,delay,slide){
+  const c=ac();if(!c)return;
+  try{
+    const o=c.createOscillator(),g=c.createGain();
+    o.type=type||'sine';
+    const t0=c.currentTime+(delay||0);
+    o.frequency.setValueAtTime(f,t0);
+    if(slide)o.frequency.exponentialRampToValueAtTime(Math.max(40,f+slide),t0+dur);
+    g.gain.setValueAtTime(0.0001,t0);
+    g.gain.linearRampToValueAtTime(vol||0.12,t0+0.015);
+    g.gain.exponentialRampToValueAtTime(0.0001,t0+dur);
+    o.connect(g);g.connect(c.destination);
+    o.start(t0);o.stop(t0+dur+0.06);
+  }catch(e){}
+}
+function sTapOn(n){beep(430+n*70,0.07,'triangle',0.1);}
+function sTapOff(){beep(260,0.06,'triangle',0.07);}
+function sWrong(){beep(200,0.18,'sawtooth',0.05,0,-80);beep(150,0.2,'triangle',0.06,0.05,-60);}
+function sOk(n){[0,4,7].forEach((s,i)=>beep(523*Math.pow(2,(s+n)/12),0.12,'triangle',0.12,i*0.06));}
+function sFanfare(){[0,4,7,12].forEach((s,i)=>beep(523*Math.pow(2,s/12),0.16,'square',0.06,i*0.09));}
+function sHint(){beep(1046,0.1,'sine',0.07);beep(1318,0.12,'sine',0.06,0.1);}
+function sOver(){[7,3,0,-5].forEach((s,i)=>beep(392*Math.pow(2,s/12),0.22,'triangle',0.09,i*0.16));}
+function sRecord(){[0,4,7,12,16].forEach((s,i)=>beep(659*Math.pow(2,s/12),0.12,'sine',0.09,i*0.07));}
+function sTick(){beep(880,0.04,'square',0.045);}
+function sPop(){beep(760,0.06,'sine',0.06);}
+
+/* ---- 關卡資料：strokes = 0~100 座標的折線；targets.sets = 可接受的筆畫索引組合 ---- */
+const LEVELS=[
+{ch:'日',strokes:[
+  [[28,8],[28,92]],
+  [[28,8],[72,8],[72,92]],
+  [[28,50],[72,50]],
+  [[28,92],[72,92]]
+],targets:[
+  {c:'一',sets:[[2],[3]]},
+  {c:'二',sets:[[2,3]]},
+  {c:'口',sets:[[0,1,3]]},
+  {c:'日',sets:[[0,1,2,3]]}
+]},
+{ch:'王',strokes:[
+  [[22,14],[78,14]],
+  [[22,50],[78,50]],
+  [[16,88],[84,88]],
+  [[50,14],[50,88]]
+],targets:[
+  {c:'一',sets:[[0],[1],[2]]},
+  {c:'二',sets:[[0,1],[1,2],[0,2]]},
+  {c:'三',sets:[[0,1,2]]},
+  {c:'十',sets:[[1,3]]},
+  {c:'王',sets:[[0,1,2,3]]}
+]},
+{ch:'木',strokes:[
+  [[15,32],[85,32]],
+  [[50,8],[50,92]],
+  [[50,38],[32,60],[20,84]],
+  [[50,38],[68,60],[80,84]]
+],targets:[
+  {c:'一',sets:[[0]]},
+  {c:'人',sets:[[2,3]]},
+  {c:'十',sets:[[0,1]]},
+  {c:'大',sets:[[0,2,3]]},
+  {c:'木',sets:[[0,1,2,3]]}
+]},
+{ch:'目',strokes:[
+  [[30,6],[30,94]],
+  [[30,6],[70,6],[70,94]],
+  [[30,35],[70,35]],
+  [[30,64],[70,64]],
+  [[30,94],[70,94]]
+],targets:[
+  {c:'一',sets:[[2],[3],[4]]},
+  {c:'二',sets:[[2,3],[3,4],[2,4]]},
+  {c:'三',sets:[[2,3,4]]},
+  {c:'口',sets:[[0,1,4]]},
+  {c:'日',sets:[[0,1,2,4],[0,1,3,4]]},
+  {c:'目',sets:[[0,1,2,3,4]]}
+]},
+{ch:'田',strokes:[
+  [[22,12],[22,88]],
+  [[22,12],[78,12],[78,88]],
+  [[22,50],[78,50]],
+  [[50,12],[50,88]],
+  [[22,88],[78,88]]
+],targets:[
+  {c:'一',sets:[[2],[4]]},
+  {c:'十',sets:[[2,3]]},
+  {c:'土',sets:[[2,3,4]]},
+  {c:'口',sets:[[0,1,4]]},
+  {c:'日',sets:[[0,1,2,4]]},
+  {c:'田',sets:[[0,1,2,3,4]]}
+]},
+{ch:'合',strokes:[
+  [[50,6],[30,22],[14,38]],
+  [[50,6],[70,22],[86,38]],
+  [[32,44],[68,44]],
+  [[34,58],[34,90]],
+  [[34,58],[66,58],[66,90]],
+  [[34,90],[66,90]]
+],targets:[
+  {c:'人',sets:[[0,1]]},
+  {c:'一',sets:[[2]]},
+  {c:'口',sets:[[3,4,5]]},
+  {c:'合',sets:[[0,1,2,3,4,5]]}
+]},
+{ch:'本',strokes:[
+  [[15,30],[85,30]],
+  [[50,6],[50,92]],
+  [[50,36],[32,58],[20,80]],
+  [[50,36],[68,58],[80,80]],
+  [[36,74],[64,74]]
+],targets:[
+  {c:'一',sets:[[0],[4]]},
+  {c:'二',sets:[[0,4]]},
+  {c:'人',sets:[[2,3]]},
+  {c:'十',sets:[[0,1],[1,4]]},
+  {c:'大',sets:[[0,2,3]]},
+  {c:'木',sets:[[0,1,2,3]]},
+  {c:'本',sets:[[0,1,2,3,4]]}
+]},
+{ch:'早',strokes:[
+  [[32,8],[32,46]],
+  [[32,8],[68,8],[68,46]],
+  [[32,27],[68,27]],
+  [[32,46],[68,46]],
+  [[16,68],[84,68]],
+  [[50,46],[50,94]]
+],targets:[
+  {c:'一',sets:[[2],[3],[4]]},
+  {c:'二',sets:[[2,3]]},
+  {c:'十',sets:[[4,5]]},
+  {c:'口',sets:[[0,1,3]]},
+  {c:'日',sets:[[0,1,2,3]]},
+  {c:'早',sets:[[0,1,2,3,4,5]]}
+]},
+{ch:'米',strokes:[
+  [[34,14],[43,27]],
+  [[66,14],[57,27]],
+  [[14,44],[86,44]],
+  [[50,10],[50,92]],
+  [[47,52],[33,70],[20,88]],
+  [[53,52],[67,70],[80,88]]
+],targets:[
+  {c:'一',sets:[[2]]},
+  {c:'人',sets:[[4,5]]},
+  {c:'十',sets:[[2,3]]},
+  {c:'大',sets:[[2,4,5]]},
+  {c:'木',sets:[[2,3,4,5]]},
+  {c:'米',sets:[[0,1,2,3,4,5]]}
+]},
+{ch:'申',strokes:[
+  [[26,18],[26,72]],
+  [[26,18],[74,18],[74,72]],
+  [[26,45],[74,45]],
+  [[50,6],[50,94]],
+  [[26,72],[74,72]]
+],targets:[
+  {c:'一',sets:[[2]]},
+  {c:'十',sets:[[2,3]]},
+  {c:'口',sets:[[0,1,4]]},
+  {c:'日',sets:[[0,1,2,4]]},
+  {c:'申',sets:[[0,1,2,3,4]]}
+]}
+];
+/* 破完 10 關後循環後 5 關（合/本/早/米/申），時間補給變少當難度 */
+function idxFor(n){return n<=LEVELS.length?n-1:5+((n-LEVELS.length-1)%5);}
+
+/* ---- 版面常數 ---- */
+const CB={x:84,y:128,sx:2.32,sy:2.96}; // 大字繪製區（0~100 → 畫布座標）
+const BTN={
+  hint:{x:16,y:470,w:86,h:54},
+  go:{x:118,y:464,w:164,h:64},
+  clr:{x:302,y:470,w:82,h:54}
+};
+const START_T=75,MAX_T=99;
+
+/* ---- 遊戲狀態 ---- */
+let state='title';
+let lv=null,levelNum=1;
+let score=0,foundTotal=0,best=0;
+let timeLeft=START_T,stuck=0,hintCd=0,lastTick=99;
+let sel=new Set();
+let flash=null,hintF=null;
+let shakeT=0,scorePop=0,gTime=0;
+let introT=0,clearT=0,clearBonus=0,overT=0,newRec=false;
+let toasts=[],parts=[],flyCats=[];
+let slotShown=[],slotPopA=[];
+
+function loadBest(){try{return parseInt(localStorage.getItem('sc_zlcm_best'))||0;}catch(e){return 0;}}
+function saveBest(v){try{localStorage.setItem('sc_zlcm_best',String(v));}catch(e){}}
+best=loadBest();
+
+/* ---- 小工具 ---- */
+function rr(x,y,w,h,r){
+  ctx.beginPath();ctx.moveTo(x+r,y);
+  ctx.arcTo(x+w,y,x+w,y+h,r);ctx.arcTo(x+w,y+h,x,y+h,r);
+  ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);ctx.closePath();
+}
+function pt(p){return{x:CB.x+p[0]*CB.sx,y:CB.y+p[1]*CB.sy};}
+function strokePath(st){
+  ctx.beginPath();
+  for(let i=0;i<st.length;i++){const q=pt(st[i]);if(i)ctx.lineTo(q.x,q.y);else ctx.moveTo(q.x,q.y);}
+}
+function distSeg(px,py,x1,y1,x2,y2){
+  const dx=x2-x1,dy=y2-y1,L=dx*dx+dy*dy;
+  let t=L?((px-x1)*dx+(py-y1)*dy)/L:0;t=Math.max(0,Math.min(1,t));
+  return Math.hypot(px-(x1+dx*t),py-(y1+dy*t));
+}
+function pickStroke(x,y){
+  let bi=-1,bd=17; // 17px 點擊容差，取最近的一根
+  lv.strokes.forEach((st,i)=>{
+    for(let k=0;k<st.length-1;k++){
+      const a=pt(st[k]),b=pt(st[k+1]);
+      const d=distSeg(x,y,a.x,a.y,b.x,b.y);
+      if(d<bd){bd=d;bi=i;}
+    }
+  });
+  return bi;
+}
+function setCentroid(set){
+  let sx=0,sy=0,n=0;
+  set.forEach(i=>{lv.strokes[i].forEach(p=>{const q=pt(p);sx+=q.x;sy+=q.y;n++;});});
+  return n?{x:sx/n,y:sy/n}:{x:200,y:276};
+}
+function slotPos(i,n){
+  const w=n>=7?44:48,g=6,total=n*w+(n-1)*g,x0=200-total/2+w/2;
+  return{x:x0+i*(w+g),y:85,w:w};
+}
+function inBtn(b,x,y){return x>=b.x&&x<=b.x+b.w&&y>=b.y&&y<=b.y+b.h;}
+function toast(txt,col){toasts.push({txt:txt,col:col,t:0});if(toasts.length>3)toasts.shift();}
+function burst(x,y,n,kind){
+  for(let i=0;i<n;i++){
+    const a=Math.random()*Math.PI*2,sp=60+Math.random()*160;
+    parts.push({x:x,y:y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp-60,g:260,t:0,
+      life:0.7+Math.random()*0.5,kind:kind,rot:Math.random()*6,
+      vr:(Math.random()-0.5)*8,size:kind==='cat'?9+Math.random()*7:10+Math.random()*8});
+  }
+}
+
+/* ---- 史萊姆貓（綠色史萊姆＋貓耳）---- */
+function drawCat(x,y,r,o){
+  o=o||{};
+  ctx.save();ctx.translate(x,y);ctx.rotate(o.rot||0);
+  const sq=o.sq||0;ctx.scale(1+sq,1-sq);
+  ctx.fillStyle=o.col||'#5ad06c';
+  // 貓耳
+  ctx.beginPath();ctx.moveTo(-r*0.62,-r*0.30);ctx.lineTo(-r*0.88,-r*1.02);ctx.lineTo(-r*0.12,-r*0.72);ctx.closePath();ctx.fill();
+  ctx.beginPath();ctx.moveTo(r*0.62,-r*0.30);ctx.lineTo(r*0.88,-r*1.02);ctx.lineTo(r*0.12,-r*0.72);ctx.closePath();ctx.fill();
+  // 史萊姆身體
+  ctx.beginPath();ctx.ellipse(0,0,r,r*0.88,0,0,Math.PI*2);ctx.fill();
+  // 高光
+  ctx.fillStyle='rgba(255,255,255,0.35)';
+  ctx.beginPath();ctx.ellipse(-r*0.35,-r*0.38,r*0.2,r*0.12,-0.5,0,Math.PI*2);ctx.fill();
+  // 眼睛
+  ctx.strokeStyle='#233529';ctx.fillStyle='#233529';ctx.lineCap='round';
+  if(o.happy){
+    ctx.lineWidth=Math.max(1.5,r*0.09);
+    ctx.beginPath();ctx.arc(-r*0.32,-r*0.05,r*0.14,Math.PI*1.15,Math.PI*1.85);ctx.stroke();
+    ctx.beginPath();ctx.arc(r*0.32,-r*0.05,r*0.14,Math.PI*1.15,Math.PI*1.85);ctx.stroke();
+  }else{
+    ctx.beginPath();ctx.arc(-r*0.32,-r*0.08,r*0.09,0,Math.PI*2);ctx.fill();
+    ctx.beginPath();ctx.arc(r*0.32,-r*0.08,r*0.09,0,Math.PI*2);ctx.fill();
+  }
+  // ω 嘴
+  ctx.lineWidth=Math.max(1,r*0.06);
+  ctx.beginPath();ctx.arc(-r*0.09,r*0.13,r*0.09,0.15,Math.PI-0.15);ctx.stroke();
+  ctx.beginPath();ctx.arc(r*0.09,r*0.13,r*0.09,0.15,Math.PI-0.15);ctx.stroke();
+  // 腮紅
+  ctx.fillStyle='rgba(255,140,150,0.5)';
+  ctx.beginPath();ctx.ellipse(-r*0.52,r*0.12,r*0.13,r*0.08,0,0,Math.PI*2);ctx.fill();
+  ctx.beginPath();ctx.ellipse(r*0.52,r*0.12,r*0.13,r*0.08,0,0,Math.PI*2);ctx.fill();
+  ctx.restore();
+}
+
+/* ---- 流程 ---- */
+function loadLevel(){
+  const d=LEVELS[idxFor(levelNum)];
+  lv={ch:d.ch,strokes:d.strokes,targets:d.targets.map(t=>({c:t.c,sets:t.sets,found:false}))};
+  sel.clear();stuck=0;flash=null;hintF=null;flyCats.length=0;
+  slotShown=lv.targets.map(()=>false);
+  slotPopA=lv.targets.map(()=>0);
+}
+function startGame(){
+  score=0;foundTotal=0;levelNum=1;timeLeft=START_T;hintCd=0;lastTick=99;
+  toasts.length=0;parts.length=0;
+  loadLevel();state='intro';introT=1.2;
+}
+function gameOver(){
+  state='over';overT=0;
+  newRec=score>best;
+  if(newRec){best=score;saveBest(best);sRecord();burst(200,290,20,'cat');burst(200,290,16,'spark');}
+  else sOver();
+  if(window.SC){try{SC.over(score);}catch(e){}}
+}
+function useHint(auto){
+  if(state!=='play')return;
+  if(!auto&&hintCd>0){sTapOff();return;}
+  const cand=lv.targets.filter(t=>!t.found).sort((a,b)=>a.sets[0].length-b.sets[0].length)[0];
+  if(!cand)return;
+  hintF={set:cand.sets[0],t:1.8};
+  hintCd=12;stuck=0;sHint();
+  if(!auto)toast('喵喵提示中…','#e8a33d');
+}
+function confirmSel(){
+  if(state!=='play'||!lv)return;
+  if(sel.size===0){shakeT=0.12;sTapOff();return;}
+  const key=[...sel].sort((a,b)=>a-b).join(',');
+  let dup=null;
+  for(const t of lv.targets){
+    for(const s of t.sets){
+      if(s.slice().sort((a,b)=>a-b).join(',')===key){
+        if(t.found){dup=t;}else{onFound(t,s);return;}
+      }
+    }
+  }
+  if(dup){toast('「'+dup.c+'」已經抓過了喵～','#c99b3f');sel.clear();sTapOff();return;}
+  // 拼錯：輕輕抖一下歸位，零懲罰（試錯零成本）
+  shakeT=0.3;sWrong();toast('這組拼不成字，再試試！','#e06a6a');sel.clear();
+}
+function onFound(t,s){
+  t.found=true;foundTotal++;
+  const pts=10+(levelNum-1)*2;
+  score+=pts;scorePop=0.35;
+  timeLeft=Math.min(MAX_T,timeLeft+(levelNum>LEVELS.length?3:5));
+  flash={set:s,t:0.8};
+  const i=lv.targets.indexOf(t);
+  const c=setCentroid(s),sp=slotPos(i,lv.targets.length);
+  flyCats.push({x0:c.x,y0:c.y,x1:sp.x,y1:sp.y,t:0,dur:0.55,i:i});
+  burst(c.x,c.y,10,'spark');burst(c.x,c.y,3,'paw');
+  sOk(lv.targets.filter(x=>x.found).length*2);
+  toast('抓到「'+t.c+'」！＋'+pts,'#2fae4e');
+  sel.clear();stuck=0;
+  if(lv.targets.every(x=>x.found)){
+    clearBonus=20+levelNum*5;score+=clearBonus;
+    timeLeft=Math.min(MAX_T,timeLeft+7);
+    state='clear';clearT=1.5;shakeT=0.25;sFanfare();
+    // 整窩貓爆漿慶祝
+    for(let k=0;k<10;k++){
+      parts.push({x:60+Math.random()*280,y:430,vx:(Math.random()-0.5)*120,
+        vy:-(220+Math.random()*180),g:420,t:0,life:1.1+Math.random()*0.4,
+        kind:'cat',rot:(Math.random()-0.5),vr:(Math.random()-0.5)*6,size:10+Math.random()*8});
+    }
+  }
+}
+
+/* ---- 輸入 ---- */
+function toLog(e){
+  const r=cv.getBoundingClientRect();
+  return{x:(e.clientX-r.left)*W/r.width,y:(e.clientY-r.top)*H/r.height};
+}
+cv.addEventListener('pointerdown',e=>{
+  e.preventDefault();ac();
+  const p=toLog(e);
+  if(state==='title'){startGame();return;}
+  if(state==='intro'){introT=0;state='play';return;}
+  if(state==='over'){if(overT>0.5)startGame();return;}
+  if(state!=='play')return;
+  if(inBtn(BTN.go,p.x,p.y)){confirmSel();return;}
+  if(inBtn(BTN.clr,p.x,p.y)){if(sel.size){sel.clear();sTapOff();}return;}
+  if(inBtn(BTN.hint,p.x,p.y)){useHint(false);return;}
+  const si=pickStroke(p.x,p.y);
+  if(si>=0){
+    if(sel.has(si)){sel.delete(si);sTapOff();}
+    else{sel.add(si);sTapOn(sel.size);}
+  }
+},{passive:false});
+cv.addEventListener('contextmenu',e=>e.preventDefault());
+// 保險：切視窗/來電時清掉暫態輸入（本作為點擊制，無持續按鍵）
+cv.addEventListener('pointercancel',()=>{});
+window.addEventListener('blur',()=>{});
+window.addEventListener('keydown',e=>{
+  if(e.code==='Space'||e.code==='Enter'){
+    e.preventDefault();ac();
+    if(state==='title')startGame();
+    else if(state==='play')confirmSel();
+    else if(state==='intro'){introT=0;state='play';}
+    else if(state==='over'&&overT>0.5)startGame();
+  }else if(e.key==='c'||e.key==='C'||e.code==='Backspace'){
+    e.preventDefault();
+    if(state==='play'&&sel.size){sel.clear();sTapOff();}
+  }else if(e.key==='h'||e.key==='H'){
+    if(state==='play')useHint(false);
+  }
+});
+
+/* ---- 更新（deltaTime 制，dt 上限 0.1s，120Hz 不會變快）---- */
+function update(dt){
+  gTime+=dt;
+  if(shakeT>0)shakeT-=dt;
+  if(scorePop>0)scorePop-=dt;
+  if(flash){flash.t-=dt;if(flash.t<=0)flash=null;}
+  if(hintF){hintF.t-=dt;if(hintF.t<=0)hintF=null;}
+  for(let i=toasts.length-1;i>=0;i--){toasts[i].t+=dt;if(toasts[i].t>1.5)toasts.splice(i,1);}
+  for(let i=parts.length-1;i>=0;i--){
+    const p=parts[i];p.t+=dt;p.x+=p.vx*dt;p.y+=p.vy*dt;p.vy+=p.g*dt;p.rot+=p.vr*dt;
+    if(p.t>=p.life)parts.splice(i,1);
+  }
+  for(let i=flyCats.length-1;i>=0;i--){
+    const f=flyCats[i];f.t+=dt;
+    if(f.t>=f.dur){
+      slotShown[f.i]=true;slotPopA[f.i]=0.4;
+      const sp=slotPos(f.i,lv.targets.length);
+      burst(sp.x,sp.y,5,'spark');sPop();
+      flyCats.splice(i,1);
+    }
+  }
+  for(let i=0;i<slotPopA.length;i++)if(slotPopA[i]>0)slotPopA[i]-=dt;
+
+  if(state==='play'){
+    timeLeft-=dt;stuck+=dt;
+    if(hintCd>0)hintCd-=dt;
+    if(timeLeft<6){ // 最後倒數滴答聲
+      const c=Math.ceil(timeLeft);
+      if(c!==lastTick&&c>0){lastTick=c;sTick();}
+    }
+    // 卡關軟提示：第 1 關還沒開張 8 秒就幫、之後 20 秒
+    const wait=(levelNum===1&&!lv.targets.some(t=>t.found))?8:20;
+    if(stuck>=wait)useHint(true);
+    if(timeLeft<=0){timeLeft=0;gameOver();}
+  }else if(state==='clear'){
+    clearT-=dt;
+    if(clearT<=0){levelNum++;loadLevel();state='intro';introT=1.1;}
+  }else if(state==='intro'){
+    introT-=dt;
+    if(introT<=0)state='play';
+  }else if(state==='over'){
+    overT+=dt;
+  }
+}
+
+/* ---- 繪製 ---- */
+function drawHUD(){
+  ctx.textBaseline='alphabetic';
+  ctx.font='bold 15px '+FF;
+  const ss=1+Math.max(0,scorePop)*0.8;
+  ctx.save();ctx.translate(14,26);ctx.scale(ss,ss);
+  ctx.fillStyle='#eaf7ec';ctx.textAlign='left';ctx.fillText('分數 '+score,0,0);
+  ctx.restore();
+  ctx.fillStyle='#bfe3c4';ctx.textAlign='center';ctx.fillText('第 '+levelNum+' 關「'+lv.ch+'」',200,26);
+  ctx.textAlign='right';ctx.fillText('最高 '+best,386,26);
+  // 時間條
+  const ratio=Math.max(0,Math.min(1,timeLeft/MAX_T));
+  ctx.fillStyle='rgba(255,255,255,0.13)';rr(14,36,372,14,7);ctx.fill();
+  let col=ratio>0.35?'#4ecb63':(ratio>0.18?'#f0a83c':'#e85a5a');
+  if(timeLeft<8&&Math.sin(gTime*10)>0)col='#ff7a7a';
+  if(ratio>0){ctx.fillStyle=col;rr(14,36,Math.max(10,372*ratio),14,7);ctx.fill();}
+  if(timeLeft<10&&state!=='over'){
+    ctx.fillStyle='#fff';ctx.font='bold 12px '+FF;ctx.textAlign='center';ctx.textBaseline='middle';
+    ctx.fillText('⏰ '+Math.ceil(timeLeft),200,43);
+    ctx.textBaseline='alphabetic';
+  }
+}
+function drawSlots(){
+  const n=lv.targets.length;
+  for(let i=0;i<n;i++){
+    const sp=slotPos(i,n),t=lv.targets[i];
+    const sc=1+Math.max(0,slotPopA[i])*0.9,w=sp.w,h=42;
+    ctx.save();ctx.translate(sp.x,sp.y);ctx.scale(sc,sc);
+    ctx.textAlign='center';ctx.textBaseline='middle';
+    if(t.found&&slotShown[i]){
+      ctx.fillStyle='#e2f6e4';rr(-w/2,-h/2,w,h,9);ctx.fill();
+      ctx.strokeStyle='#3db95c';ctx.lineWidth=2.5;rr(-w/2,-h/2,w,h,9);ctx.stroke();
+      ctx.fillStyle='#26953f';ctx.font='bold 24px '+FF;ctx.fillText(t.c,0,1);
+    }else{
+      ctx.fillStyle='rgba(255,255,255,0.10)';rr(-w/2,-h/2,w,h,9);ctx.fill();
+      ctx.strokeStyle='rgba(255,255,255,0.28)';ctx.lineWidth=2;rr(-w/2,-h/2,w,h,9);ctx.stroke();
+      ctx.fillStyle='rgba(255,255,255,0.45)';ctx.font='bold 20px '+FF;ctx.fillText('？',0,1);
+    }
+    ctx.restore();
+  }
+  ctx.textBaseline='alphabetic';
+}
+function drawCard(){
+  // 紙卡
+  ctx.fillStyle='#fbf3df';rr(58,114,284,326,18);ctx.fill();
+  ctx.strokeStyle='#e3d3a8';ctx.lineWidth=3;rr(58,114,284,326,18);ctx.stroke();
+  ctx.lineCap='round';ctx.lineJoin='round';
+  // 未選筆畫
+  lv.strokes.forEach((st,i)=>{
+    if(sel.has(i))return;
+    ctx.strokeStyle='#474e5c';ctx.lineWidth=13;
+    strokePath(st);ctx.stroke();
+  });
+  // 選中筆畫（發光綠）
+  sel.forEach(i=>{
+    ctx.save();ctx.shadowColor='#7dff9e';ctx.shadowBlur=14;
+    ctx.strokeStyle='#2fae4e';ctx.lineWidth=14;
+    strokePath(lv.strokes[i]);ctx.stroke();
+    ctx.restore();
+  });
+  // 提示脈動（橘色呼吸，不給答案字）
+  if(hintF){
+    ctx.save();
+    ctx.globalAlpha=0.25+0.3*Math.abs(Math.sin(gTime*9));
+    ctx.strokeStyle='#ff9d2e';ctx.lineWidth=18;
+    hintF.set.forEach(i=>{strokePath(lv.strokes[i]);ctx.stroke();});
+    ctx.restore();
+  }
+  // 抓到瞬間的金光
+  if(flash){
+    ctx.save();
+    ctx.globalAlpha=Math.max(0,flash.t/0.8);
+    ctx.strokeStyle='#ffcf3f';ctx.lineWidth=16;
+    flash.set.forEach(i=>{strokePath(lv.strokes[i]);ctx.stroke();});
+    ctx.restore();
+  }
+}
+function drawButtons(){
+  ctx.textAlign='center';ctx.textBaseline='middle';
+  // 提示
+  const hOk=hintCd<=0;
+  ctx.fillStyle=hOk?'#3b5d8f':'#3a4552';rr(BTN.hint.x,BTN.hint.y,BTN.hint.w,BTN.hint.h,12);ctx.fill();
+  ctx.fillStyle=hOk?'#dce9ff':'rgba(255,255,255,0.4)';ctx.font='bold 16px '+FF;
+  ctx.fillText(hOk?'💡提示':('💡'+Math.ceil(hintCd)+'s'),BTN.hint.x+BTN.hint.w/2,BTN.hint.y+BTN.hint.h/2);
+  // 組字
+  const on=sel.size>0;
+  ctx.save();
+  if(on){ctx.shadowColor='#59e07a';ctx.shadowBlur=14;}
+  ctx.fillStyle=on?'#2fae4e':'#57605a';rr(BTN.go.x,BTN.go.y,BTN.go.w,BTN.go.h,16);ctx.fill();
+  ctx.restore();
+  ctx.fillStyle=on?'#fff':'rgba(255,255,255,0.55)';ctx.font='bold 26px '+FF;
+  ctx.fillText('組 字',BTN.go.x+BTN.go.w/2,BTN.go.y+BTN.go.h/2+1);
+  if(on){
+    ctx.fillStyle='#ffd24a';ctx.beginPath();ctx.arc(BTN.go.x+BTN.go.w-16,BTN.go.y+14,12,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle='#5c3d00';ctx.font='bold 14px '+FF;ctx.fillText(String(sel.size),BTN.go.x+BTN.go.w-16,BTN.go.y+15);
+  }
+  // 清除
+  ctx.fillStyle='#6b5340';rr(BTN.clr.x,BTN.clr.y,BTN.clr.w,BTN.clr.h,12);ctx.fill();
+  ctx.fillStyle='#f2e3cf';ctx.font='bold 16px '+FF;
+  ctx.fillText('✖ 清除',BTN.clr.x+BTN.clr.w/2,BTN.clr.y+BTN.clr.h/2);
+  ctx.textBaseline='alphabetic';
+}
+function drawParts(){
+  parts.forEach(p=>{
+    const a=Math.max(0,1-p.t/p.life);
+    ctx.save();ctx.globalAlpha=a;ctx.translate(p.x,p.y);ctx.rotate(p.rot);
+    if(p.kind==='cat')drawCat(0,0,p.size,{happy:true});
+    else if(p.kind==='paw'){
+      ctx.font=Math.round(p.size)+'px '+FF;ctx.textAlign='center';ctx.textBaseline='middle';
+      ctx.fillText('🐾',0,0);
+    }else{
+      ctx.fillStyle='#ffd24a';ctx.beginPath();ctx.arc(0,0,Math.max(1.5,p.size*0.22),0,Math.PI*2);ctx.fill();
+    }
+    ctx.restore();
+  });
+  ctx.globalAlpha=1;
+}
+function drawToasts(){
+  toasts.forEach((t,i)=>{
+    const k=t.t/1.5;
+    ctx.save();
+    ctx.globalAlpha=k<0.1?k*10:Math.max(0,1-Math.max(0,k-0.6)/0.4);
+    ctx.font='bold 20px '+FF;ctx.textAlign='center';
+    const y=300-30*i-k*46;
+    ctx.lineWidth=5;ctx.strokeStyle='rgba(30,30,30,0.75)';ctx.strokeText(t.txt,200,y);
+    ctx.fillStyle=t.col;ctx.fillText(t.txt,200,y);
+    ctx.restore();
+  });
+}
+function drawIntro(){
+  ctx.save();
+  ctx.globalAlpha=Math.min(1,introT*3);
+  ctx.fillStyle='rgba(24,32,26,0.75)';rr(80,220,240,120,16);ctx.fill();
+  ctx.textAlign='center';
+  ctx.fillStyle='#fff';ctx.font='bold 26px '+FF;ctx.fillText('第 '+levelNum+' 關「'+lv.ch+'」',200,262);
+  ctx.fillStyle='#ffd24a';ctx.font='bold 18px '+FF;ctx.fillText('裡面藏著 '+lv.targets.length+' 隻喵！',200,296);
+  ctx.fillStyle='rgba(255,255,255,0.7)';ctx.font='13px '+FF;ctx.fillText('點筆畫組出小字，把喵抓出來',200,322);
+  ctx.restore();
+}
+function drawClear(){
+  ctx.save();
+  ctx.fillStyle='rgba(24,32,26,0.6)';rr(70,240,260,90,16);ctx.fill();
+  ctx.textAlign='center';
+  ctx.fillStyle='#7bff9b';ctx.font='bold 26px '+FF;ctx.fillText('整窩喵全抓到啦！',200,278);
+  ctx.fillStyle='#ffd24a';ctx.font='bold 18px '+FF;ctx.fillText('通關獎勵 ＋'+clearBonus,200,308);
+  ctx.restore();
+}
+function drawTitle(){
+  drawCat(200,200+Math.sin(gTime*2)*8,56,{happy:true,sq:Math.sin(gTime*2)*0.06});
+  ctx.textAlign='center';
+  ctx.fillStyle='#eaf7ec';ctx.font='bold 46px '+FF;ctx.fillText('字裡藏喵',200,320);
+  ctx.fillStyle='#9fd4a8';ctx.font='15px '+FF;ctx.fillText('史萊姆貓化身筆畫，躲進大漢字裡了！',200,352);
+  ctx.fillStyle='#cfe8d0';ctx.font='14px '+FF;
+  ctx.fillText('🐾 點選筆畫 → 按【組字】，拼出藏在字裡的小字',200,392);
+  ctx.fillText('🐾 筆畫可以重複使用，找齊全部藏字就過關',200,416);
+  ctx.fillText('🐾 抓到喵會加時間，時間歸零遊戲結束',200,440);
+  const p=1+Math.sin(gTime*4)*0.03;
+  ctx.save();ctx.translate(200,500);ctx.scale(p,p);
+  ctx.fillStyle='#2fae4e';rr(-90,-28,180,56,16);ctx.fill();
+  ctx.fillStyle='#fff';ctx.font='bold 22px '+FF;ctx.textBaseline='middle';ctx.fillText('開始抓喵！',0,1);
+  ctx.restore();ctx.textBaseline='alphabetic';
+  ctx.fillStyle='rgba(255,255,255,0.45)';ctx.font='12px '+FF;
+  ctx.fillText('最高分 '+best+'｜點任意處或按 Enter 開始',200,556);
+}
+function drawOver(){
+  ctx.fillStyle='rgba(10,14,11,0.72)';ctx.fillRect(0,0,W,H);
+  ctx.fillStyle='#fbf3df';rr(50,130,300,340,20);ctx.fill();
+  drawCat(200,185,40,{happy:newRec});
+  ctx.textAlign='center';
+  ctx.fillStyle='#54423a';ctx.font='bold 24px '+FF;ctx.fillText('時間到！喵都躲好了',200,254);
+  ctx.fillStyle='#26953f';ctx.font='bold 44px '+FF;ctx.fillText(String(score),200,304);
+  if(newRec){
+    ctx.fillStyle='#e8a020';ctx.font='bold 20px '+FF;ctx.fillText('🎉 新紀錄！',200,336);
+  }else{
+    ctx.fillStyle='#b06a4a';ctx.font='bold 17px '+FF;
+    ctx.fillText('差 '+(best+1-score)+' 分就破紀錄，差一點！',200,336);
+  }
+  ctx.fillStyle='#7a6a55';ctx.font='14px '+FF;
+  ctx.fillText('抓到 '+foundTotal+' 隻喵・闖到第 '+levelNum+' 關',200,364);
+  const p=overT>0.5?1+Math.sin(gTime*4)*0.03:1;
+  ctx.save();ctx.translate(200,414);ctx.scale(p,p);
+  ctx.fillStyle='#2fae4e';rr(-84,-26,168,52,14);ctx.fill();
+  ctx.fillStyle='#fff';ctx.font='bold 20px '+FF;ctx.textBaseline='middle';ctx.fillText('再抓一輪！',0,1);
+  ctx.restore();ctx.textBaseline='alphabetic';
+  ctx.fillStyle='#9a8a70';ctx.font='12px '+FF;ctx.fillText('點一下或按 Enter 馬上再來',200,452);
+}
+function draw(){
+  ctx.setTransform(S*DPR,0,0,S*DPR,0,0);
+  // 背景
+  const g=ctx.createLinearGradient(0,0,0,H);
+  g.addColorStop(0,'#1d2a20');g.addColorStop(1,'#131b15');
+  ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
+  // 淡淡肉球紋
+  ctx.globalAlpha=0.05;ctx.fillStyle='#9fd4a8';
+  for(let i=0;i<5;i++){
+    const bx=(i*97)%360+20,by=(i*173)%520+40;
+    ctx.beginPath();ctx.arc(bx,by,16,0,Math.PI*2);ctx.fill();
+  }
+  ctx.globalAlpha=1;
+  if(state==='title'){drawTitle();drawParts();return;}
+  ctx.save();
+  if(shakeT>0){const m=shakeT*16;ctx.translate((Math.random()-0.5)*m,(Math.random()-0.5)*m);}
+  drawHUD();drawSlots();drawCard();
+  ctx.fillStyle='rgba(255,255,255,0.42)';ctx.font='12px '+FF;ctx.textAlign='center';
+  ctx.fillText('筆畫可以重複使用喵！',200,455);
+  drawButtons();
+  // 抓到的貓飛進上方格子
+  flyCats.forEach(f=>{
+    const k=Math.min(1,f.t/f.dur),e=k*k*(3-2*k);
+    const x=f.x0+(f.x1-f.x0)*e,y=f.y0+(f.y1-f.y0)*e-Math.sin(Math.PI*k)*70;
+    drawCat(x,y,13,{happy:true,rot:Math.sin(k*10)*0.2});
+  });
+  if(state==='intro')drawIntro();
+  if(state==='clear')drawClear();
+  if(state!=='over'){drawParts();drawToasts();}
+  ctx.restore();
+  ctx.fillStyle='rgba(255,255,255,0.28)';ctx.font='11px '+FF;ctx.textAlign='center';
+  ctx.fillText('點筆畫選取・Enter 組字・C 清除・H 提示',200,584);
+  if(state==='over'){drawOver();drawParts();}
+}
+
+/* ---- 主迴圈（dt 上限 0.1s；分頁隱藏時 rAF 自動暫停 = 計時跟著停）---- */
+let last=performance.now();
+function frame(now){
+  const dt=Math.min(0.1,(now-last)/1000);
+  last=now;
+  update(dt);
+  draw();
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+<script src="../../sc_config.js"></script>
+<script src="../../stats.js"></script>
+</body>
+</html>
