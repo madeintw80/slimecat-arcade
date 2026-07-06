@@ -55,13 +55,6 @@ except Exception:
 
 # claude CLI：先用 PATH 找，找不到用安裝時記下的絕對路徑（排程環境 PATH 可能不同）
 CLAUDE = shutil.which("claude") or r"C:\Users\User\.local\bin\claude.exe"
-# claude -p 子程序的工作目錄：故意設在 C:/Users/User「之外」（Public 下）。
-# claude -p 會從 cwd 往上層找 CLAUDE.md；工廠在 ~/projects/SlimeCatArcade 跑，
-# 往上會整份載入 root 的 Batnini CLAUDE.md（33.5k chars ≈ 每次白付 ~17.4k input tokens）。
-# 子 Claude 工具全禁、純文字交稿（見 run_claude），cwd 只影響 CLAUDE.md 載入 → 搬出去零副作用。
-# 註：只搬 claude -p 子程序的 cwd，工廠腳本本身照常在專案目錄跑（配方同 XianxiaSaga/llm.py）。
-LLM_CWD = Path("C:/Users/Public/slimecat_llm_cwd")
-LLM_CWD.mkdir(parents=True, exist_ok=True)
 # 模型策略：產遊戲一律用 opus（別名=最新版 Opus，目前 4.8），品質優先。
 # 2026-07-06 用戶拍板：直接用 opus，不再吃 Fable 5 免費期。
 MODEL = "opus"
@@ -84,7 +77,7 @@ def run_claude(prompt: str, timeout: int) -> str:
            "--strict-mcp-config", "--mcp-config", str(EMPTY_MCP)]
     proc = subprocess.run(cmd, input=prompt, capture_output=True,
                           text=True, encoding="utf-8", errors="replace",
-                          timeout=timeout, cwd=str(LLM_CWD))
+                          timeout=timeout, cwd=str(ROOT))
     if proc.returncode != 0:
         err = (proc.stderr or "")[-500:]
         if "401" in err or "unauthorized" in err.lower():

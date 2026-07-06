@@ -1,0 +1,677 @@
+<!--GAMEMETA {"title":"肉球快遞隊","emoji":"🐾","genre":"策略","inspiration":"Colony Flow!","desc":"拖果凍軌跡讓史萊姆貓自動扛魚乾，看穿塞車就改道衝爆每秒進貢"}-->
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>肉球快遞隊</title>
+<style>
+  html,body{margin:0;padding:0;height:100%;background:#1b2a24;overflow:hidden;
+    font-family:system-ui,-apple-system,"Microsoft JhengHei","PingFang TC",sans-serif;
+    -webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent;}
+  #wrap{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;}
+  canvas{touch-action:none;display:block;background:#cfeede;border-radius:10px;
+    box-shadow:0 10px 40px rgba(0,0,0,.5);}
+  #back{position:fixed;left:10px;top:8px;z-index:10;color:#cfeede;font-size:13px;
+    text-decoration:none;background:rgba(0,0,0,.35);padding:5px 10px;border-radius:8px;}
+  #back:active{background:rgba(0,0,0,.55);}
+</style>
+</head>
+<body>
+<a id="back" href="../../index.html">← 回遊戲區</a>
+<div id="wrap"><canvas id="cv"></canvas></div>
+<script>
+(function(){
+"use strict";
+// ===== 基本設定 =====
+var LW=400, LH=600;                 // 邏輯畫布尺寸（直式）
+var cv=document.getElementById("cv");
+var ctx=cv.getContext("2d");
+var S=1, DPR=1;                     // 縮放與像素比
+var STEP=1/60;                      // 固定時間步長
+
+// ===== 尺寸自適應（高 DPI 清晰輸出）=====
+function resize(){
+  var maxW=window.innerWidth, maxH=window.innerHeight;
+  S=Math.min(maxW/LW, maxH/LH);
+  DPR=Math.min(window.devicePixelRatio||1, 3);
+  cv.style.width=(LW*S)+"px";
+  cv.style.height=(LH*S)+"px";
+  cv.width=Math.round(LW*S*DPR);
+  cv.height=Math.round(LH*S*DPR);
+}
+window.addEventListener("resize",resize);
+resize();
+
+// ===== 音效（WebAudio 合成，禁外部資源）=====
+var AC=null;
+function initAudio(){
+  try{ if(!AC){ AC=new (window.AudioContext||window.webkitAudioContext)(); } 
+       if(AC.state==="suspended") AC.resume(); }catch(e){ AC=null; }
+}
+function blip(freq,dur,type,vol,glide){
+  if(!AC) return;
+  try{
+    var t=AC.currentTime;
+    var o=AC.createOscillator(), g=AC.createGain();
+    o.type=type||"sine";
+    o.frequency.setValueAtTime(freq,t);
+    if(glide) o.frequency.exponentialRampToValueAtTime(Math.max(40,glide),t+dur);
+    g.gain.setValueAtTime(0.0001,t);
+    g.gain.exponentialRampToValueAtTime(vol||0.2,t+0.008);
+    g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
+    o.connect(g); g.connect(AC.destination);
+    o.start(t); o.stop(t+dur+0.02);
+  }catch(e){}
+}
+function noiseBurst(dur,vol){
+  if(!AC) return;
+  try{
+    var n=Math.floor(AC.sampleRate*dur);
+    var buf=AC.createBuffer(1,n,AC.sampleRate);
+    var d=buf.getChannelData(0);
+    for(var i=0;i<n;i++){ d[i]=(Math.random()*2-1)*(1-i/n); }
+    var src=AC.createBufferSource(); src.buffer=buf;
+    var g=AC.createGain(); g.gain.value=vol||0.25;
+    src.connect(g); g.connect(AC.destination); src.start();
+  }catch(e){}
+}
+
+// ===== 遊戲常數 =====
+var SRC={x:70,y:150};              // 小魚乾堆
+var NEST={x:330,y:502};            // 貓窩
+var CAT_SPEED=108;                 // 基礎速度 px/s
+var GAME_TIME=90;                  // 一局秒數
+var CAT_CAP=24;
+
+// ===== 狀態 =====
+var state="TITLE";                 // TITLE / PLAY / OVER
+var best=loadBest();
+var score=0, deliveryValue=1, speedMul=1;
+var gameTime=0, timeLeft=GAME_TIME;
+var cats=[], obstacles=[], particles=[], floaters=[];
+var deliveries=[];                 // 近期交貨時間戳（算每秒進貢）
+var rateShown=0;
+var comboCount=0, comboTime=0;
+var shakeMag=0;
+var newRecord=false, overCd=0, overFired=false;
+var lastBeepSec=99;
+var tutTime=0;                     // 教學提示計時
+var firstObsSpawned=false;
+var spawnSchedule=[15,30,44,56,66,75,83]; // 障礙生成排程（越後越密＝後期壓力）
+var spawnIdx=0;
+
+// 路徑資料（果凍軌跡）
+var P=[], SEG=[], CUM=[], LEN=0;
+
+// 解鎖表（分數門檻→複利成長）
+var unlocks=[
+  {s:8, done:false, msg:"解鎖！＋2 快遞貓 🐾", fn:function(){addCats(2);}},
+  {s:18,done:false, msg:"解鎖！快遞貓加速 ⚡", fn:function(){speedMul=1.3;}},
+  {s:32,done:false, msg:"解鎖！大份魚乾 ×2 🐟", fn:function(){deliveryValue=2; addCats(2);}},
+  {s:50,done:false, msg:"解鎖！貓潮來襲 🌊", fn:function(){addCats(3);}},
+  {s:72,done:false, msg:"解鎖！極速快遞 💨", fn:function(){speedMul=1.65;}}
+];
+
+// ===== 儲存 =====
+function loadBest(){ try{ return parseInt(localStorage.getItem("roubao_best")||"0",10)||0; }catch(e){ return 0; } }
+function saveBest(v){ try{ localStorage.setItem("roubao_best",String(v)); }catch(e){} }
+
+// ===== 工具 =====
+function clamp(v,a,b){ return v<a?a:(v>b?b:v); }
+function dist(a,b){ var dx=a.x-b.x, dy=a.y-b.y; return Math.sqrt(dx*dx+dy*dy); }
+
+// ===== 路徑設定 =====
+function setPath(mid){
+  var raw=[SRC];
+  if(mid){ for(var i=0;i<mid.length;i++){ raw.push(mid[i]); } }
+  raw.push(NEST);
+  // 夾邊界 + 去除過近的重複點
+  var pts=[];
+  for(var j=0;j<raw.length;j++){
+    var q={x:clamp(raw[j].x,14,LW-14), y:clamp(raw[j].y,72,LH-14)};
+    if(pts.length===0 || dist(q,pts[pts.length-1])>6){ pts.push(q); }
+  }
+  if(dist(pts[pts.length-1],NEST)>1) pts.push({x:NEST.x,y:NEST.y});
+  // 計算段長
+  SEG=[]; CUM=[]; LEN=0;
+  for(var k=0;k<pts.length-1;k++){
+    var d=dist(pts[k],pts[k+1]);
+    CUM.push(LEN); SEG.push(d); LEN+=d;
+  }
+  CUM.push(LEN);
+  if(LEN<1){ pts=[SRC,NEST]; SEG=[dist(SRC,NEST)]; CUM=[0,SEG[0]]; LEN=SEG[0]; }
+  P=pts;
+}
+// 沿路徑取位置與法線
+function posDirAt(t){
+  t=clamp(t,0,1);
+  var target=t*LEN, i=0;
+  while(i<SEG.length-1 && CUM[i+1]<target) i++;
+  var f=SEG[i]>0?(target-CUM[i])/SEG[i]:0;
+  var a=P[i], b=P[i+1];
+  var x=a.x+(b.x-a.x)*f, y=a.y+(b.y-a.y)*f;
+  var dx=b.x-a.x, dy=b.y-a.y, L=Math.sqrt(dx*dx+dy*dy)||1;
+  return {x:x,y:y,nx:-dy/L,ny:dx/L};
+}
+
+// ===== 快遞貓 =====
+function addCats(n){
+  for(var i=0;i<n && cats.length<CAT_CAP;i++){
+    cats.push({t:Math.random()*0.25, dir:1, carry:true,
+      lane:(Math.random()*2-1)*7, phase:Math.random()*6.28, sq:0});
+  }
+}
+function deliver(c){
+  c.t=1; c.dir=-1; c.carry=false; c.sq=1;
+  score+=deliveryValue;
+  deliveries.push({t:gameTime,v:deliveryValue});
+  comboCount++; comboTime=2.2;
+  var pit=523.25*Math.pow(1.0595, Math.min(comboCount,14));
+  blip(pit,0.12,"triangle",0.22);
+  burst(NEST.x,NEST.y-6,10,"#ffd36b");
+  floaters.push({x:NEST.x,y:NEST.y-18,vy:-34,life:0.9,max:0.9,
+    text:"+"+deliveryValue,color:"#ff9a2e",size:18});
+  shakeMag=Math.min(shakeMag+2.2,7);
+  checkUnlocks();
+}
+function pickup(c){ c.t=0; c.dir=1; c.carry=true; c.sq=0.6; }
+
+function checkUnlocks(){
+  for(var i=0;i<unlocks.length;i++){
+    var u=unlocks[i];
+    if(!u.done && score>=u.s){
+      u.done=true; u.fn();
+      floaters.push({x:LW/2,y:250,vy:-16,life:1.6,max:1.6,text:u.msg,color:"#2b6",size:17});
+      blip(660,0.1,"square",0.16); blip(880,0.12,"square",0.14);
+      blip(1180,0.16,"square",0.12); shakeMag=Math.min(shakeMag+3,9);
+    }
+  }
+}
+
+// ===== 障礙（毛線團）=====
+function spawnObstacle(){
+  var t=0.28+Math.random()*0.44;
+  var p=posDirAt(t);
+  var off=(Math.random()*2-1)*10;
+  var x=clamp(p.x+p.nx*off, 40, LW-40);
+  var y=clamp(p.y+p.ny*off, 100, LH-70);
+  if(dist({x:x,y:y},SRC)<50 || dist({x:x,y:y},NEST)<50){ x=p.x; y=p.y; }
+  obstacles.push({x:x,y:y,r:26,hp:3,grow:0,shake:0});
+  blip(200,0.25,"sawtooth",0.18,120); // 警告音
+  floaters.push({x:x,y:y-34,vy:-20,life:1.2,max:1.2,text:"毛線團！塞車了",color:"#c0392b",size:14});
+  shakeMag=Math.min(shakeMag+4,10);
+}
+function findObstacle(pt){
+  for(var i=0;i<obstacles.length;i++){
+    if(obstacles[i].hp>0 && dist(pt,obstacles[i])<obstacles[i].r+8) return obstacles[i];
+  }
+  return null;
+}
+function tapObstacle(o){
+  o.hp--; o.shake=1;
+  burst(o.x,o.y,8,"#e08fb0");
+  blip(300+(3-o.hp)*90,0.08,"square",0.18);
+  if(o.hp<=0){
+    burst(o.x,o.y,22,"#ff7fa8"); noiseBurst(0.18,0.22);
+    blip(520,0.18,"triangle",0.2,900);
+    score+=3;
+    floaters.push({x:o.x,y:o.y-10,vy:-30,life:1,max:1,text:"淨空 +3",color:"#e84393",size:16});
+    shakeMag=Math.min(shakeMag+5,11);
+    checkUnlocks();
+  }
+}
+
+// ===== 粒子 =====
+function burst(x,y,n,color){
+  for(var i=0;i<n;i++){
+    var a=Math.random()*6.28, sp=30+Math.random()*90;
+    particles.push({x:x,y:y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp-20,
+      life:0.5+Math.random()*0.4,max:0.9,color:color,r:2+Math.random()*2.5});
+  }
+}
+function confetti(){
+  var cols=["#ff5e7e","#ffd36b","#5ec6ff","#7ed957","#c78bff"];
+  for(var i=0;i<80;i++){
+    particles.push({x:LW/2+(Math.random()*2-1)*120,y:180,
+      vx:(Math.random()*2-1)*120,vy:-60-Math.random()*160,
+      life:1.4+Math.random(),max:2.4,color:cols[(i%cols.length)],r:3+Math.random()*3});
+  }
+}
+
+// ===== 開局 / 結束 =====
+function startGame(){
+  initAudio();
+  state="PLAY"; score=0; deliveryValue=1; speedMul=1;
+  gameTime=0; timeLeft=GAME_TIME;
+  cats=[]; obstacles=[]; particles=[]; floaters=[]; deliveries=[];
+  rateShown=0; comboCount=0; comboTime=0; shakeMag=0;
+  newRecord=false; overFired=false; lastBeepSec=99;
+  tutTime=0; firstObsSpawned=false; spawnIdx=0;
+  for(var i=0;i<unlocks.length;i++) unlocks[i].done=false;
+  setPath(null);
+  // 初始 3 隻，分散在路徑上（部分即將交貨→前 15 秒先嚐甜頭）
+  cats.push({t:0.15,dir:1,carry:true,lane:-6,phase:0,sq:0});
+  cats.push({t:0.5, dir:1,carry:true,lane:0, phase:2,sq:0});
+  cats.push({t:0.82,dir:1,carry:true,lane:6, phase:4,sq:0});
+}
+function gameOver(){
+  state="OVER"; overCd=0.5;
+  if(score>best){ best=score; saveBest(best); newRecord=true; confetti();
+    blip(523,0.14,"triangle",0.2); blip(659,0.14,"triangle",0.2);
+    blip(784,0.18,"triangle",0.2); blip(1046,0.25,"triangle",0.2);
+  } else {
+    newRecord=false; blip(300,0.3,"sine",0.2,150);
+  }
+  if(!overFired){ overFired=true; try{ if(window.SC) SC.over(score); }catch(e){} }
+}
+
+// ===== 更新 =====
+function update(dt){
+  // 全域動畫（各狀態都跑）
+  for(var i=particles.length-1;i>=0;i--){
+    var p=particles[i]; p.life-=dt;
+    if(p.life<=0){ particles.splice(i,1); continue; }
+    p.x+=p.vx*dt; p.y+=p.vy*dt; p.vy+=260*dt; p.vx*=0.985;
+  }
+  for(var f=floaters.length-1;f>=0;f--){
+    var fl=floaters[f]; fl.life-=dt; fl.y+=fl.vy*dt;
+    if(fl.life<=0) floaters.splice(f,1);
+  }
+  if(shakeMag>0){ shakeMag-=dt*22; if(shakeMag<0) shakeMag=0; }
+  for(var o=0;o<obstacles.length;o++){
+    var ob=obstacles[o];
+    if(ob.grow<1) ob.grow=Math.min(1,ob.grow+dt*4);
+    if(ob.shake>0){ ob.shake-=dt*4; if(ob.shake<0) ob.shake=0; }
+  }
+  if(state==="OVER" && overCd>0) overCd-=dt;
+
+  if(state!=="PLAY") return;
+
+  gameTime+=dt; timeLeft=GAME_TIME-gameTime;
+  tutTime+=dt;
+
+  // 障礙排程
+  while(spawnIdx<spawnSchedule.length && gameTime>=spawnSchedule[spawnIdx]){
+    spawnObstacle(); spawnIdx++;
+    if(!firstObsSpawned){ firstObsSpawned=true; }
+  }
+
+  // 快遞貓移動
+  for(var c=0;c<cats.length;c++){
+    var cat=cats[c];
+    var pos=posDirAt(cat.t);
+    var sp=CAT_SPEED*speedMul;
+    for(var k=0;k<obstacles.length;k++){
+      var g=obstacles[k];
+      if(g.hp>0 && dist(pos,g)<g.r){ sp*=0.28; break; } // 塞在毛線團→變慢
+    }
+    cat.t+=(sp*STEP)/LEN*cat.dir;
+    if(cat.dir>0 && cat.t>=1) deliver(cat);
+    else if(cat.dir<0 && cat.t<=0) pickup(cat);
+    cat.t=clamp(cat.t,0,1);
+    cat.phase+=dt*8;
+    if(cat.sq>0){ cat.sq-=dt*3; if(cat.sq<0) cat.sq=0; }
+  }
+
+  // combo 計時
+  if(comboTime>0){ comboTime-=dt; if(comboTime<=0) comboCount=0; }
+
+  // 每秒進貢（近 4 秒滑動視窗）
+  var sum=0;
+  for(var d=deliveries.length-1;d>=0;d--){
+    if(deliveries[d].t<gameTime-4){ deliveries.splice(0,d+1); break; }
+    sum+=deliveries[d].v;
+  }
+  var rate=sum/4;
+  rateShown+=(rate-rateShown)*Math.min(1,dt*6);
+
+  // 最後 10 秒倒數嗶聲
+  if(timeLeft<=10){
+    var sec=Math.ceil(timeLeft);
+    if(sec!==lastBeepSec && sec>0){ lastBeepSec=sec; blip(880,0.08,"square",0.14); }
+  }
+
+  if(gameTime>=GAME_TIME) gameOver();
+}
+
+// ===== 繪圖 =====
+function drawSlimeCat(x,y,carry,sq){
+  var w=11*(1+sq*0.3), h=9*(1-sq*0.35);
+  // 影子
+  ctx.fillStyle="rgba(0,0,0,.12)";
+  ctx.beginPath(); ctx.ellipse(x,y+8,9,3.2,0,0,6.28); ctx.fill();
+  // 耳朵
+  ctx.fillStyle="#5cb84a";
+  ctx.beginPath(); ctx.moveTo(x-7,y-h+2); ctx.lineTo(x-3,y-h-5); ctx.lineTo(x-1,y-h+1); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(x+7,y-h+2); ctx.lineTo(x+3,y-h-5); ctx.lineTo(x+1,y-h+1); ctx.fill();
+  // 身體
+  var grd=ctx.createLinearGradient(x,y-h,x,y+h);
+  grd.addColorStop(0,"#93e57a"); grd.addColorStop(1,"#5cb84a");
+  ctx.fillStyle=grd;
+  ctx.beginPath(); ctx.ellipse(x,y,w,h,0,0,6.28); ctx.fill();
+  ctx.strokeStyle="rgba(40,120,40,.5)"; ctx.lineWidth=1; ctx.stroke();
+  // 高光
+  ctx.fillStyle="rgba(255,255,255,.4)";
+  ctx.beginPath(); ctx.ellipse(x-3,y-3,3,2,0,0,6.28); ctx.fill();
+  // 眼睛
+  ctx.fillStyle="#1c331c";
+  ctx.beginPath(); ctx.arc(x-3.5,y,1.5,0,6.28); ctx.fill();
+  ctx.beginPath(); ctx.arc(x+3.5,y,1.5,0,6.28); ctx.fill();
+  // 攜帶的小魚乾
+  if(carry){
+    ctx.fillStyle="#eac48a";
+    ctx.beginPath(); ctx.ellipse(x,y-h-4,5,2.6,0,0,6.28); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(x+5,y-h-4); ctx.lineTo(x+9,y-h-6); ctx.lineTo(x+9,y-h-2); ctx.fill();
+    ctx.fillStyle="#7a5a2a"; ctx.beginPath(); ctx.arc(x-2.5,y-h-4,0.8,0,6.28); ctx.fill();
+  }
+}
+function drawSource(){
+  ctx.fillStyle="rgba(0,0,0,.1)";
+  ctx.beginPath(); ctx.ellipse(SRC.x,SRC.y+12,26,8,0,0,6.28); ctx.fill();
+  // 盤子
+  ctx.fillStyle="#e8eef0";
+  ctx.beginPath(); ctx.ellipse(SRC.x,SRC.y+6,24,9,0,0,6.28); ctx.fill();
+  // 一堆小魚乾
+  var fx=[-10,0,10,-5,5,0], fy=[2,4,2,-4,-4,-10];
+  for(var i=0;i<fx.length;i++){
+    var x=SRC.x+fx[i], y=SRC.y+fy[i];
+    ctx.fillStyle="#eac48a";
+    ctx.beginPath(); ctx.ellipse(x,y,6,3,0.2,0,6.28); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(x+6,y); ctx.lineTo(x+10,y-2); ctx.lineTo(x+10,y+2); ctx.fill();
+  }
+  ctx.fillStyle="#3a5a3a"; ctx.font="bold 11px system-ui,sans-serif";
+  ctx.textAlign="center"; ctx.fillText("魚乾補給站",SRC.x,SRC.y-26);
+}
+function drawNest(){
+  ctx.fillStyle="rgba(0,0,0,.12)";
+  ctx.beginPath(); ctx.ellipse(NEST.x,NEST.y+18,30,9,0,0,6.28); ctx.fill();
+  // 屋身
+  ctx.fillStyle="#c08a58";
+  roundRect(NEST.x-24,NEST.y-10,48,30,6); ctx.fill();
+  // 屋頂
+  ctx.fillStyle="#8a5a34";
+  ctx.beginPath(); ctx.moveTo(NEST.x-30,NEST.y-8); ctx.lineTo(NEST.x,NEST.y-30);
+  ctx.lineTo(NEST.x+30,NEST.y-8); ctx.closePath(); ctx.fill();
+  // 貓耳
+  ctx.beginPath(); ctx.moveTo(NEST.x-16,NEST.y-22); ctx.lineTo(NEST.x-22,NEST.y-34);
+  ctx.lineTo(NEST.x-8,NEST.y-26); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(NEST.x+16,NEST.y-22); ctx.lineTo(NEST.x+22,NEST.y-34);
+  ctx.lineTo(NEST.x+8,NEST.y-26); ctx.fill();
+  // 門
+  ctx.fillStyle="#3a2a1a";
+  ctx.beginPath(); ctx.arc(NEST.x,NEST.y+8,9,0,6.28); ctx.fill();
+  ctx.fillStyle="#fff"; ctx.font="bold 11px system-ui,sans-serif";
+  ctx.textAlign="center"; ctx.fillText("貓窩",NEST.x,NEST.y-38);
+}
+function drawObstacle(o){
+  var s=o.grow, jx=(o.shake>0?(Math.random()*2-1)*3:0);
+  ctx.save(); ctx.translate(o.x+jx,o.y);
+  ctx.scale(s,s);
+  ctx.fillStyle="#b0392e";
+  ctx.beginPath(); ctx.arc(0,0,o.r,0,6.28); ctx.fill();
+  ctx.fillStyle="#d0574a"; ctx.beginPath(); ctx.arc(0,0,o.r-4,0,6.28); ctx.fill();
+  // 纏繞線
+  ctx.strokeStyle="rgba(255,255,255,.35)"; ctx.lineWidth=2;
+  for(var i=0;i<5;i++){
+    ctx.beginPath(); ctx.ellipse(0,0,o.r-6,o.r-6,i*0.6,0.3,4); ctx.stroke();
+  }
+  ctx.restore();
+  // 血量點（要點幾下）
+  for(var h=0;h<3;h++){
+    ctx.fillStyle=h<o.hp?"#ffe08a":"rgba(255,255,255,.25)";
+    ctx.beginPath(); ctx.arc(o.x-8+h*8,o.y-o.r-6,3,0,6.28); ctx.fill();
+  }
+}
+function roundRect(x,y,w,h,r){
+  ctx.beginPath();
+  ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r);
+  ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath();
+}
+function drawPath(){
+  if(P.length<2) return;
+  // 底層果凍
+  ctx.lineJoin="round"; ctx.lineCap="round";
+  ctx.strokeStyle="rgba(120,220,150,.35)"; ctx.lineWidth=20;
+  strokePath();
+  ctx.strokeStyle="rgba(150,240,180,.6)"; ctx.lineWidth=12;
+  strokePath();
+  // 流動虛線（往貓窩方向）
+  ctx.setLineDash([2,14]);
+  ctx.lineDashOffset=-(gameTime*40)%16;
+  ctx.strokeStyle="rgba(255,255,255,.55)"; ctx.lineWidth=3;
+  strokePath();
+  ctx.setLineDash([]);
+}
+function strokePath(){
+  ctx.beginPath(); ctx.moveTo(P[0].x,P[0].y);
+  for(var i=1;i<P.length;i++) ctx.lineTo(P[i].x,P[i].y);
+  ctx.stroke();
+}
+
+function render(){
+  ctx.setTransform(S*DPR,0,0,S*DPR,0,0);
+  var sx=0,sy=0;
+  if(shakeMag>0){ sx=(Math.random()*2-1)*shakeMag; sy=(Math.random()*2-1)*shakeMag; }
+  ctx.translate(sx,sy);
+
+  // 背景
+  var bg=ctx.createLinearGradient(0,0,0,LH);
+  bg.addColorStop(0,"#d9f2e2"); bg.addColorStop(1,"#bfe6cf");
+  ctx.fillStyle=bg; ctx.fillRect(-20,-20,LW+40,LH+40);
+
+  if(state==="TITLE"){ drawTitle(); return; }
+
+  drawPath();
+  for(var i=0;i<obstacles.length;i++){ if(obstacles[i].hp>0) drawObstacle(obstacles[i]); }
+  drawSource(); drawNest();
+  // 快遞貓
+  for(var c=0;c<cats.length;c++){
+    var cat=cats[c];
+    var pos=posDirAt(cat.t);
+    var bob=Math.sin(cat.phase)*1.2;
+    drawSlimeCat(pos.x+pos.nx*cat.lane, pos.y+pos.ny*cat.lane+bob, cat.carry, cat.sq);
+  }
+  // 粒子
+  for(var p=0;p<particles.length;p++){
+    var pt=particles[p];
+    ctx.globalAlpha=Math.max(0,pt.life/pt.max);
+    ctx.fillStyle=pt.color;
+    ctx.beginPath(); ctx.arc(pt.x,pt.y,pt.r,0,6.28); ctx.fill();
+  }
+  ctx.globalAlpha=1;
+  // 飄字
+  ctx.textAlign="center";
+  for(var f=0;f<floaters.length;f++){
+    var fl=floaters[f];
+    ctx.globalAlpha=Math.max(0,Math.min(1,fl.life/0.4));
+    ctx.fillStyle=fl.color; ctx.font="bold "+fl.size+"px system-ui,sans-serif";
+    ctx.fillText(fl.text,fl.x,fl.y);
+  }
+  ctx.globalAlpha=1;
+
+  drawHUD();
+  drawTutorial();
+
+  if(state==="OVER") drawOver();
+}
+
+function drawHUD(){
+  // 時間條
+  var frac=Math.max(0,timeLeft/GAME_TIME);
+  ctx.fillStyle="rgba(0,0,0,.12)"; ctx.fillRect(0,0,LW,6);
+  ctx.fillStyle=timeLeft<=10?"#e74c3c":"#2ec27a";
+  ctx.fillRect(0,0,LW*frac,6);
+  // 頂欄
+  ctx.fillStyle="rgba(255,255,255,.72)"; ctx.fillRect(0,6,LW,52);
+  ctx.textAlign="left";
+  ctx.fillStyle="#2c4a34"; ctx.font="12px system-ui,sans-serif";
+  ctx.fillText("總進貢",12,24);
+  ctx.fillStyle="#1c3a24"; ctx.font="bold 30px system-ui,sans-serif";
+  ctx.fillText(String(score),12,50);
+  ctx.textAlign="right";
+  ctx.fillStyle="#2c4a34"; ctx.font="12px system-ui,sans-serif";
+  ctx.fillText("每秒進貢",LW-12,24);
+  ctx.fillStyle="#e07b00"; ctx.font="bold 26px system-ui,sans-serif";
+  ctx.fillText(rateShown.toFixed(1),LW-12,50);
+  // combo
+  if(comboCount>=3){
+    ctx.textAlign="center"; ctx.fillStyle="#ff6b35";
+    ctx.font="bold 15px system-ui,sans-serif";
+    ctx.fillText("連貢 x"+comboCount+"!",LW/2,50);
+  }
+  // 最後倒數大字
+  if(timeLeft<=10 && timeLeft>0){
+    var sc=1+Math.sin(gameTime*10)*0.08;
+    ctx.save(); ctx.translate(LW/2,110); ctx.scale(sc,sc);
+    ctx.textAlign="center"; ctx.fillStyle="rgba(231,76,60,.85)";
+    ctx.font="bold 46px system-ui,sans-serif";
+    ctx.fillText(String(Math.ceil(timeLeft)),0,0); ctx.restore();
+  }
+}
+function drawTutorial(){
+  if(state!=="PLAY") return;
+  ctx.textAlign="center";
+  if(tutTime<9){
+    ctx.globalAlpha=Math.max(0,Math.min(1,(9-tutTime)/2));
+    ctx.fillStyle="rgba(30,60,40,.9)"; ctx.font="bold 14px system-ui,sans-serif";
+    ctx.fillText("在畫面上拖曳，畫一條果凍軌跡！",LW/2,300);
+    ctx.font="12px system-ui,sans-serif";
+    ctx.fillText("貓咪會自動沿線扛魚乾回窩",LW/2,320);
+    ctx.globalAlpha=1;
+  } else if(firstObsSpawned && tutTime<22){
+    ctx.globalAlpha=0.85;
+    ctx.fillStyle="rgba(140,20,20,.9)"; ctx.font="bold 13px system-ui,sans-serif";
+    ctx.fillText("塞車了！改道繞開，或連點毛線團 3 下清除",LW/2,340);
+    ctx.globalAlpha=1;
+  }
+}
+
+function drawTitle(){
+  // 裝飾貓
+  drawSlimeCat(70,420,true,0); drawSlimeCat(330,440,true,0.3);
+  drawSlimeCat(120,500,true,0.6);
+  ctx.textAlign="center";
+  ctx.fillStyle="#1c3a24"; ctx.font="bold 40px system-ui,sans-serif";
+  ctx.fillText("肉球快遞隊",LW/2,150);
+  ctx.font="26px system-ui,sans-serif"; ctx.fillText("🐾",LW/2,190);
+  ctx.fillStyle="#2c5a3a"; ctx.font="14px system-ui,sans-serif";
+  wrapText("拖出果凍軌跡，史萊姆貓自動扛魚乾回窩。",LW/2,240,20);
+  wrapText("看穿塞車就改道，90 秒把每秒進貢衝爆！",LW/2,262,20);
+  // 操作
+  ctx.fillStyle="rgba(255,255,255,.6)"; roundRect(50,290,300,86,10); ctx.fill();
+  ctx.fillStyle="#2c4a34"; ctx.font="13px system-ui,sans-serif"; ctx.textAlign="left";
+  ctx.fillText("🖐 拖曳 → 畫／修改果凍軌跡（越短越快）",66,314);
+  ctx.fillText("👆 連點毛線團 3 下 → 清除塞車點",66,336);
+  ctx.fillText("💡 越多貓、越短的路 = 每秒進貢越高",66,358);
+  ctx.textAlign="center";
+  // 最高分挑釁
+  ctx.fillStyle="#e07b00"; ctx.font="bold 16px system-ui,sans-serif";
+  ctx.fillText(best>0?("最佳進貢："+best+"　來挑戰它！"):"還沒有紀錄，來當開國元老！",LW/2,410);
+  // 開始
+  var a=0.6+Math.sin(gameTime*4)*0.4; gameTime+=STEP; // 標題用 gameTime 當動畫時鐘
+  ctx.globalAlpha=a;
+  ctx.fillStyle="#2ec27a"; roundRect(LW/2-90,540,180,44,22); ctx.fill();
+  ctx.globalAlpha=1;
+  ctx.fillStyle="#fff"; ctx.font="bold 20px system-ui,sans-serif";
+  ctx.fillText("點擊開始",LW/2,568);
+}
+function wrapText(t,x,y,lh){ ctx.fillText(t,x,y); }
+
+function drawOver(){
+  ctx.fillStyle="rgba(20,35,26,.72)"; ctx.fillRect(-20,-20,LW+40,LH+40);
+  ctx.textAlign="center";
+  ctx.fillStyle="#fff"; ctx.font="bold 34px system-ui,sans-serif";
+  ctx.fillText("時間到！",LW/2,180);
+  ctx.font="16px system-ui,sans-serif"; ctx.fillStyle="#cfeede";
+  ctx.fillText("本局總進貢",LW/2,230);
+  ctx.fillStyle="#ffd36b"; ctx.font="bold 64px system-ui,sans-serif";
+  ctx.fillText(String(score),LW/2,296);
+  if(newRecord){
+    var sc=1+Math.sin(gameTime*8)*0.06; gameTime+=STEP;
+    ctx.save(); ctx.translate(LW/2,350); ctx.scale(sc,sc);
+    ctx.fillStyle="#ff6b9d"; ctx.font="bold 28px system-ui,sans-serif";
+    ctx.fillText("🎉 新紀錄！ 🎉",0,0); ctx.restore();
+  } else {
+    ctx.fillStyle="#9fd8b4"; ctx.font="16px system-ui,sans-serif";
+    ctx.fillText("最佳紀錄："+best,LW/2,342);
+    var diff=best-score+1;
+    ctx.fillStyle="#ffd36b"; ctx.font="bold 20px system-ui,sans-serif";
+    ctx.fillText("再 "+diff+" 個就破紀錄！",LW/2,376);
+  }
+  // 粒子（confetti）在 render 主流程已畫；此處畫按鈕
+  if(overCd<=0){
+    var a=0.6+Math.sin(gameTime*4)*0.4;
+    ctx.globalAlpha=a;
+    ctx.fillStyle="#2ec27a"; roundRect(LW/2-100,470,200,50,25); ctx.fill();
+    ctx.globalAlpha=1;
+    ctx.fillStyle="#fff"; ctx.font="bold 21px system-ui,sans-serif";
+    ctx.fillText("再玩一局",LW/2,502);
+  }
+}
+
+// ===== 輸入 =====
+var pointerDown=false, downPt=null, moved=false, drawing=false, tapObs=null, stroke=[];
+function toLogical(e){
+  var r=cv.getBoundingClientRect();
+  var cx=(e.clientX!==undefined)?e.clientX:0;
+  var cy=(e.clientY!==undefined)?e.clientY:0;
+  return { x:(cx-r.left)/r.width*LW, y:(cy-r.top)/r.height*LH };
+}
+function onDown(e){
+  e.preventDefault(); initAudio();
+  var pt=toLogical(e);
+  if(state==="TITLE"){ startGame(); return; }
+  if(state==="OVER"){ if(overCd<=0) startGame(); return; }
+  // PLAY
+  pointerDown=true; downPt=pt; moved=false; drawing=false;
+  tapObs=findObstacle(pt); stroke=[pt];
+}
+function onMove(e){
+  if(!pointerDown || state!=="PLAY") return;
+  e.preventDefault();
+  var pt=toLogical(e);
+  if(!moved && dist(pt,downPt)>10){ moved=true; drawing=true; }
+  if(drawing){
+    if(stroke.length===0 || dist(pt,stroke[stroke.length-1])>10) stroke.push(pt);
+    setPath(stroke); // 即時更新軌跡→貓馬上改走
+  }
+}
+function onUp(e){
+  if(state!=="PLAY"){ pointerDown=false; return; }
+  if(pointerDown){
+    if(!moved && tapObs && tapObs.hp>0){ tapObstacle(tapObs); }
+    else if(drawing){ setPath(stroke); }
+  }
+  pointerDown=false; drawing=false; moved=false; tapObs=null; stroke=[];
+}
+function clearInput(){ pointerDown=false; drawing=false; moved=false; tapObs=null; stroke=[]; }
+
+cv.addEventListener("pointerdown",onDown,{passive:false});
+cv.addEventListener("pointermove",onMove,{passive:false});
+cv.addEventListener("pointerup",onUp,{passive:false});
+cv.addEventListener("pointercancel",function(e){ clearInput(); },{passive:false});
+window.addEventListener("blur",clearInput);
+document.addEventListener("visibilitychange",function(){ if(document.hidden) clearInput(); });
+
+// ===== 主迴圈（固定時間步長，不假設 60fps）=====
+var lastTs=0, acc=0;
+function frame(ts){
+  if(!lastTs) lastTs=ts;
+  var dt=(ts-lastTs)/1000; lastTs=ts;
+  if(dt>0.25) dt=0.25;
+  acc+=dt;
+  var guard=0;
+  while(acc>=STEP && guard<8){ update(STEP); acc-=STEP; guard++; }
+  if(guard>=8) acc=0;
+  try{ render(); }catch(e){}
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+})();
+</script>
+<script src="../../sc_config.js"></script>
+<script src="../../stats.js"></script>
+</body>
+</html>
