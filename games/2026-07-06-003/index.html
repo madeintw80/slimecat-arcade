@@ -1,0 +1,578 @@
+<!--GAMEMETA {"title":"點色召喵","emoji":"🎨","genre":"解壓","inspiration":"Jewel Coloring","desc":"點對顏色，把史萊姆貓從喵靈墨中一格格召回！"}-->
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>點色召喵</title>
+<style>
+  html,body{margin:0;height:100%;background:#0b0d12;overflow:hidden;
+    font-family:-apple-system,"PingFang TC","Microsoft JhengHei",sans-serif;
+    -webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent;}
+  #wrap{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;}
+  canvas{touch-action:none;display:block;background:#12141b;border-radius:14px;
+    box-shadow:0 12px 40px rgba(0,0,0,.6);}
+  #home{position:fixed;top:9px;left:12px;z-index:10;color:#8fe6b6;font-size:14px;
+    text-decoration:none;background:rgba(0,0,0,.35);padding:3px 9px;border-radius:8px;}
+  #home:active{color:#fff;}
+</style>
+</head>
+<body>
+<a id="home" href="../../index.html">← 回遊戲區</a>
+<div id="wrap"><canvas id="cv"></canvas></div>
+<script>
+"use strict";
+(function(){
+// ===== 基本設定 =====
+var cvs=document.getElementById('cv');
+var ctx=cvs.getContext('2d');
+var view={s:1};
+var BOARD_X=20, BOARD_Y=94, BOARD_W=360;           // 畫布區域（邏輯座標）
+var SIZES=[10,12,14,16,18];                        // 各幅像素解析度
+var NOTES=[0,330,392,440,523,587,659,784];         // 每個色號一個音高
+var COLORNAMES={1:'身體',2:'輪廓',3:'腮紅',4:'眼白',5:'瞳孔',6:'項圈',7:'肚肚'};
+var NB=[[1,0],[-1,0],[0,1],[0,-1]];
+var THEMES=[
+  {body:'#5ecb5e',out:'#2f7d32'},
+  {body:'#4fb3e6',out:'#155fbf'},
+  {body:'#ffb056',out:'#dd6a00'},
+  {body:'#b98fe0',out:'#7b2fb5'},
+  {body:'#ff8fb3',out:'#c2185b'}
+];
+
+// ===== 狀態 =====
+var state='TITLE';
+var cur={p:0,score:0,grid:null};
+var particles=[], floats=[];
+var fx={flash:0,band:0,bandColor:'#fff'};
+var clock=0, paused=false, painting=false, lastPX=0, lastPY=0;
+var best=0, catsTotal=0;
+var stars=[];
+for(var si=0;si<26;si++) stars.push({x:Math.random()*400,y:Math.random()*600,r:Math.random()*1.4+.3,a:Math.random()*.5+.2});
+
+// ===== localStorage（無痕會 throw，一律 try） =====
+function load(k,d){try{var v=localStorage.getItem(k);return v==null?d:v;}catch(e){return d;}}
+function save(k,v){try{localStorage.setItem(k,v);}catch(e){}}
+best=parseInt(load('dsm_best','0'),10)||0;
+catsTotal=parseInt(load('dsm_cats','0'),10)||0;
+
+// ===== 音效（WebAudio 合成） =====
+var AC=null;
+function actx(){ if(!AC){ try{AC=new (window.AudioContext||window.webkitAudioContext)();}catch(e){AC=null;} } return AC; }
+function tone(freq,dur,type,vol,delay){
+  var ac=actx(); if(!ac) return;
+  try{
+    var t0=ac.currentTime+(delay||0);
+    var o=ac.createOscillator(), g=ac.createGain();
+    o.type=type||'sine'; o.frequency.value=freq;
+    g.gain.setValueAtTime(0.0001,t0);
+    g.gain.exponentialRampToValueAtTime(vol||0.2,t0+0.012);
+    g.gain.exponentialRampToValueAtTime(0.0001,t0+dur);
+    o.connect(g); g.connect(ac.destination);
+    o.start(t0); o.stop(t0+dur+0.03);
+  }catch(e){}
+}
+function noiseBurst(dur,vol,freq){
+  var ac=actx(); if(!ac) return;
+  try{
+    var n=Math.floor(ac.sampleRate*dur);
+    var buf=ac.createBuffer(1,n,ac.sampleRate);
+    var d=buf.getChannelData(0);
+    for(var i=0;i<n;i++) d[i]=(Math.random()*2-1)*Math.pow(1-i/n,2);
+    var s=ac.createBufferSource(); s.buffer=buf;
+    var f=ac.createBiquadFilter(); f.type='lowpass'; f.frequency.value=freq||900;
+    var g=ac.createGain(); g.gain.value=vol||0.2;
+    s.connect(f); f.connect(g); g.connect(ac.destination); s.start();
+  }catch(e){}
+}
+function clearSound(t){ var base=NOTES[t]||440; for(var i=0;i<4;i++) tone(base*(1+i*0.28),0.13,'sine',0.16,i*0.05); }
+function completeSound(){ [523,659,784,1046].forEach(function(f,i){tone(f,0.5,'triangle',0.2,i*0.06);}); tone(1568,0.4,'sine',0.12,0.24); }
+function explosionSound(){ noiseBurst(0.5,0.28,1400); tone(196,0.5,'sawtooth',0.14); }
+function overSound(){ [392,311,247].forEach(function(f,i){tone(f,0.32,'sawtooth',0.16,i*0.11);}); }
+function recordSound(){ [659,784,988,1319].forEach(function(f,i){tone(f,0.3,'triangle',0.18,i*0.07);}); }
+function tick(){ tone(300,0.05,'square',0.07); }
+
+// ===== 顏色工具 =====
+function lighten(hex,f){
+  var n=parseInt(hex.slice(1),16), r=(n>>16)&255,g=(n>>8)&255,b=n&255;
+  r=Math.round(r+(255-r)*f); g=Math.round(g+(255-g)*f); b=Math.round(b+(255-b)*f);
+  return '#'+((1<<24)+(r<<16)+(g<<8)+b).toString(16).slice(1);
+}
+function makePalette(p){
+  var th=THEMES[p%THEMES.length];
+  var pal=[null, th.body, th.out, '#ff6f91', '#ffffff', '#2b2f36'];
+  var feats={collar:false,belly:false};
+  if(p>=2){ pal[6]='#ffd24a'; feats.collar=true; }
+  if(p>=3){ pal[7]=lighten(th.body,0.45); feats.belly=true; }
+  return {pal:pal, feats:feats, K:pal.length-1};
+}
+
+// ===== 產生史萊姆貓像素圖（數學生成，保證對稱、可縮放） =====
+function buildCat(S,feats){
+  var g=new Int8Array(S*S);
+  function idx(x,y){return y*S+x;}
+  function inb(x,y){return x>=0&&x<S&&y>=0&&y<S;}
+  var cx=S*0.5, cy=S*0.58, R=S*0.40;
+  var x,y,dx,dy;
+  // 圓臉本體
+  for(y=0;y<S;y++)for(x=0;x<S;x++){ dx=x+0.5-cx; dy=y+0.5-cy; if(dx*dx+dy*dy<=R*R) g[idx(x,y)]=1; }
+  // 貓耳（三角形）
+  function ear(ecx){
+    var apexY=cy-R*1.18, baseY=cy-R*0.42, bw=R*0.42;
+    for(var yy=0;yy<S;yy++)for(var xx=0;xx<S;xx++){
+      if(yy+0.5<apexY||yy+0.5>baseY) continue;
+      var t=(yy+0.5-apexY)/(baseY-apexY), hw=bw*t, dd=Math.abs(xx+0.5-ecx);
+      if(dd<=hw){ g[idx(xx,yy)]=1; if(dd<=hw*0.42 && t>0.42) g[idx(xx,yy)]=3; }
+    }
+  }
+  ear(cx-R*0.52); ear(cx+R*0.52);
+  // 輪廓：貼著空白的本體格 -> 輪廓色
+  var g2=g.slice();
+  for(y=0;y<S;y++)for(x=0;x<S;x++){
+    if(g[idx(x,y)]!==1) continue;
+    var edge=false;
+    for(var k=0;k<4;k++){ var nx=x+NB[k][0], ny=y+NB[k][1]; if(!inb(nx,ny)||g[idx(nx,ny)]===0){edge=true;break;} }
+    if(edge) g2[idx(x,y)]=2;
+  }
+  g.set(g2);
+  // 肚肚（淺色）
+  if(feats.belly){
+    var bx=cx, by=cy+R*0.38, br=R*0.30;
+    for(y=0;y<S;y++)for(x=0;x<S;x++){ if(g[idx(x,y)]!==1) continue; dx=x+0.5-bx; dy=y+0.5-by; if(dx*dx+dy*dy<=br*br) g[idx(x,y)]=7; }
+  }
+  // 項圈
+  if(feats.collar){
+    for(y=0;y<S;y++)for(x=0;x<S;x++){ var v=g[idx(x,y)]; if(v!==1&&v!==7) continue; dy=y+0.5-cy; if(dy>=R*0.50&&dy<=R*0.72) g[idx(x,y)]=6; }
+  }
+  // 腮紅
+  function cheek(ccx){
+    var ccy=cy+R*0.14, cr=Math.max(0.78,R*0.15);
+    for(var yy=0;yy<S;yy++)for(var xx=0;xx<S;xx++){ if(g[idx(xx,yy)]!==1) continue; var ex=xx+0.5-ccx, ey=yy+0.5-ccy; if(ex*ex+ey*ey<=cr*cr) g[idx(xx,yy)]=3; }
+  }
+  cheek(cx-R*0.60); cheek(cx+R*0.60);
+  // 眼睛（眼白＋瞳孔）
+  function eye(ecx){
+    var ecy=cy-R*0.10, er=Math.max(0.98,R*0.19);
+    for(var yy=0;yy<S;yy++)for(var xx=0;xx<S;xx++){ var ex=xx+0.5-ecx, ey=yy+0.5-ecy; if(ex*ex+ey*ey<=er*er && g[idx(xx,yy)]!==0) g[idx(xx,yy)]=4; }
+    var pcx=Math.floor(ecx), pcy=Math.floor(ecy);
+    if(inb(pcx,pcy)&&g[idx(pcx,pcy)]===4) g[idx(pcx,pcy)]=5;
+    if(R>5.5 && inb(pcx,pcy+1)&&g[idx(pcx,pcy+1)]===4) g[idx(pcx,pcy+1)]=5;
+  }
+  eye(cx-R*0.40); eye(cx+R*0.40);
+  // 鼻子
+  var nx2=Math.floor(cx), ny2=Math.floor(cy+R*0.08);
+  if(inb(nx2,ny2)&&g[idx(nx2,ny2)]!==0) g[idx(nx2,ny2)]=3;
+  return g;
+}
+
+// ===== 載入一幅圖 =====
+function loadPicture(p){
+  cur.p=p;
+  var S=SIZES[Math.min(p,SIZES.length-1)];
+  cur.S=S; cur.cell=BOARD_W/S;
+  var mp=makePalette(p);
+  cur.pal=mp.pal; cur.K=mp.K;
+  cur.grid=buildCat(S,mp.feats);
+  cur.filled=new Uint8Array(S*S);
+  cur.ink=new Uint8Array(S*S);
+  cur.anim=new Float32Array(S*S);
+  cur.remaining=new Array(cur.K+1); for(var c=0;c<=cur.K;c++) cur.remaining[c]=0;
+  cur.fillable=0;
+  for(var i=0;i<S*S;i++){ var t=cur.grid[i]; if(t>0){ cur.fillable++; cur.remaining[t]++; } }
+  cur.filledCount=0;
+  cur.inkCount=0;
+  cur.threshold=Math.max(6,Math.ceil(cur.fillable*0.42));
+  cur.timeInPic=0;
+  cur.spawnTimer=0; cur.spreadTimer=0;
+  cur.selected=1;
+  if(cur.remaining[1]===0) nextColorFrom(0);
+  cur.grace=(p<1)?1e9:Math.max(3,9-(p-1)*1.5);
+  cur.combo=0; cur.lastFill=-9;
+}
+function nextColorFrom(from){
+  for(var c=1;c<=cur.K;c++){ var cc=((from-1+c)%cur.K)+1; if(cur.remaining[cc]>0){ cur.selected=cc; return; } }
+}
+
+// ===== 開新局 =====
+function startGame(){
+  cur.score=0; cur.reported=false;
+  cur.timeAll=0;
+  loadPicture(0);
+  particles.length=0; floats.length=0; fx.flash=0; fx.band=0;
+  paused=false; state='PLAY';
+}
+
+// ===== 幾何 =====
+function cellCenter(i){ var S=cur.S; var x=i%S, y=(i/S|0); return [BOARD_X+(x+0.5)*cur.cell, BOARD_Y+(y+0.5)*cur.cell]; }
+function cellAt(lx,ly){
+  if(lx<BOARD_X||lx>BOARD_X+BOARD_W||ly<BOARD_Y||ly>BOARD_Y+BOARD_W) return -1;
+  var S=cur.S, x=Math.floor((lx-BOARD_X)/cur.cell), y=Math.floor((ly-BOARD_Y)/cur.cell);
+  if(x<0||x>=S||y<0||y>=S) return -1;
+  return y*S+x;
+}
+
+// ===== 填色 =====
+function tryFill(i){
+  var t=cur.grid[i];
+  if(t===0||cur.filled[i]) return;
+  if(t!==cur.selected) return;
+  var wasInk=cur.ink[i]===1;
+  cur.filled[i]=1; cur.ink[i]=0; cur.anim[i]=0;
+  cur.filledCount++; cur.remaining[t]--;
+  if(wasInk) cur.inkCount--;
+  // combo（時間窗）
+  if(cur.timeAll-cur.lastFill<1.1) cur.combo++; else cur.combo=1;
+  cur.lastFill=cur.timeAll;
+  var mult=1+Math.min(cur.combo-1,20)*0.08;
+  cur.score+=Math.round((10+(wasInk?12:0))*mult);
+  var cc=cellCenter(i);
+  spawnFill(cc[0],cc[1],cur.pal[t],wasInk);
+  tone((NOTES[t]||440)*(1+Math.min(cur.combo,8)*0.03),0.12,'triangle',0.16);
+  if(cur.combo>=3 && cur.combo%3===0) addFloat(cc[0],cc[1]-8,'連 '+cur.combo,'#ffe27a',18);
+  if(cur.remaining[t]===0) colorCleared(t);
+  if(cur.filledCount===cur.fillable){ completePicture(); }
+  else if(cur.remaining[cur.selected]===0){ nextColorFrom(cur.selected); }
+}
+function colorCleared(t){
+  fx.band=1; fx.bandColor=cur.pal[t];
+  cur.score+=80;
+  addFloat(200,238,(COLORNAMES[t]||'顏色')+' 清空 ✦','#ffffff',22);
+  clearSound(t);
+}
+function completePicture(){
+  var bonus=400+cur.p*250+Math.max(0,Math.round(220-cur.timeInPic*3));
+  cur.score+=bonus;
+  catsTotal++; save('dsm_cats',catsTotal);
+  if(cur.score>best){ best=cur.score; save('dsm_best',best); }
+  state='TRANS'; cur.transTimer=1.8; fx.flash=1;
+  fireworks();
+  addFloat(200,236,'召喚成功！','#ffffff',40);
+  addFloat(200,284,'+'+bonus,'#ffe27a',26);
+  completeSound();
+}
+function gameOver(){
+  if(state!=='PLAY') return;
+  cur.newRecord=cur.score>best;
+  if(cur.newRecord){ best=cur.score; save('dsm_best',best); recordSound(); recordConfetti(); }
+  else recordSound;
+  cur.diff=cur.newRecord?0:(best-cur.score);
+  state='OVER';
+  overSound();
+  if(!cur.reported){ cur.reported=true; if(window.SC){ try{SC.over(cur.score);}catch(e){} } }
+}
+
+// ===== 喵靈墨（輕度時間壓力） =====
+function inkUpdate(dt){
+  if(cur.p<1) return;
+  if(cur.timeInPic<cur.grace) return;
+  var T=Math.max(0.5, 1.5-(cur.p-1)*0.12-cur.timeInPic*0.004);
+  var spawnT=Math.max(3.5, 8-(cur.p-1)*0.5);
+  cur.spawnTimer+=dt; cur.spreadTimer+=dt;
+  if(cur.spawnTimer>=spawnT || (cur.inkCount===0)){ cur.spawnTimer=0; spawnInk(); }
+  if(cur.spreadTimer>=T){
+    cur.spreadTimer=0;
+    var budget=1+Math.floor((cur.p-1)*0.6)+Math.floor(cur.timeInPic/18);
+    for(var b=0;b<budget;b++) spreadInk();
+  }
+  if(cur.inkCount>=cur.threshold) gameOver();
+}
+function spawnInk(){
+  var S=cur.S, raws=[], i;
+  for(i=0;i<S*S;i++) if(cur.grid[i]>0&&!cur.filled[i]&&!cur.ink[i]) raws.push(i);
+  if(!raws.length) return;
+  var best2=null, bs=-1;
+  for(var k=0;k<Math.min(6,raws.length);k++){
+    var idx2=raws[Math.floor(Math.random()*raws.length)];
+    var x=idx2%S, y=(idx2/S|0), edge=0;
+    for(var m=0;m<4;m++){ var nx=x+NB[m][0], ny=y+NB[m][1]; if(nx<0||nx>=S||ny<0||ny>=S||cur.grid[ny*S+nx]===0) edge++; }
+    if(edge>bs){ bs=edge; best2=idx2; }
+  }
+  cur.ink[best2]=1; cur.inkCount++;
+  var cc=cellCenter(best2); spawnInkP(cc[0],cc[1]);
+  tone(80,0.18,'sawtooth',0.07);
+}
+function spreadInk(){
+  var S=cur.S, cands=[], i;
+  for(i=0;i<S*S;i++){
+    if(cur.ink[i]!==1) continue;
+    var x=i%S, y=(i/S|0);
+    for(var m=0;m<4;m++){ var nx=x+NB[m][0], ny=y+NB[m][1];
+      if(nx<0||nx>=S||ny<0||ny>=S) continue;
+      var j=ny*S+nx;
+      if(cur.grid[j]>0 && !cur.filled[j] && !cur.ink[j]) cands.push(j);
+    }
+  }
+  if(!cands.length) return;
+  var pick=cands[Math.floor(Math.random()*cands.length)];
+  cur.ink[pick]=1; cur.inkCount++;
+  var cc=cellCenter(pick); spawnInkP(cc[0],cc[1]);
+  if(Math.random()<0.35) tone(90+Math.random()*30,0.1,'sawtooth',0.05);
+}
+
+// ===== 粒子 / 飄字 =====
+function spawnFill(x,y,color,ink){
+  var n=ink?9:5;
+  for(var i=0;i<n;i++){ var a=Math.random()*6.283, sp=20+Math.random()*70;
+    particles.push({x:x,y:y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp-20,tt:0.3+Math.random()*0.3,mt:0.6,g:180,r:1.4+Math.random()*2,c:ink?'#c58bff':color}); }
+}
+function spawnInkP(x,y){
+  for(var i=0;i<4;i++){ var a=Math.random()*6.283, sp=10+Math.random()*40;
+    particles.push({x:x,y:y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,tt:0.3+Math.random()*0.3,mt:0.6,g:60,r:1+Math.random()*2,c:'#7b3ea8'}); }
+}
+function fireworks(){
+  var cx=200,cy=250, cols=[cur.pal[1],cur.pal[2],cur.pal[3],'#ffffff','#ffe27a'];
+  for(var i=0;i<92;i++){ var a=Math.random()*6.283, sp=60+Math.random()*230;
+    particles.push({x:cx,y:cy,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,tt:0.8+Math.random()*0.9,mt:1.7,g:130,r:2+Math.random()*3,c:cols[Math.floor(Math.random()*cols.length)]}); }
+  explosionSound();
+}
+function recordConfetti(){
+  var cols=['#ffe27a','#ff8fb3','#8fe6b6','#6fc6ff','#ffffff'];
+  for(var i=0;i<70;i++){ var a=-1.57+(Math.random()-0.5)*2.2, sp=120+Math.random()*230;
+    particles.push({x:200,y:120,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,tt:1+Math.random()*1,mt:2,g:210,r:2+Math.random()*3,c:cols[Math.floor(Math.random()*cols.length)]}); }
+}
+function addFloat(x,y,txt,color,size){ floats.push({x:x,y:y,txt:txt,color:color,size:size||20,tt:1.4,mt:1.4,vy:-20}); }
+
+// ===== 更新 =====
+function update(dt){
+  clock+=dt; cur.timeAll=(cur.timeAll||0)+dt;
+  for(var i=particles.length-1;i>=0;i--){ var p=particles[i]; p.tt-=dt; if(p.tt<=0){particles.splice(i,1);continue;} p.x+=p.vx*dt; p.y+=p.vy*dt; p.vy+=p.g*dt; }
+  for(var j=floats.length-1;j>=0;j--){ var f=floats[j]; f.tt-=dt; f.y+=f.vy*dt; if(f.tt<=0) floats.splice(j,1); }
+  if(fx.flash>0) fx.flash=Math.max(0,fx.flash-dt*2);
+  if(fx.band>0) fx.band=Math.max(0,fx.band-dt/0.7);
+  if(cur.anim){ for(var a=0;a<cur.anim.length;a++){ if(cur.filled[a]&&cur.anim[a]<1) cur.anim[a]=Math.min(1,cur.anim[a]+dt*6); } }
+  if(state==='PLAY'){ cur.timeInPic+=dt; inkUpdate(dt); }
+  else if(state==='TRANS'){ cur.transTimer-=dt; if(cur.transTimer<=0){ loadPicture(cur.p+1); state='PLAY'; } }
+}
+
+// ===== 繪圖工具 =====
+function rr(x,y,w,h,r){ if(r>w/2)r=w/2; if(r>h/2)r=h/2; ctx.beginPath(); ctx.moveTo(x+r,y);
+  ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
+
+function drawBg(){
+  var g=ctx.createLinearGradient(0,0,0,600);
+  g.addColorStop(0,'#141824'); g.addColorStop(1,'#0b0d13');
+  ctx.fillStyle=g; ctx.fillRect(0,0,400,600);
+  for(var i=0;i<stars.length;i++){ var s=stars[i]; ctx.globalAlpha=s.a*(0.6+0.4*Math.sin(clock*2+i)); ctx.fillStyle='#9fb4ff'; ctx.beginPath(); ctx.arc(s.x,s.y,s.r,0,6.283); ctx.fill(); }
+  ctx.globalAlpha=1;
+}
+
+function drawBoard(){
+  var S=cur.S, cell=cur.cell;
+  // 底板
+  ctx.fillStyle='rgba(0,0,0,.25)'; rr(BOARD_X-6,BOARD_Y-6,BOARD_W+12,BOARD_W+12,14); ctx.fill();
+  var pulse=0.5+0.5*Math.sin(clock*6);
+  for(var y=0;y<S;y++)for(var x=0;x<S;x++){
+    var i=y*S+x, t=cur.grid[i]; if(t===0) continue;
+    var sx=BOARD_X+x*cell, sy=BOARD_Y+y*cell, g=cell*0.06;
+    if(cur.filled[i]){
+      var an=cur.anim[i], sc=an<1?(0.45+0.55*an):1, w=cell*sc;
+      ctx.fillStyle=cur.pal[t];
+      rr(sx+(cell-w)/2, sy+(cell-w)/2, w-g, w-g, cell*0.16); ctx.fill();
+      if(t!==5){ ctx.fillStyle='rgba(255,255,255,.18)'; rr(sx+g, sy+g, (cell-2*g)*0.5,(cell-2*g)*0.4,cell*0.1); ctx.fill(); }
+      if(an<1){ ctx.globalAlpha=1-an; ctx.strokeStyle='#fff'; ctx.lineWidth=2; rr(sx+g,sy+g,cell-2*g,cell-2*g,cell*0.16); ctx.stroke(); ctx.globalAlpha=1; }
+    } else if(cur.ink[i]){
+      ctx.fillStyle='#171320'; rr(sx+g,sy+g,cell-2*g,cell-2*g,cell*0.16); ctx.fill();
+      ctx.strokeStyle='rgba(150,80,220,'+(0.4+0.4*pulse)+')'; ctx.lineWidth=cell*0.09;
+      ctx.beginPath(); ctx.moveTo(sx+cell*0.28,sy+cell*0.28); ctx.lineTo(sx+cell*0.72,sy+cell*0.72);
+      ctx.moveTo(sx+cell*0.72,sy+cell*0.3); ctx.lineTo(sx+cell*0.3,sy+cell*0.72); ctx.stroke();
+    } else {
+      // 未填：暗色剪影（好奇缺口），顯示色號
+      var isSel=(t===cur.selected);
+      ctx.fillStyle=isSel?'#4a5468':'#353c49';
+      rr(sx+g,sy+g,cell-2*g,cell-2*g,cell*0.16); ctx.fill();
+      if(isSel){ ctx.strokeStyle=cur.pal[t]; ctx.globalAlpha=0.55+0.45*pulse; ctx.lineWidth=2.4;
+        rr(sx+g,sy+g,cell-2*g,cell-2*g,cell*0.16); ctx.stroke(); ctx.globalAlpha=1; }
+      ctx.fillStyle=isSel?cur.pal[t]:'#828b99';
+      ctx.font='bold '+Math.floor(cell*0.5)+'px sans-serif';
+      ctx.textAlign='center'; ctx.textBaseline='middle';
+      ctx.fillText(String(t), sx+cell/2, sy+cell/2+cell*0.02);
+    }
+  }
+  // 色號清空掃光
+  if(fx.band>0){
+    var prog=1-fx.band, bx=BOARD_X-40+prog*(BOARD_W+80);
+    var lg=ctx.createLinearGradient(bx-40,0,bx+40,0);
+    lg.addColorStop(0,'rgba(255,255,255,0)'); lg.addColorStop(0.5,fx.bandColor); lg.addColorStop(1,'rgba(255,255,255,0)');
+    ctx.globalAlpha=fx.band*0.5; ctx.fillStyle=lg;
+    ctx.save(); rr(BOARD_X-6,BOARD_Y-6,BOARD_W+12,BOARD_W+12,14); ctx.clip();
+    ctx.fillRect(bx-40,BOARD_Y-6,80,BOARD_W+12); ctx.restore(); ctx.globalAlpha=1;
+  }
+}
+
+function drawParticles(){
+  for(var i=0;i<particles.length;i++){ var p=particles[i]; ctx.globalAlpha=Math.max(0,p.tt/p.mt);
+    ctx.fillStyle=p.c; ctx.beginPath(); ctx.arc(p.x,p.y,p.r,0,6.283); ctx.fill(); }
+  ctx.globalAlpha=1; ctx.textAlign='center'; ctx.textBaseline='middle';
+  for(var j=0;j<floats.length;j++){ var f=floats[j]; ctx.globalAlpha=Math.min(1,f.tt/0.6);
+    ctx.font='bold '+f.size+'px sans-serif'; ctx.lineWidth=4; ctx.strokeStyle='rgba(0,0,0,.55)';
+    ctx.strokeText(f.txt,f.x,f.y); ctx.fillStyle=f.color; ctx.fillText(f.txt,f.x,f.y); }
+  ctx.globalAlpha=1;
+}
+
+function bar(x,y,w,h,frac,col,label){
+  ctx.fillStyle='rgba(255,255,255,.10)'; rr(x,y,w,h,h/2); ctx.fill();
+  frac=Math.max(0,Math.min(1,frac));
+  if(frac>0){ ctx.fillStyle=col; rr(x,y,Math.max(h,w*frac),h,h/2); ctx.fill(); }
+  ctx.fillStyle='#fff'; ctx.font='bold 10px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.fillText(label,x+w/2,y+h/2+0.5);
+}
+
+function drawHUD(){
+  // 分數
+  ctx.textAlign='left'; ctx.textBaseline='alphabetic';
+  ctx.fillStyle='#fff'; ctx.font='bold 26px sans-serif'; ctx.fillText(String(cur.score),16,52);
+  // 右上
+  ctx.textAlign='right'; ctx.font='12px sans-serif'; ctx.fillStyle='#c8cede';
+  ctx.fillText('最佳 '+best,384,24); ctx.fillText('已召喚 '+catsTotal+' 隻',384,42);
+  // 中上：第幾幅
+  ctx.textAlign='center'; ctx.fillStyle='#8fe6b6'; ctx.font='bold 13px sans-serif';
+  ctx.fillText('🎨 第 '+(cur.p+1)+' 幅 · '+['綠','藍','橘','紫','粉'][cur.p%5]+'喵',200,28);
+  // 狀態列：召喚進度 / 喵靈墨
+  bar(16,462,176,15, cur.filledCount/cur.fillable, '#5ecb5e', '召喚 '+Math.floor(cur.filledCount/cur.fillable*100)+'%');
+  var inkF=cur.p<1?0:cur.inkCount/cur.threshold;
+  var inkCol=inkF>0.7?'#e0405a':(inkF>0.4?'#e08a2a':'#5aa8d0');
+  var danger=(inkF>0.7)?(0.5+0.5*Math.sin(clock*10)):1;
+  ctx.globalAlpha=danger;
+  bar(208,462,176,15, inkF, inkCol, cur.p<1?'安全召喚中':'喵靈墨 '+cur.inkCount+'/'+cur.threshold);
+  ctx.globalAlpha=1;
+}
+
+function drawPalette(){
+  var K=cur.K, pw=368/K, x0=16, y0=492, ph=52;
+  for(var c=1;c<=K;c++){
+    var x=x0+(c-1)*pw, done=cur.remaining[c]===0, sel=cur.selected===c;
+    ctx.globalAlpha=done?0.4:1;
+    ctx.fillStyle=cur.pal[c]; rr(x+3, y0+(sel?-3:0), pw-6, ph, 10); ctx.fill();
+    ctx.globalAlpha=1;
+    if(sel){ ctx.strokeStyle='#fff'; ctx.lineWidth=3; rr(x+3,y0-3,pw-6,ph,10); ctx.stroke(); }
+    var tc=(c===4||c===7)?'#333':'#fff';
+    ctx.fillStyle=tc; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.font='bold 20px sans-serif'; ctx.fillText(String(c), x+pw/2, y0+(sel?-3:0)+ph*0.4);
+    ctx.font='10px sans-serif';
+    ctx.fillText(done?'✓':('剩 '+cur.remaining[c]), x+pw/2, y0+(sel?-3:0)+ph*0.78);
+  }
+  // 底部提示
+  ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillStyle='#9aa3b3'; ctx.font='12px sans-serif';
+  var hint = cur.p<1 ? '選色 → 點／拖同號格，把喵填滿！' : '黑格＝喵靈墨會擴散，選它的色號搶救回來！';
+  ctx.fillText(hint,200,576);
+}
+
+function drawTitle(){
+  ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.fillStyle='#fff'; ctx.font='bold 46px sans-serif'; ctx.fillText('點色召喵',200,150);
+  ctx.font='40px sans-serif'; ctx.fillText('🎨🐱',200,210);
+  ctx.fillStyle='#8fe6b6'; ctx.font='15px sans-serif';
+  ctx.fillText('黑色喵靈墨正從邊緣蠶食史萊姆貓——',200,268);
+  ctx.fillText('點對顏色，把喵一格一格召回！',200,292);
+  ctx.fillStyle='#c8cede'; ctx.font='13px sans-serif';
+  ctx.fillText('① 點下方色盤選一個顏色',200,344);
+  ctx.fillText('② 點或拖畫布上同號的格子填色',200,368);
+  ctx.fillText('③ 填滿全圖＝召喚成功，進入下一幅',200,392);
+  ctx.fillStyle='#9aa3b3'; ctx.font='12px sans-serif';
+  ctx.fillText('鍵盤 1-9 也可切換顏色 · 全程無需說明',200,424);
+  ctx.fillStyle='#ffe27a'; ctx.font='13px sans-serif';
+  ctx.fillText('最高分 '+best+' · 累計召喚 '+catsTotal+' 隻喵',200,470);
+  ctx.fillStyle='#fff'; ctx.font='bold 22px sans-serif';
+  ctx.globalAlpha=0.6+0.4*Math.sin(clock*4);
+  ctx.fillText('點擊開始',200,528); ctx.globalAlpha=1;
+}
+
+function drawOver(){
+  ctx.fillStyle='rgba(8,10,16,.82)'; ctx.fillRect(0,0,400,600);
+  ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.fillStyle='#ff8f9f'; ctx.font='bold 26px sans-serif'; ctx.fillText('喵靈墨吞噬了畫像…',200,150);
+  ctx.font='40px sans-serif'; ctx.fillText('🖤🐱',200,210);
+  ctx.fillStyle='#c8cede'; ctx.font='15px sans-serif'; ctx.fillText('本局分數',200,268);
+  ctx.fillStyle='#fff'; ctx.font='bold 52px sans-serif'; ctx.fillText(String(cur.score),200,314);
+  if(cur.newRecord){ ctx.fillStyle='#ffe27a'; ctx.font='bold 22px sans-serif'; ctx.fillText('★ 新紀錄！★',200,368); }
+  else { ctx.fillStyle='#ffcf6a'; ctx.font='16px sans-serif'; ctx.fillText('差 '+cur.diff+' 分就破紀錄！',200,368); }
+  ctx.fillStyle='#9aa3b3'; ctx.font='13px sans-serif';
+  ctx.fillText('最高分 '+best+' · 累計召喚 '+catsTotal+' 隻喵',200,404);
+  ctx.fillText('完成 '+(cur.p)+' 幅畫像',200,428);
+  ctx.fillStyle='#fff'; ctx.font='bold 22px sans-serif';
+  ctx.globalAlpha=0.6+0.4*Math.sin(clock*4);
+  ctx.fillText('點擊重新召喚',200,500); ctx.globalAlpha=1;
+}
+
+function render(){
+  ctx.clearRect(0,0,400,600);
+  drawBg();
+  if(state==='TITLE'){ drawTitle(); return; }
+  drawHUD();
+  drawBoard();
+  drawParticles();
+  drawPalette();
+  if(fx.flash>0){ ctx.globalAlpha=fx.flash*0.6; ctx.fillStyle='#fff'; ctx.fillRect(0,0,400,600); ctx.globalAlpha=1; }
+  if(state==='TRANS'){ drawParticles(); }
+  if(state==='OVER'){ drawOver(); }
+}
+
+// ===== 主迴圈（固定 dt 上限，不假設 60fps） =====
+var last=0;
+function frame(ts){
+  requestAnimationFrame(frame);
+  if(!last) last=ts;
+  var dt=(ts-last)/1000; last=ts;
+  if(dt>0.1) dt=0.1;
+  if(!paused) update(dt);
+  render();
+}
+
+// ===== 輸入 =====
+function toLogic(e){ var r=cvs.getBoundingClientRect(); return [ (e.clientX-r.left)/r.width*400, (e.clientY-r.top)/r.height*600 ]; }
+function resumeAudio(){ var ac=actx(); if(ac&&ac.state==='suspended'){ try{ac.resume();}catch(e){} } }
+
+function onDown(e){
+  e.preventDefault(); resumeAudio();
+  var pt=toLogic(e), lx=pt[0], ly=pt[1];
+  if(state==='TITLE'){ startGame(); return; }
+  if(state==='OVER'){ startGame(); return; }
+  if(state!=='PLAY') return;
+  // 色盤點擊
+  if(ly>=489&&ly<=546&&lx>=16&&lx<=384){ var pw=368/cur.K; var c=1+Math.floor((lx-16)/pw); if(c<1)c=1; if(c>cur.K)c=cur.K; cur.selected=c; tick(); return; }
+  // 畫布填色
+  var i=cellAt(lx,ly);
+  if(i>=0){ painting=true; lastPX=lx; lastPY=ly; tryFill(i); }
+}
+function onMove(e){
+  if(!painting||state!=='PLAY') return;
+  e.preventDefault();
+  var pt=toLogic(e), lx=pt[0], ly=pt[1];
+  // 沿途補格，避免快速拖曳漏格
+  var dx=lx-lastPX, dy=ly-lastPY, dist=Math.hypot(dx,dy), step=cur.cell*0.5;
+  var n=Math.max(1,Math.ceil(dist/step));
+  for(var k=1;k<=n;k++){ var t=k/n, i=cellAt(lastPX+dx*t, lastPY+dy*t); if(i>=0) tryFill(i); }
+  lastPX=lx; lastPY=ly;
+}
+function onUp(e){ painting=false; }
+
+cvs.addEventListener('pointerdown',onDown,{passive:false});
+cvs.addEventListener('pointermove',onMove,{passive:false});
+window.addEventListener('pointerup',onUp);
+window.addEventListener('pointercancel',function(){ painting=false; });
+window.addEventListener('blur',function(){ paused=true; painting=false; });
+window.addEventListener('focus',function(){ paused=false; last=0; });
+document.addEventListener('visibilitychange',function(){ if(document.hidden){ paused=true; painting=false; } else { paused=false; last=0; } });
+window.addEventListener('keydown',function(e){
+  if(e.key===' '||e.key==='Enter'){ if(state==='TITLE'||state==='OVER'){ resumeAudio(); startGame(); } return; }
+  if(state==='PLAY'){ var n=parseInt(e.key,10); if(n>=1&&n<=cur.K){ cur.selected=n; tick(); } }
+});
+
+// ===== 尺寸自適應（高 DPI 清晰） =====
+function resize(){
+  var vw=window.innerWidth, vh=window.innerHeight;
+  var s=Math.min(vw/400, vh/600); view.s=s;
+  cvs.style.width=(400*s)+'px'; cvs.style.height=(600*s)+'px';
+  var dpr=Math.min(3, window.devicePixelRatio||1);
+  cvs.width=Math.round(400*s*dpr); cvs.height=Math.round(600*s*dpr);
+  ctx.setTransform(s*dpr,0,0,s*dpr,0,0);
+}
+window.addEventListener('resize',resize);
+resize();
+requestAnimationFrame(frame);
+})();
+</script>
+<script src="../../sc_config.js"></script>
+<script src="../../stats.js"></script>
+</body>
+</html>
