@@ -62,9 +62,16 @@ CLAUDE = shutil.which("claude") or r"C:\Users\User\.local\bin\claude.exe"
 # 註：只搬 claude -p 子程序的 cwd，工廠腳本本身照常在專案目錄跑（配方同 XianxiaSaga/llm.py）。
 LLM_CWD = Path("C:/Users/Public/slimecat_llm_cwd")
 LLM_CWD.mkdir(parents=True, exist_ok=True)
-# 模型策略：產遊戲一律用 opus（別名=最新版 Opus，目前 4.8），品質優先。
-# 2026-07-06 用戶拍板：直接用 opus，不再吃 Fable 5 免費期。
-MODEL = "opus"
+# 模型策略（2026-07-06 改混合模型：保品質、砍 opus 額度約 2/3）：
+# 三個階段吃的模型分開挑——「寫遊戲」才需要旗艦，前後的讀寫小任務用小模型就夠。
+#   解構＝sonnet：讀榜單寫解構筆記，中模型夠用
+#   實作＝opus（別名=最新版 Opus，目前 4.8）：品質關鍵，唯一保 opus 的環節
+#   自評＝haiku：按固定五維量表打分出一行 JSON，小模型夠用
+# run_claude 的 model 參數預設 MODEL_BUILD(opus) → fix_game / daily_feedback /
+# weekly_review / original_mode 這些沒指定 model 的呼叫端行為不變（零回歸）。
+MODEL_DECON = "sonnet"    # 解構熱門遊戲
+MODEL_BUILD = "opus"      # 設計＋實作遊戲（品質關鍵）
+MODEL_CRITIC = "haiku"    # 出廠五維自評
 GEN_TIMEOUT = 2700        # 實作一整款遊戲的時間上限（sonnet 曾 30 分鐘超時，放寬到 45 分鐘）
 SMALL_TIMEOUT = 900       # 解構 / 評審這類小任務的上限
 MAX_ATTEMPTS = 2          # 實作 + 驗證最多試幾次
@@ -75,12 +82,12 @@ def log(msg: str) -> None:
     print(f"[{ts}] {msg}", flush=True)
 
 
-def run_claude(prompt: str, timeout: int) -> str:
-    """呼叫 claude -p。空 MCP config 跳過冷啟動、鎖定模型。"""
+def run_claude(prompt: str, timeout: int, model: str = MODEL_BUILD) -> str:
+    """呼叫 claude -p。空 MCP config 跳過冷啟動；model 不指定＝MODEL_BUILD(opus)。"""
     # 子 Claude 是「純文字交稿」：禁用全部工具，防止它自作主張直接寫檔案
     # （2026-07-04 事故：開發者把遊戲直接寫進專案、stdout 沒交稿 → 驗收誤判失敗）
     deny = "Bash,Edit,Write,NotebookEdit,Read,Glob,Grep,WebFetch,WebSearch,Task,TodoWrite"
-    cmd = [CLAUDE, "-p", "--model", MODEL, "--disallowedTools", deny,
+    cmd = [CLAUDE, "-p", "--model", model, "--disallowedTools", deny,
            "--strict-mcp-config", "--mcp-config", str(EMPTY_MCP)]
     proc = subprocess.run(cmd, input=prompt, capture_output=True,
                           text=True, encoding="utf-8", errors="replace",
@@ -138,7 +145,7 @@ GENRE: <類型一詞（街機/益智/反應/跑酷/消除…）>
 ## 不可行的部分（原作有但我們該捨棄的，為什麼）
 ## 我們的變形版一句話企劃（史萊姆貓宇宙，核心樂趣要保留哪一條）
 """
-    out = run_claude(prompt, SMALL_TIMEOUT)
+    out = run_claude(prompt, SMALL_TIMEOUT, model=MODEL_DECON)
     src = re.search(r"^SOURCE:\s*(.+)$", out, re.M)
     ttl = re.search(r"^TITLE:\s*(.+)$", out, re.M)
     gnr = re.search(r"^GENRE:\s*(.+)$", out, re.M)
@@ -210,7 +217,7 @@ def stage_generate(decon: dict, past_games: list, feedback: str = ""):
 <!--GAMEMETA {{"title":"遊戲中文名","emoji":"一個代表emoji","genre":"{decon['genre']}","inspiration":"{decon['source']}","desc":"一句話介紹(30字內)"}}-->
 - 第二行開始就是 <!DOCTYPE html> 起頭的完整網頁
 """
-    out = run_claude(prompt, GEN_TIMEOUT)
+    out = run_claude(prompt, GEN_TIMEOUT, model=MODEL_BUILD)
     return extract(out)
 
 
@@ -253,7 +260,7 @@ def stage_critic(html: str, meta: dict):
 {html[:45000]}
 """
     try:
-        out = run_claude(prompt, SMALL_TIMEOUT)
+        out = run_claude(prompt, SMALL_TIMEOUT, model=MODEL_CRITIC)
         i, j = out.find("{"), out.rfind("}")
         crit = json.loads(out[i:j + 1])
         crit["total"] = int(crit.get("total") or sum(crit["scores"].values()))
@@ -327,7 +334,7 @@ def produce_from_decon(decon: dict) -> int:
     today = datetime.date.today().isoformat()
     feedback = ""
     for attempt in range(1, MAX_ATTEMPTS + 1):
-        log(f"🛠️ 第 {attempt}/{MAX_ATTEMPTS} 次實作（model={MODEL}，最多等 {GEN_TIMEOUT//60} 分鐘）…")
+        log(f"🛠️ 第 {attempt}/{MAX_ATTEMPTS} 次實作（model={MODEL_BUILD}，最多等 {GEN_TIMEOUT//60} 分鐘）…")
         try:
             meta, html = stage_generate(decon, data["games"], feedback)
         except Exception as e:

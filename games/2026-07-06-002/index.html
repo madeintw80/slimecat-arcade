@@ -1,0 +1,420 @@
+<!--GAMEMETA {"title":"喵色衝衝道","emoji":"🟢","genre":"益智","inspiration":"Block Out! - Color Sort Puzzle","desc":"滑一下讓史萊姆貓全體衝到底，同色相撞爆漿消除，連鎖清盤拚高分"}-->
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>喵色衝衝道</title>
+<style>
+  html,body{margin:0;padding:0;height:100%;background:#20242e;overflow:hidden;
+    font-family:-apple-system,BlinkMacSystemFont,"Microsoft JhengHei","PingFang TC","Noto Sans TC",sans-serif;}
+  #wrap{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;
+    background:radial-gradient(circle at 50% 20%,#2d3446,#191c24);}
+  canvas{touch-action:none;display:block;border-radius:16px;box-shadow:0 12px 40px rgba(0,0,0,.5);}
+  #lobby{position:fixed;left:10px;top:8px;z-index:5;color:#cdd6e6;text-decoration:none;
+    font-size:14px;background:rgba(0,0,0,.35);padding:6px 12px;border-radius:20px;}
+  #lobby:active{background:rgba(0,0,0,.55);}
+</style>
+</head>
+<body>
+<a id="lobby" href="../../index.html">← 回遊戲區</a>
+<div id="wrap"><canvas id="cv"></canvas></div>
+<script>
+"use strict";
+(function(){
+  var cv=document.getElementById("cv"), ctx=cv.getContext("2d");
+  var W=400,H=600;
+  // ── 版面 ──
+  var cols=6, rows=8, cell=56, bx=(W-cols*cell)/2, by=108;
+  function cellX(c){return bx+c*cell+cell/2;}
+  function cellY(r){return by+r*cell+cell/2;}
+
+  // ── 調色（史萊姆貓宇宙：不同果凍色的貓）──
+  var PAL=[
+    {c:"#7bd66f",d:"#4fae4a"}, {c:"#5cb6f2",d:"#3a8fce"},
+    {c:"#ff93c2",d:"#e0679f"}, {c:"#ffb057",d:"#e08a2e"},
+    {c:"#bd93f2",d:"#9367cf"}, {c:"#ffdb57",d:"#e0b62e"}
+  ];
+  var STONE={c:"#98a2ad",d:"#6f7883"};
+
+  // ── 狀態 ──
+  var grid=[], popping=[], particles=[], floaters=[];
+  var mode="title", animating=false, slideT=0, SLIDE=0.13;
+  var score=0, best=0, elapsed=0, chain=0, queuedDir=null;
+  var comboMsg="", comboT=0, shake=0, timeGlobal=0, newRecord=false;
+  try{ best=parseInt(localStorage.getItem("catslide_best")||"0",10)||0; }catch(e){ best=0; }
+
+  function newGrid(){ grid=[]; for(var r=0;r<rows;r++){grid.push([]);for(var c=0;c<cols;c++)grid[r].push(null);} }
+
+  function mkCat(c,r,color){
+    return {c:c,r:r,color:color,px:cellX(c),py:cellY(r),tx:cellX(c),ty:cellY(r),scale:0,ph:(c*3+r*7)%100};
+  }
+
+  // ── 難度旋鈕（依遊玩時間，前 15 秒保證安全）──
+  function tierColors(){ return elapsed<30?3:elapsed<75?4:elapsed<120?5:6; }
+  function tierSpawn(){ return elapsed<120?2:3; }
+  function tierStone(){ return elapsed<75?0:elapsed<120?0.05:0.1; }
+
+  function newGame(){
+    newGrid(); popping=[];particles=[];floaters=[];
+    score=0;elapsed=0;chain=0;queuedDir=null;animating=false;comboT=0;shake=0;newRecord=false;
+    // 開局預埋約 10 隻（3 色）讓第一次消除很快發生
+    var cells=[]; for(var r=0;r<rows;r++)for(var c=0;c<cols;c++)cells.push({c:c,r:r});
+    shuffle(cells);
+    for(var i=0;i<10;i++){var p=cells[i];var col=(Math.floor(seededRand()*3))%3;
+      grid[p.r][p.c]=mkCat(p.c,p.r,col); grid[p.r][p.c].scale=1;}
+    mode="play";
+  }
+
+  // 不用 Math.random 的簡易亂數（避免依賴、可重現無妨）
+  var seed=12345;
+  function seededRand(){ seed=(seed*1103515245+12345)&0x7fffffff; return seed/0x7fffffff; }
+  function shuffle(a){ for(var i=a.length-1;i>0;i--){var j=Math.floor(seededRand()*(i+1));var t=a[i];a[i]=a[j];a[j]=t;} }
+
+  function match(a,b){ return a.color>=0 && a.color===b.color; }
+
+  // ── 純計算：某方向滑動的結果（不改動盤面）──
+  function computeMove(dir){
+    var assigns=[],pops=[],changed=false;
+    function line(cc){
+      var list=[];
+      for(var k=0;k<cc.length;k++){var t=grid[cc[k].r][cc[k].c]; if(t)list.push(t);}
+      var out=[],lp=[];
+      for(var i=0;i<list.length;i++){var cat=list[i];
+        if(out.length && match(out[out.length-1],cat)){
+          var top=out.pop(); var m=cc[out.length];
+          lp.push({cat:top,c:m.c,r:m.r}); lp.push({cat:cat,c:m.c,r:m.r});
+        } else out.push(cat);
+      }
+      for(var i=0;i<out.length;i++){var m=cc[i];var cat=out[i];
+        assigns.push({cat:cat,c:m.c,r:m.r}); if(cat.c!==m.c||cat.r!==m.r)changed=true;}
+      for(var i=0;i<lp.length;i++){pops.push(lp[i]);changed=true;}
+    }
+    if(dir==="left"){for(var r=0;r<rows;r++){var cc=[];for(var c=0;c<cols;c++)cc.push({c:c,r:r});line(cc);}}
+    else if(dir==="right"){for(var r=0;r<rows;r++){var cc=[];for(var c=cols-1;c>=0;c--)cc.push({c:c,r:r});line(cc);}}
+    else if(dir==="up"){for(var c=0;c<cols;c++){var cc=[];for(var r=0;r<rows;r++)cc.push({c:c,r:r});line(cc);}}
+    else {for(var c=0;c<cols;c++){var cc=[];for(var r=rows-1;r>=0;r--)cc.push({c:c,r:r});line(cc);}}
+    return {assigns:assigns,pops:pops,changed:changed};
+  }
+
+  function applyMove(dir){
+    if(mode!=="play"||animating)return false;
+    var res=computeMove(dir);
+    if(!res.changed){ shake=Math.max(shake,3); beep(120,0.06,"square",0.05); return false; }
+    newGrid();
+    for(var i=0;i<res.assigns.length;i++){var a=res.assigns[i];
+      a.cat.c=a.c;a.cat.r=a.r;a.cat.tx=cellX(a.c);a.cat.ty=cellY(a.r);grid[a.r][a.c]=a.cat;}
+    popping=[];
+    for(var i=0;i<res.pops.length;i++){var p=res.pops[i];
+      p.cat.tx=cellX(p.c);p.cat.ty=cellY(p.r);popping.push(p.cat);}
+    animating=true; slideT=0; whoosh();
+    return true;
+  }
+
+  function finalize(){
+    animating=false;
+    // 位置吸附
+    for(var r=0;r<rows;r++)for(var c=0;c<cols;c++){var t=grid[r][c];if(t){t.px=t.tx;t.py=t.ty;}}
+    var pairs=popping.length/2;
+    if(pairs>0){
+      chain++;
+      var chainMul=1+Math.min(chain-1,5)*0.2;
+      var gained=Math.round(pairs*pairs*10*chainMul);
+      score+=gained;
+      var cx=0,cy=0;
+      for(var i=0;i<popping.length;i++){var k=popping[i];
+        burst(k.px,k.py,k.color); cx+=k.px; cy+=k.py; k.dead=true;}
+      cx/=popping.length; cy/=popping.length;
+      floaters.push({x:cx,y:cy,txt:"+"+gained,life:1,col:"#fff",sz:22});
+      popSound(pairs);
+      shake=Math.max(shake, Math.min(2+pairs*2,12));
+      if(pairs>=2){ comboMsg="爆漿 x"+pairs+(chain>=2?"　連段 x"+chain:""); comboT=1.1; }
+      else if(chain>=2){ comboMsg="連段 x"+chain; comboT=0.9; }
+    } else { chain=0; }
+    popping=[];
+    spawnNew();
+    checkOver();
+    if(mode==="play" && queuedDir){ var d=queuedDir; queuedDir=null; applyMove(d); }
+  }
+
+  function spawnNew(){
+    var empties=[];
+    for(var r=0;r<rows;r++)for(var c=0;c<cols;c++)if(!grid[r][c])empties.push({c:c,r:r});
+    shuffle(empties);
+    var n=Math.min(tierSpawn(),empties.length);
+    var nc=tierColors(), sc=tierStone();
+    for(var i=0;i<n;i++){var p=empties[i];
+      var color = (seededRand()<sc)? -1 : Math.floor(seededRand()*nc)%nc;
+      grid[p.r][p.c]=mkCat(p.c,p.r,color);
+      beep(520+seededRand()*80,0.05,"sine",0.04);
+    }
+  }
+
+  function checkOver(){
+    var can=false;
+    var dirs=["left","right","up","down"];
+    for(var i=0;i<dirs.length;i++){ if(computeMove(dirs[i]).changed){can=true;break;} }
+    if(!can) gameOver();
+  }
+
+  function gameOver(){
+    mode="over";
+    newRecord = score>best;
+    if(newRecord){ best=score; try{localStorage.setItem("catslide_best",""+best);}catch(e){}
+      for(var i=0;i<40;i++)confetti();
+      fanfare();
+    } else { beep(200,0.5,"triangle",0.15); beep(150,0.5,"sine",0.1); }
+    try{ if(window.SC) SC.over(score); }catch(e){}
+  }
+
+  // ── 音效（WebAudio 合成）──
+  var actx=null;
+  function AC(){ if(!actx){ try{ actx=new (window.AudioContext||window.webkitAudioContext)(); }catch(e){actx=null;} } if(actx&&actx.state==="suspended"){try{actx.resume();}catch(e){}} return actx; }
+  function beep(f,d,type,vol){ var a=AC(); if(!a)return; try{
+    var o=a.createOscillator(),g=a.createGain();
+    o.type=type||"sine"; o.frequency.value=f;
+    g.gain.value=vol||0.1; g.gain.exponentialRampToValueAtTime(0.0001,a.currentTime+d);
+    o.connect(g);g.connect(a.destination); o.start(); o.stop(a.currentTime+d);
+  }catch(e){} }
+  function popSound(pairs){ for(var i=0;i<pairs;i++){ (function(i){ setTimeout(function(){ beep(440*Math.pow(1.14,i),0.12,"triangle",0.12); },i*45); })(i); } }
+  function whoosh(){ var a=AC(); if(!a)return; try{
+    var o=a.createOscillator(),g=a.createGain();
+    o.type="sine"; o.frequency.setValueAtTime(600,a.currentTime);
+    o.frequency.exponentialRampToValueAtTime(180,a.currentTime+0.12);
+    g.gain.value=0.08; g.gain.exponentialRampToValueAtTime(0.0001,a.currentTime+0.13);
+    o.connect(g);g.connect(a.destination);o.start();o.stop(a.currentTime+0.14);
+  }catch(e){} }
+  function fanfare(){ var ns=[523,659,784,1047]; for(var i=0;i<ns.length;i++){(function(i){setTimeout(function(){beep(ns[i],0.22,"triangle",0.14);},i*110);})(i);} }
+
+  // ── 粒子 ──
+  function burst(x,y,color){
+    var col=(color<0?STONE.c:PAL[color].c);
+    for(var i=0;i<11;i++){var an=seededRand()*6.28,sp=40+seededRand()*120;
+      particles.push({x:x,y:y,vx:Math.cos(an)*sp,vy:Math.sin(an)*sp-30,life:1,col:col,sz:3+seededRand()*4,g:220});}
+  }
+  function confetti(){ var cols=["#ff93c2","#ffdb57","#5cb6f2","#7bd66f","#bd93f2"];
+    particles.push({x:seededRand()*W,y:-10,vx:(seededRand()-0.5)*60,vy:40+seededRand()*80,
+      life:2.4,col:cols[Math.floor(seededRand()*cols.length)],sz:4+seededRand()*4,g:120}); }
+
+  // ── 更新 ──
+  function update(dt){
+    timeGlobal+=dt;
+    if(mode==="play" && !document.hidden) elapsed+=dt;
+    var a=Math.min(1,dt*22);
+    for(var r=0;r<rows;r++)for(var c=0;c<cols;c++){var t=grid[r][c];if(t){
+      t.px+=(t.tx-t.px)*a; t.py+=(t.ty-t.py)*a; t.scale+=(1-t.scale)*Math.min(1,dt*12);}}
+    for(var i=0;i<popping.length;i++){var k=popping[i]; k.px+=(k.tx-k.px)*a; k.py+=(k.ty-k.py)*a;}
+    if(animating){ slideT+=dt; if(slideT>=SLIDE) finalize(); }
+    for(var i=particles.length-1;i>=0;i--){var p=particles[i];
+      p.life-=dt; p.vy+=p.g*dt; p.x+=p.vx*dt; p.y+=p.vy*dt; if(p.life<=0)particles.splice(i,1);}
+    for(var i=floaters.length-1;i>=0;i--){var f=floaters[i]; f.life-=dt*1.4; f.y-=dt*32; if(f.life<=0)floaters.splice(i,1);}
+    if(comboT>0)comboT-=dt;
+    if(shake>0)shake=Math.max(0,shake-dt*40);
+  }
+
+  // ── 繪圖 ──
+  function rr(x,y,w,h,rad){ ctx.beginPath();
+    ctx.moveTo(x+rad,y); ctx.arcTo(x+w,y,x+w,y+h,rad); ctx.arcTo(x+w,y+h,x,y+h,rad);
+    ctx.arcTo(x,y+h,x,y,rad); ctx.arcTo(x,y,x+w,y,rad); ctx.closePath(); }
+  function circ(x,y,r){ ctx.beginPath(); ctx.arc(x,y,r,0,6.283); ctx.fill(); }
+
+  function drawSlime(x,y,rad,ci,sc,ph){
+    var p=(ci<0?STONE:PAL[ci]);
+    var wob=1+0.03*Math.sin(timeGlobal*3+ph);
+    ctx.save(); ctx.translate(x,y); ctx.scale(sc*wob,sc*(2-wob));
+    var bw=rad*1.7, bh=rad*1.55;
+    // 貓耳
+    ctx.fillStyle=p.d;
+    ctx.beginPath();ctx.moveTo(-bw*0.34,-bh*0.32);ctx.lineTo(-bw*0.16,-bh*0.78);ctx.lineTo(-bw*0.02,-bh*0.3);ctx.closePath();ctx.fill();
+    ctx.beginPath();ctx.moveTo(bw*0.34,-bh*0.32);ctx.lineTo(bw*0.16,-bh*0.78);ctx.lineTo(bw*0.02,-bh*0.3);ctx.closePath();ctx.fill();
+    // 身體
+    ctx.fillStyle=p.c; rr(-bw/2,-bh/2,bw,bh,rad*0.55); ctx.fill();
+    ctx.fillStyle="rgba(255,255,255,0.25)"; ctx.beginPath(); ctx.ellipse(-bw*0.18,-bh*0.15,bw*0.24,bh*0.15,0,0,6.283); ctx.fill();
+    if(ci<0){
+      ctx.strokeStyle="#4b535c";ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(-6,-3);ctx.lineTo(2,3);ctx.lineTo(-2,10);ctx.stroke();
+      ctx.strokeStyle="#3a4048";ctx.lineWidth=2;
+      dx(-bw*0.2,0,4); dx(bw*0.2,0,4);
+    } else {
+      var ey=bh*0.02, er=rad*0.15;
+      ctx.fillStyle="#fff"; circ(-bw*0.2,ey,er); circ(bw*0.2,ey,er);
+      ctx.fillStyle="#26323a"; circ(-bw*0.2+1,ey+1.5,er*0.55); circ(bw*0.2+1,ey+1.5,er*0.55);
+      ctx.strokeStyle="#26323a";ctx.lineWidth=1.6;ctx.beginPath();
+      ctx.moveTo(-5,bh*0.2);ctx.quadraticCurveTo(0,bh*0.3,5,bh*0.2);ctx.stroke();
+      ctx.fillStyle="rgba(255,110,110,0.28)"; circ(-bw*0.32,bh*0.15,rad*0.1); circ(bw*0.32,bh*0.15,rad*0.1);
+    }
+    ctx.restore();
+  }
+  function dx(x,y,s){ ctx.beginPath();ctx.moveTo(x-s,y-s);ctx.lineTo(x+s,y+s);ctx.moveTo(x+s,y-s);ctx.lineTo(x-s,y+s);ctx.stroke(); }
+
+  function render(){
+    ctx.clearRect(0,0,W,H);
+    // 背景
+    ctx.fillStyle="#252b39"; ctx.fillRect(0,0,W,H);
+    ctx.save();
+    if(shake>0){ ctx.translate((seededRand()-0.5)*shake,(seededRand()-0.5)*shake); }
+
+    // 盤面面板
+    rr(bx-8,by-8,cols*cell+16,rows*cell+16,18); ctx.fillStyle="#1c2130"; ctx.fill();
+    // 危險警示（快滿）
+    var empties=countEmpty();
+    if(mode==="play" && empties<=8){
+      var glow=0.15+0.12*Math.sin(timeGlobal*6);
+      rr(bx-8,by-8,cols*cell+16,rows*cell+16,18);
+      ctx.fillStyle="rgba(255,70,70,"+glow+")"; ctx.fill();
+    }
+    for(var r=0;r<rows;r++)for(var c=0;c<cols;c++){
+      rr(bx+c*cell+3,by+r*cell+3,cell-6,cell-6,10); ctx.fillStyle="#242b3c"; ctx.fill();
+    }
+    var rad=cell*0.5*0.86;
+    if(mode!=="title"){
+      for(var r=0;r<rows;r++)for(var c=0;c<cols;c++){var t=grid[r][c];if(t)drawSlime(t.px,t.py,rad,t.color,t.scale,t.ph);}
+      // 消除中（放大淡出）
+      var pk=animating?1:0;
+      for(var i=0;i<popping.length;i++){var k=popping[i];drawSlime(k.px,k.py,rad,k.color,k.scale,k.ph);}
+    }
+    // 粒子
+    for(var i=0;i<particles.length;i++){var p=particles[i];
+      ctx.globalAlpha=Math.max(0,Math.min(1,p.life)); ctx.fillStyle=p.col; circ(p.x,p.y,p.sz); }
+    ctx.globalAlpha=1;
+    // 飄字
+    for(var i=0;i<floaters.length;i++){var f=floaters[i];
+      ctx.globalAlpha=Math.max(0,f.life); ctx.fillStyle=f.col; ctx.font="bold "+f.sz+"px sans-serif";
+      ctx.textAlign="center"; ctx.fillText(f.txt,f.x,f.y); }
+    ctx.globalAlpha=1;
+
+    // HUD
+    ctx.textAlign="left"; ctx.fillStyle="#9fb0c8"; ctx.font="13px sans-serif";
+    ctx.fillText("最高 "+best,14,30);
+    ctx.textAlign="center"; ctx.fillStyle="#fff"; ctx.font="bold 40px sans-serif";
+    ctx.fillText(""+score,W/2,60);
+    ctx.textAlign="right"; ctx.fillStyle="#9fb0c8"; ctx.font="13px sans-serif";
+    ctx.fillText("色數 "+tierColors(),W-14,30);
+    // combo 訊息
+    if(comboT>0){ ctx.globalAlpha=Math.min(1,comboT*1.5); ctx.textAlign="center";
+      ctx.fillStyle="#ffe15b"; ctx.font="bold 22px sans-serif";
+      ctx.fillText(comboMsg,W/2,96); ctx.globalAlpha=1; }
+
+    ctx.restore();
+
+    if(mode==="title")drawTitle();
+    else if(mode==="over")drawOver();
+  }
+
+  function countEmpty(){var n=0;for(var r=0;r<rows;r++)for(var c=0;c<cols;c++)if(!grid[r][c])n++;return n;}
+
+  function panel(){ ctx.fillStyle="rgba(15,18,26,0.82)"; rr(30,150,W-60,300,20); ctx.fill(); }
+
+  function drawTitle(){
+    ctx.fillStyle="rgba(20,24,34,0.6)"; ctx.fillRect(0,0,W,H);
+    // 示範貓
+    var demo=[0,1,2,3]; for(var i=0;i<4;i++)drawSlime(90+i*75,150,26,demo[i],1,i*10);
+    ctx.textAlign="center";
+    ctx.fillStyle="#fff"; ctx.font="bold 40px sans-serif"; ctx.fillText("喵色衝衝道",W/2,240);
+    ctx.fillStyle="#ffe15b"; ctx.font="16px sans-serif";
+    ctx.fillText("滑一下，全體史萊姆貓衝到底！",W/2,282);
+    ctx.fillStyle="#cdd6e6"; ctx.font="15px sans-serif";
+    ctx.fillText("同色相撞就爆漿消除，",W/2,314);
+    ctx.fillText("連鎖越多、分數越高。",W/2,340);
+    ctx.fillStyle="#93a4bd"; ctx.font="14px sans-serif";
+    ctx.fillText("手機：往上下左右滑動", W/2,388);
+    ctx.fillText("電腦：方向鍵 / WASD", W/2,412);
+    ctx.fillStyle="#ffffff"; ctx.font="bold 20px sans-serif";
+    var pulse=0.6+0.4*Math.sin(timeGlobal*4);
+    ctx.globalAlpha=pulse; ctx.fillText("點擊開始",W/2,470); ctx.globalAlpha=1;
+    ctx.fillStyle="#7f8 da3"; ctx.fillStyle="#7f8da3"; ctx.font="13px sans-serif";
+    ctx.fillText("最高分 "+best,W/2,505);
+  }
+
+  function drawOver(){
+    ctx.fillStyle="rgba(20,24,34,0.72)"; ctx.fillRect(0,0,W,H);
+    ctx.textAlign="center";
+    ctx.fillStyle="#fff"; ctx.font="bold 34px sans-serif"; ctx.fillText("遊戲結束",W/2,230);
+    ctx.font="16px sans-serif"; ctx.fillStyle="#cdd6e6"; ctx.fillText("本局得分",W/2,276);
+    ctx.fillStyle="#ffe15b"; ctx.font="bold 52px sans-serif"; ctx.fillText(""+score,W/2,330);
+    if(newRecord){
+      var p=0.6+0.4*Math.sin(timeGlobal*6);
+      ctx.globalAlpha=p; ctx.fillStyle="#7bd66f"; ctx.font="bold 24px sans-serif";
+      ctx.fillText("🎉 新紀錄！",W/2,376); ctx.globalAlpha=1;
+    } else {
+      ctx.fillStyle="#ff93c2"; ctx.font="18px sans-serif";
+      var diff=best-score+1;
+      ctx.fillText("再 "+diff+" 分就破紀錄！",W/2,376);
+      ctx.fillStyle="#93a4bd"; ctx.font="14px sans-serif";
+      ctx.fillText("最高 "+best,W/2,402);
+    }
+    ctx.fillStyle="#fff"; ctx.font="bold 20px sans-serif";
+    var pulse=0.6+0.4*Math.sin(timeGlobal*4);
+    ctx.globalAlpha=pulse; ctx.fillText("點擊再玩一次",W/2,458); ctx.globalAlpha=1;
+  }
+
+  // ── 輸入 ──
+  var pdown=false, sx=0, sy=0;
+  function toLogical(e){ var r=cv.getBoundingClientRect();
+    var cx=(e.clientX!==undefined?e.clientX:(e.touches&&e.touches[0].clientX));
+    var cy=(e.clientY!==undefined?e.clientY:(e.touches&&e.touches[0].clientY));
+    return {x:(cx-r.left)/r.width*W, y:(cy-r.top)/r.height*H}; }
+
+  function onDown(e){ e.preventDefault(); AC();
+    var p=toLogical(e); pdown=true; sx=p.x; sy=p.y; }
+  function onUp(e){ e.preventDefault(); if(!pdown)return; pdown=false;
+    var p=toLogical(e); var dx=p.x-sx, dy=p.y-sy; var dist=Math.hypot(dx,dy);
+    if(mode==="title"){ newGame(); return; }
+    if(mode==="over"){ newGame(); return; }
+    if(dist<18) return; // 只是點一下
+    var dir = Math.abs(dx)>Math.abs(dy) ? (dx>0?"right":"left") : (dy>0?"down":"up");
+    doMove(dir);
+  }
+  function onCancel(){ pdown=false; queuedDir=null; }
+
+  function doMove(dir){
+    if(mode!=="play")return;
+    if(animating){ queuedDir=dir; }   // 動畫中排入下一步
+    else applyMove(dir);
+  }
+
+  cv.addEventListener("pointerdown",onDown,{passive:false});
+  cv.addEventListener("pointerup",onUp,{passive:false});
+  cv.addEventListener("pointercancel",onCancel,{passive:false});
+  cv.addEventListener("touchstart",function(e){e.preventDefault();},{passive:false});
+  window.addEventListener("blur",onCancel);
+  document.addEventListener("visibilitychange",function(){ if(document.hidden)onCancel(); });
+
+  window.addEventListener("keydown",function(e){
+    var k=e.key.toLowerCase();
+    if(mode==="title"||mode==="over"){ if(k===" "||k==="enter"){AC();newGame();e.preventDefault();} return; }
+    var dir=null;
+    if(k==="arrowleft"||k==="a")dir="left";
+    else if(k==="arrowright"||k==="d")dir="right";
+    else if(k==="arrowup"||k==="w")dir="up";
+    else if(k==="arrowdown"||k==="s")dir="down";
+    if(dir){ e.preventDefault(); AC(); doMove(dir); }
+  });
+
+  // ── 高解析度縮放 ──
+  function resize(){
+    var dpr=Math.min(window.devicePixelRatio||1,3);
+    var s=Math.min(window.innerWidth/W, window.innerHeight/H);
+    s=Math.max(0.3,s);
+    cv.style.width=(W*s)+"px"; cv.style.height=(H*s)+"px";
+    cv.width=Math.round(W*s*dpr); cv.height=Math.round(H*s*dpr);
+    ctx.setTransform(s*dpr,0,0,s*dpr,0,0);
+  }
+  window.addEventListener("resize",resize);
+  resize();
+
+  // ── 主迴圈（deltaTime，不假設 60fps）──
+  var last=0;
+  function frame(now){
+    if(!last)last=now;
+    var dt=(now-last)/1000; last=now;
+    if(dt>0.05)dt=0.05;
+    try{ update(dt); render(); }catch(e){ /* 保底：不拋未捕捉例外 */ }
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+})();
+</script>
+<script src="../../sc_config.js"></script>
+<script src="../../stats.js"></script>
+</body>
+</html>
