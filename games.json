@@ -18,6 +18,13 @@
       "inspiration": "Block Blast!",
       "desc": "把史萊姆貓積木塞進貓窩格子，拼滿一排就爆開！",
       "ai_score": 42,
+      "updated_at": "2026-07-04",
+      "changelog": [
+        {
+          "date": "2026-07-04",
+          "summary": "修好了方塊放下時會歪掉、對不準格子的問題"
+        }
+      ],
       "bugs": [
         {
           "date": "2026-07-04",
@@ -194,6 +201,13 @@
       "inspiration": "Colony Flow!",
       "desc": "拖果凍軌跡讓史萊姆貓自動扛魚乾，看穿塞車就改道衝爆每秒進貢",
       "ai_score": 35,
+      "updated_at": "2026-07-07",
+      "changelog": [
+        {
+          "date": "2026-07-07",
+          "summary": "加了障礙地形，不能再走直線無腦通關了"
+        }
+      ],
       "bugs": [
         {
           "date": "2026-07-07",
@@ -220,6 +234,13 @@
       "inspiration": "Block Out! - Color Sort Puzzle",
       "desc": "滑一下讓史萊姆貓全體衝到底，同色相撞爆漿消除，連鎖清盤拚高分",
       "ai_score": 36,
+      "updated_at": "2026-07-07",
+      "changelog": [
+        {
+          "date": "2026-07-07",
+          "summary": "修好了石頭貓卡到無解的關卡，現在每關都過得了"
+        }
+      ],
       "bugs": [
         {
           "date": "2026-07-07",
@@ -246,6 +267,13 @@
       "inspiration": "Jewel Coloring",
       "desc": "點對顏色，把史萊姆貓從喵靈墨中一格格召回！",
       "ai_score": 6,
+      "updated_at": "2026-07-07",
+      "changelog": [
+        {
+          "date": "2026-07-07",
+          "summary": "調整了關卡圖案，X 懲罰更有份量，不能再靠對稱偷吃步"
+        }
+      ],
       "bugs": [
         {
           "date": "2026-07-07",

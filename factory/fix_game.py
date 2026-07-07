@@ -30,7 +30,7 @@ LEARN_FILE = HERE / "knowledge" / "learnings.md"
 
 sys.path.insert(0, str(HERE))
 import rebuild                                          # noqa: E402
-from make_game import run_claude, log, GEN_TIMEOUT      # noqa: E402
+from make_game import run_claude, log, GEN_TIMEOUT, SMALL_TIMEOUT, MODEL_CRITIC  # noqa: E402
 from validate_game import validate                      # noqa: E402
 
 sys.path.insert(0, "C:/Users/User/projects/_common")
@@ -50,6 +50,30 @@ def spawn_detached(argv_rest: list) -> None:
     subprocess.Popen(args, creationflags=flags, stdout=logf, stderr=subprocess.STDOUT)
     print("🔧 修復已在背景開工（約 10~20 分鐘），完成會推 Telegram 通知")
     print("   進度看 factory/factory.log")
+
+
+def player_summary(g: dict, bugs: list) -> str:
+    """用 haiku 把技術性的 bug 修正，改寫成一句玩家看得懂的白話更新說明。
+    給大廳「📢 更新日誌」顯示用。失敗就退回 bug 原文，絕不擋部署。"""
+    # 留言型 bug 格式是「原始問題 ➜ 給工程師的修復指令」，fallback 只取前半原始問題
+    fallback = bugs[0]["note"].split("➜")[0].replace("[玩家留言]", "").strip()[:40]
+    notes = "\n".join(f"- {b['note']}" for b in bugs)
+    prompt = (
+        f"你是遊戲工作室的小編。以下是《{g['title']}》這次修好的問題（技術描述）。\n"
+        "請寫一句給「玩家」看的更新說明，講「這次改善了什麼」。要求：\n"
+        "- 繁體中文、口語、25 字以內、只有一句話\n"
+        "- 玩家視角（玩家不懂程式），只講他們玩得到的改變\n"
+        "- 不要技術名詞、不要開場白、不要引號，直接給那一句話\n\n"
+        f"這次修好的問題：\n{notes}"
+    )
+    try:
+        out = run_claude(prompt, SMALL_TIMEOUT, model=MODEL_CRITIC)
+        line = next((ln.strip() for ln in out.splitlines() if ln.strip()), "")
+        line = line.strip("「」\"'。 ").strip()   # 去掉多餘引號/句號
+        return line[:40] or fallback
+    except Exception as e:
+        log(f"⚠️ 產玩家更新說明失敗，改用問題描述：{e}")
+        return fallback
 
 
 def build_prompt(g: dict, html: str, bugs: list, feedback: str = "") -> str:
@@ -164,6 +188,10 @@ def fix_one(g: dict, data: dict) -> bool:
         for b in bugs:
             b["status"] = "fixed"
             b["fixed_at"] = today
+        # 更新日誌：記最近更新日（大廳「🔧 剛更新」徽章用）＋一句玩家白話（更新日誌用）
+        g["updated_at"] = today
+        g.setdefault("changelog", []).append(
+            {"date": today, "summary": player_summary(g, bugs)})
         GAMES_JSON.write_text(json.dumps(data, ensure_ascii=False, indent=2),
                               encoding="utf-8")
         rebuild.rebuild()

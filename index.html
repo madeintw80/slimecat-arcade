@@ -50,6 +50,24 @@
   .fbitem{border-top:1px solid var(--line);padding:8px 2px}
   .fbnote{font-size:13px;color:var(--txt);line-height:1.5}
   .fbreply{font-size:12.5px;color:var(--acc);margin-top:4px;line-height:1.5}
+  /* ── 🔧 剛更新徽章（比照 NEW!，換藍綠色好區隔）── */
+  .upd{position:absolute;top:-9px;right:-6px;background:#3dd6c4;color:#062b26;font-weight:800;font-size:11px;border-radius:99px;padding:3px 10px;box-shadow:0 3px 10px rgba(0,0,0,.4);transform:rotate(6deg)}
+  /* ── 頂部「更新日誌」入口按鈕 ── */
+  .logbtn{margin-top:14px;cursor:pointer;font-family:inherit;font-size:13px;color:var(--acc);background:rgba(124,232,90,.08);border:1px solid rgba(124,232,90,.4);border-radius:99px;padding:6px 16px}
+  .logbtn:hover{background:rgba(124,232,90,.2)}
+  /* ── 更新日誌彈窗 ── */
+  #logov{position:fixed;inset:0;background:rgba(0,0,0,.62);display:none;align-items:center;justify-content:center;z-index:50;padding:16px}
+  #logov.show{display:flex}
+  #logbox{background:var(--card);border:1px solid var(--acc);border-radius:16px;padding:22px;width:min(92vw,420px);box-shadow:0 18px 50px rgba(0,0,0,.5)}
+  #logbox h3{margin:0 0 6px;color:var(--acc);font-size:17px}
+  #logsub{color:var(--sub);font-size:12.5px;margin-bottom:12px}
+  #loglist{max-height:56vh;overflow-y:auto}
+  .logitem{border-top:1px solid var(--line);padding:10px 2px}
+  .logitem:first-child{border-top:none}
+  .logmeta{font-size:12.5px;color:var(--sub)}
+  .logmeta b{color:#fff}
+  .logsum{font-size:14px;color:var(--txt);line-height:1.5;margin-top:3px}
+  .logempty{color:var(--sub);text-align:center;padding:30px 0;font-size:13.5px}
 </style>
 </head>
 <body>
@@ -57,9 +75,19 @@
   <h1>🐱 SlimeCat 遊戲區 🟢</h1>
   <div class="slogan">不斷生產新遊戲的小遊戲樂園 — 工廠每天爬排行榜、提煉玩法、自動生一款</div>
   <div class="stats" id="stats"></div>
+  <button id="logbtn" class="logbtn">📢 更新日誌</button>
 </header>
 <main id="list"></main>
 <footer>🏭 SlimeCat 遊戲工廠自動生產 · Batnini 出品<br>致敬千禧年的網頁小遊戲樂園</footer>
+<!-- 更新日誌彈窗（工廠修過的遊戲都會列在這，玩家看得到改了什麼） -->
+<div id="logov">
+  <div id="logbox">
+    <h3>📢 更新日誌</h3>
+    <div id="logsub">工廠會持續修好玩家回報的問題，這裡看得到每款改了什麼</div>
+    <div id="loglist"></div>
+    <div class="ratebtns"><button id="logclose">關閉</button></div>
+  </div>
+</div>
 <!-- 評分＋留言彈窗（匿名，回饋會餵給遊戲工廠改進下一款） -->
 <div id="rateov">
   <div id="ratebox">
@@ -76,7 +104,7 @@
 </div>
 <script src="sc_config.js"></script>
 <script src="stats.js"></script>
-<script src="games.js?v=a768e94c"></script>
+<script src="games.js?v=60d4c93a"></script>
 <script>
 // 讀 games.js 的 GAMES 清單，畫出遊戲卡片（新的排前面）
 const list = document.getElementById("list");
@@ -100,10 +128,14 @@ if (!games.length) {
 for (const g of games) {
   const a = document.createElement("a");
   a.className = "card";
-  a.href = "games/" + g.id + "/index.html";
+  // 遊戲連結帶「更新日」版本參數 → 修過的遊戲網址就變、瀏覽器強制載新版（防快取玩到舊版）
+  a.href = "games/" + g.id + "/index.html" + (g.updated_at ? "?v=" + g.updated_at : "");
   const plays = getPlays(g.id);
   a.innerHTML =
-    (g.date === todayStr ? '<span class="new">NEW!</span>' : "") +
+    // 今天出廠 → NEW!；否則最近 7 天內修過 → 🔧 剛更新（兩者互斥，新遊戲優先標 NEW）
+    (g.date === todayStr
+      ? '<span class="new">NEW!</span>'
+      : (g.updated_at && daysAgo(g.updated_at) <= 7 ? '<span class="upd">🔧 剛更新</span>' : "")) +
     `<div class="emoji">${g.emoji || "🎮"}</div>` +
     `<img class="thumb" src="games/${g.id}/shot.png" loading="lazy" alt="" onerror="this.remove()">` +
     `<div class="title">${esc(g.title)}</div>` +
@@ -195,6 +227,33 @@ document.getElementById("ratesend").addEventListener("click", () => {
   msg.textContent = "✅ 已送出，謝謝回饋！工廠會參考";
   setTimeout(() => rateov.classList.remove("show"), 900);
 });
+
+// ─── 更新日誌：算某天距今幾天（給「🔧 剛更新」徽章判斷用）───
+function daysAgo(dateStr) {
+  if (!dateStr) return Infinity;
+  const d = new Date(dateStr + "T00:00:00");
+  return Math.floor((today - d) / 86400000);
+}
+
+// ─── 更新日誌彈窗：把所有遊戲的 changelog 攤平、依日期新到舊列出 ───
+const logov = document.getElementById("logov");
+document.getElementById("logbtn").addEventListener("click", () => {
+  const rows = [];
+  for (const g of games) {
+    for (const c of (g.changelog || [])) {
+      rows.push({ emoji: g.emoji || "🎮", title: g.title, date: c.date, summary: c.summary });
+    }
+  }
+  rows.sort((a, b) => b.date.localeCompare(a.date)); // 日期新的排前面
+  document.getElementById("loglist").innerHTML = rows.length
+    ? rows.map(r =>
+        `<div class="logitem"><div class="logmeta">${r.emoji} <b>${esc(r.title)}</b> · ${r.date}</div>` +
+        `<div class="logsum">${esc(r.summary)}</div></div>`).join("")
+    : '<div class="logempty">還沒有更新記錄，工廠會持續修好玩家回報的問題喵～</div>';
+  logov.classList.add("show");
+});
+document.getElementById("logclose").addEventListener("click", () => logov.classList.remove("show"));
+logov.addEventListener("click", (e) => { if (e.target === logov) logov.classList.remove("show"); });
 </script>
 </body>
 </html>
