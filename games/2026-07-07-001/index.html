@@ -1,0 +1,629 @@
+<!--GAMEMETA {"title":"你答錯了喵！","emoji":"😼","genre":"益智","inspiration":"Brain Puzzle 3: Crazy Mind","desc":"史萊姆貓出腦洞陷阱題，你的直覺注定被牠整到笑"}-->
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>你答錯了喵！</title>
+<style>
+  /* 全站深色底，canvas 置中 */
+  html,body{margin:0;padding:0;height:100%;background:#141026;overflow:hidden;
+    font-family:-apple-system,"Segoe UI","Microsoft JhengHei","PingFang TC",sans-serif;
+    -webkit-tap-highlight-color:transparent;}
+  #wrap{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;}
+  canvas{touch-action:none;display:block;background:#1d1636;border-radius:14px;
+    box-shadow:0 10px 40px rgba(0,0,0,.55);}
+  #home{position:fixed;left:10px;top:8px;z-index:10;color:#c9c1e8;
+    font-size:13px;text-decoration:none;background:rgba(0,0,0,.35);
+    padding:5px 10px;border-radius:20px;}
+  #home:active{background:rgba(0,0,0,.6);}
+</style>
+</head>
+<body>
+<a id="home" href="../../index.html">← 回遊戲區</a>
+<div id="wrap"><canvas id="cv"></canvas></div>
+<script>
+"use strict";
+(function(){
+// ====== 基本設定：邏輯座標固定 400x600 ======
+const LW=400, LH=600;
+const canvas=document.getElementById('cv');
+const ctx=canvas.getContext('2d');
+let S=1, cssW=LW, cssH=LH; // S = scale*dpr
+
+function resize(){
+  const availW=Math.max(200,window.innerWidth);
+  const availH=Math.max(200,window.innerHeight);
+  const aspect=LW/LH;
+  let w=availW, h=w/aspect;
+  if(h>availH){ h=availH; w=h*aspect; }
+  cssW=w; cssH=h;
+  canvas.style.width=w+'px';
+  canvas.style.height=h+'px';
+  const dpr=Math.min(window.devicePixelRatio||1,3);
+  canvas.width=Math.round(w*dpr);
+  canvas.height=Math.round(h*dpr);
+  S=(w/LW)*dpr; // 邏輯→實體像素
+}
+window.addEventListener('resize',resize);
+resize();
+
+// ====== WebAudio 合成音效 ======
+let AC=null;
+function ac(){
+  if(!AC){ try{ AC=new (window.AudioContext||window.webkitAudioContext)(); }catch(e){ AC=null; } }
+  return AC;
+}
+function tone(freq,dur,type,vol,when){
+  const c=ac(); if(!c) return;
+  try{
+    const t=c.currentTime+(when||0);
+    const o=c.createOscillator(), g=c.createGain();
+    o.type=type||'sine'; o.frequency.setValueAtTime(freq,t);
+    g.gain.setValueAtTime(0.0001,t);
+    g.gain.exponentialRampToValueAtTime(vol||0.2,t+0.012);
+    g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
+    o.connect(g).connect(c.destination);
+    o.start(t); o.stop(t+dur+0.03);
+  }catch(e){}
+}
+function sTap(){ tone(560,0.05,'square',0.10); }
+function sCorrect(mult){
+  const base=520; const m=mult||1;
+  tone(base*m,0.10,'sine',0.18,0);
+  tone(base*1.26*m,0.12,'sine',0.18,0.09);
+  tone(base*1.5*m,0.16,'triangle',0.16,0.18);
+}
+function sWrong(){
+  tone(240,0.16,'sawtooth',0.16,0);
+  tone(150,0.24,'sawtooth',0.15,0.10);
+}
+function sTimeout(){ tone(120,0.4,'sawtooth',0.16,0); }
+function sTick(){ tone(880,0.05,'square',0.10); }
+function sFanfare(){
+  const n=[523,659,784,1046];
+  n.forEach((f,i)=>tone(f,0.22,'triangle',0.18,i*0.10));
+  tone(1568,0.4,'sine',0.14,0.42);
+}
+function sStart(){ tone(392,0.09,'triangle',0.16,0); tone(587,0.14,'triangle',0.16,0.09); }
+
+// ====== 顏色 ======
+const COL={red:'#e74c3c',green:'#27ae60',blue:'#2f7bed',orange:'#e8830c',yellow:'#e6c419',purple:'#9b59b6'};
+
+// ====== 題庫 ======
+// 每題：q 題目；opts 選項(其中一個 ok:1 為正解；stroop 用 c 上色)；reveal 揭曉；easy 熱身標記
+const RAW=[
+ {easy:1,q:"看看畫面上這隻史萊姆貓，牠是什麼顏色的？",
+  opts:[{t:"綠色",ok:1},{t:"藍色"},{t:"其實是透明的"},{t:"看不太出來"}],
+  reveal:"就在你眼前啊，綠色的史萊姆貓喵！這題純粹送你暖身，別想太多～"},
+ {easy:1,q:"什麼貓一淋到雨，就全身濕答答、變得懶洋洋？",
+  opts:[{t:"落湯貓",ok:1},{t:"招財貓"},{t:"加菲貓"},{t:"龍貓"}],
+  reveal:"「落湯貓」就是渾身濕透的意思喵，濕淋淋的那隻就是牠！"},
+ {easy:1,q:"一堆沙，加上另一堆沙，總共會變成幾堆沙？",
+  opts:[{t:"1 堆",ok:1},{t:"2 堆"},{t:"很多堆"},{t:"半堆"}],
+  reveal:"兩堆黏在一起，還是「一」大堆沙喵！1+1 才不一定等於 2。"},
+ {q:"白貓一頭跳進整桶黑墨水，爬出來變成什麼貓？",
+  opts:[{t:"濕貓",ok:1},{t:"黑貓"},{t:"花貓"},{t:"隱形貓"}],
+  reveal:"剛跳出墨水當然是「濕」貓啊！誰跟你說牠會變黑貓喵～"},
+ {q:"下面哪一個字，全世界的人都一定念得「錯」？",
+  opts:[{t:"錯",ok:1},{t:"難"},{t:"貓"},{t:"字"}],
+  reveal:"「錯」這個字，你怎麼念它都是在念「錯」喵！"},
+ {stroop:1,q:"快！點出「用綠色寫」的那個字（看顏色，別看字！）",
+  opts:[{t:"紅",c:COL.green,ok:1},{t:"綠",c:COL.blue},{t:"黃",c:COL.red},{t:"藍",c:COL.orange}],
+  reveal:"要看『墨水顏色』不是看字義喵！被那個綠色的『綠』字騙到了吧～"},
+ {q:"史萊姆貓從一百層樓高一躍而下，卻毫髮無傷，為什麼？",
+  opts:[{t:"牠是史萊姆，落地會Q彈彈起來",ok:1},{t:"牠有九條命"},{t:"牠背了降落傘"},{t:"牠其實站在一樓"}],
+  reveal:"史萊姆貓全身Q彈，摔到地上啵一聲彈回去，摔不壞的喵！"},
+ {q:"什麼東西，你越用力洗它，它反而變得越髒？",
+  opts:[{t:"水",ok:1},{t:"抹布"},{t:"肥皂"},{t:"貓咪"}],
+  reveal:"用來洗東西的那盆「水」，會越洗越髒喵！"},
+ {q:"數數看這句話：『史萊姆貓愛吃貓草也愛玩貓玩具』，裡面有幾個「貓」字？",
+  opts:[{t:"3 個",ok:1},{t:"2 個"},{t:"4 個"},{t:"5 個"}],
+  reveal:"史萊姆『貓』、『貓』草、『貓』玩具，剛剛好 3 個喵！有仔細數嗎～"},
+ {q:"什麼「帽」，永遠不可能戴在頭上？",
+  opts:[{t:"螺絲帽",ok:1},{t:"安全帽"},{t:"貓耳帽"},{t:"瓶蓋帽"}],
+  reveal:"「螺絲帽（螺帽）」是拿來鎖螺絲的，怎麼戴頭上喵！"},
+ {q:"籠子裡有 5 隻史萊姆貓，你「拿走了」2 隻，那你手上有幾隻貓？",
+  opts:[{t:"2 隻",ok:1},{t:"3 隻"},{t:"5 隻"},{t:"0 隻"}],
+  reveal:"問的是「你手上」有幾隻——你拿走 2 隻，手上就是 2 隻喵！急著減法就中計了。"},
+ {stroop:1,q:"這次點出「藍色的字」（記得，看的是顏色！）",
+  opts:[{t:"綠",c:COL.blue,ok:1},{t:"藍",c:COL.red},{t:"紅",c:COL.green},{t:"黃",c:COL.orange}],
+  reveal:"寫著『藍』的那個是紅色的，真正藍色的是『綠』字喵！腦袋打結了吧～"},
+ {q:"什麼東西越滾越大，太陽一出來卻整個消失不見？",
+  opts:[{t:"雪球",ok:1},{t:"毛線球"},{t:"氣球"},{t:"泡泡"}],
+  reveal:"「雪球」越滾越大，一曬到太陽就融化不見了喵！"},
+ {q:"史萊姆貓沒有手，卻很會「抓」一樣東西，是什麼？",
+  opts:[{t:"重點",ok:1},{t:"老鼠"},{t:"魚乾"},{t:"貓抓板"}],
+  reveal:"「抓重點」不用手也行喵～ 話說回來，你有抓到重點嗎？"},
+ {q:"什麼「皮」，一吹就破，還會被大家笑？",
+  opts:[{t:"牛皮",ok:1},{t:"臉皮"},{t:"橡皮"},{t:"貓皮"}],
+  reveal:"「吹牛皮」吹太大就破功被笑喵！"},
+ {q:"史萊姆貓跟一隻蝸牛賽跑，竟然輸了，最可能的原因是？",
+  opts:[{t:"以上都有可能",ok:1},{t:"牠中途睡著了"},{t:"牠往反方向跑"},{t:"牠停下來舔毛"}],
+  reveal:"貓咪嘛，脫線的事什麼都做得出來，全都有可能喵！只挑一個就被我釣到了～"},
+ {q:"什麼數字，你把它上下顛倒過來，反而變「大」了？",
+  opts:[{t:"6",ok:1},{t:"8"},{t:"0"},{t:"1"}],
+  reveal:"6 倒過來就變成 9，數字直接變大啦喵！"},
+ {stroop:1,q:"最後一題陷阱：點出「用紅色寫」的字（看顏色！）",
+  opts:[{t:"黃",c:COL.red,ok:1},{t:"紅",c:COL.green},{t:"綠",c:COL.orange},{t:"藍",c:COL.blue}],
+  reveal:"寫『紅』的那個其實是綠色，真正紅色的是『黃』字喵！人類真好騙～"}
+];
+
+const CAT_OK=["喵？！竟然被你答對了…","算你厲害，這題送你的啦～","哼，下一題你就沒這麼好運囉","答對了！你是天才貓貓嗎？"];
+const CAT_BAD=["嘿嘿，被騙了吧～ 😼","喵哈哈！我就知道你會選那個","太正常了你，正常到答錯 😹","人類的直覺真是好騙耶～"];
+const CAT_TIME=["發什麼呆？時間到啦喵！","想太久，貓草都涼了～","太慢了！下次快一點喵"];
+
+// ====== 遊戲狀態 ======
+let state='title'; // title / playing / reveal / over
+let best=0, bestStreak=0;
+try{ best=parseInt(localStorage.getItem('dacuo_best')||'0',10)||0;
+     bestStreak=parseInt(localStorage.getItem('dacuo_streak')||'0',10)||0; }catch(e){}
+
+let score=0, lives=3, streak=0, qNum=0;
+let queue=[], curQ=null, curButtons=[];
+let qTime=0, qMax=16, lastTickSec=99;
+let chosenIdx=-1, wasCorrect=false, wasTimeout=false;
+let revealCatLine="", reveal_earned=0;
+let newRecord=false, recordFired=false, overReported=false;
+
+// 動畫/juice
+let shakeMag=0, shX=0, shY=0;
+let particles=[], floats=[], bubbles=[];
+let catMood='idle', catWob=0, catPop=1;
+let pulse=0, tPrev=performance.now();
+
+// 背景泡泡
+for(let i=0;i<10;i++) bubbles.push({x:Math.random()*LW,y:Math.random()*LH,r:6+Math.random()*16,sp:6+Math.random()*10,a:0.04+Math.random()*0.05});
+
+function shuffle(a){ for(let i=a.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); const t=a[i];a[i]=a[j];a[j]=t; } return a; }
+
+function buildQueue(){
+  // 熱身題固定排前面，其餘洗牌
+  const easy=RAW.filter(q=>q.easy);
+  const rest=shuffle(RAW.filter(q=>!q.easy).slice());
+  queue=shuffle(easy.slice()).concat(rest);
+}
+
+function startGame(){
+  score=0; lives=3; streak=0; qNum=0;
+  newRecord=false; recordFired=false; overReported=false;
+  particles=[]; floats=[];
+  buildQueue();
+  state='playing';
+  nextQuestion();
+  sStart();
+}
+
+function nextQuestion(){
+  if(queue.length===0) buildQueue(); // 用完重洗（單局通常用不完）
+  curQ=queue.shift();
+  qNum++;
+  // 洗選項位置，避免肌肉記憶
+  curQ._opts=shuffle(curQ.opts.map((o,i)=>({o})));
+  // 難度：計時器隨題數縮短（第3分鐘壓力源＝時間越來越緊）
+  qMax=Math.max(6, 16-(qNum-1)*0.6);
+  qTime=qMax; lastTickSec=99;
+  chosenIdx=-1; wasCorrect=false; wasTimeout=false;
+  catMood='idle';
+  layoutButtons();
+  state='playing';
+}
+
+function layoutButtons(){
+  curButtons=[];
+  const n=curQ._opts.length;
+  const top=316, bottom=576, gap=12;
+  const bh=Math.min(60,(bottom-top-(n-1)*gap)/n);
+  for(let i=0;i<n;i++){
+    curButtons.push({x:32,y:top+i*(bh+gap),w:LW-64,h:bh,idx:i,press:0});
+  }
+}
+
+function answer(idx){
+  if(state!=='playing') return;
+  chosenIdx=idx;
+  const isTO=(idx<0);
+  wasTimeout=isTO;
+  const ok = !isTO && curQ._opts[idx].o.ok;
+  wasCorrect=!!ok;
+  const isWarm=!!curQ.easy;
+
+  if(ok){
+    streak++;
+    const mult=1+Math.min(streak,10)*0.12;
+    const timeBonus=Math.floor(qTime)*8;
+    reveal_earned=Math.round((100+timeBonus)*mult);
+    score+=reveal_earned;
+    catMood='happy'; catPop=1.5;
+    sCorrect(1+Math.min(streak-1,6)*0.06);
+    // 綠色慶祝粒子
+    spawnBurst(LW/2,150,COL.green,26);
+    addFloat(LW/2,250,"+"+reveal_earned,COL.green,30);
+    if(streak>=2) addFloat(LW/2,300,"連對 x"+streak+"！",COL.orange,24);
+    revealCatLine=CAT_OK[Math.floor(Math.random()*CAT_OK.length)];
+    if(streak>bestStreak){ bestStreak=streak; try{localStorage.setItem('dacuo_streak',String(bestStreak));}catch(e){} }
+    if(score>best && !recordFired){ recordFired=true; newRecord=true; sFanfare(); spawnBurst(LW/2,150,COL.yellow,40); }
+    if(score>best){ best=score; try{localStorage.setItem('dacuo_best',String(best));}catch(e){} }
+  } else {
+    reveal_earned=0;
+    streak=0;
+    catMood='smug';
+    if(isWarm){
+      // 熱身題答錯不扣命，保證前15秒不會死
+      revealCatLine=(isTO?CAT_TIME:CAT_BAD)[Math.floor(Math.random()* (isTO?CAT_TIME:CAT_BAD).length)]+"（熱身題不扣命喵）";
+      isTO?sTimeout():sWrong();
+      shakeMag=6;
+    } else {
+      lives--;
+      isTO?sTimeout():sWrong();
+      shakeMag=14;
+      revealCatLine=(isTO?CAT_TIME:CAT_BAD)[Math.floor(Math.random()*(isTO?CAT_TIME:CAT_BAD).length)];
+    }
+  }
+  catPop=1.5;
+  state='reveal';
+  pulse=0;
+}
+
+function proceed(){
+  // reveal 後：一鍵繼續
+  if(lives<=0){
+    state='over';
+    if(!overReported){ overReported=true; if(window.SC) SC.over(score); }
+  } else {
+    nextQuestion();
+  }
+}
+
+// ====== 特效產生 ======
+function spawnBurst(x,y,color,n){
+  for(let i=0;i<n;i++){
+    const a=Math.random()*Math.PI*2, sp=60+Math.random()*220;
+    particles.push({x,y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp-60,life:0.9+Math.random()*0.5,max:1.4,
+      col:color,sz:3+Math.random()*5,g:520});
+  }
+}
+function addFloat(x,y,text,col,sz){ floats.push({x,y,text,col,sz,life:1.1,max:1.1,vy:-46}); }
+
+// ====== 輸入 ======
+function toLogical(clientX,clientY){
+  const r=canvas.getBoundingClientRect();
+  return { x:(clientX-r.left)/r.width*LW, y:(clientY-r.top)/r.height*LH };
+}
+function onDown(e){
+  if(e.cancelable) e.preventDefault();
+  const c=ac(); if(c && c.state==='suspended'){ try{c.resume();}catch(err){} }
+  const p=('touches'in e && e.touches.length)? e.touches[0]:e;
+  const pt=toLogical(p.clientX,p.clientY);
+  handleTap(pt.x,pt.y);
+}
+function handleTap(x,y){
+  if(state==='title'){ startGame(); return; }
+  if(state==='reveal'){ sTap(); proceed(); return; }
+  if(state==='over'){ startGame(); return; }
+  if(state==='playing'){
+    for(const b of curButtons){
+      if(x>=b.x&&x<=b.x+b.w&&y>=b.y&&y<=b.y+b.h){
+        b.press=1; sTap(); answer(b.idx); return;
+      }
+    }
+  }
+}
+canvas.addEventListener('pointerdown',onDown,{passive:false});
+canvas.addEventListener('touchstart',onDown,{passive:false});
+// 清輸入狀態，避免卡鍵/自走
+function clearInput(){ if(curButtons) curButtons.forEach(b=>b.press=0); }
+canvas.addEventListener('pointercancel',clearInput);
+window.addEventListener('blur',clearInput);
+
+// 鍵盤
+window.addEventListener('keydown',function(e){
+  if(e.key===' '||e.key==='Enter'){
+    if(state==='title'||state==='over'){ e.preventDefault(); startGame(); }
+    else if(state==='reveal'){ e.preventDefault(); proceed(); }
+    return;
+  }
+  if(state==='playing'){
+    const n=parseInt(e.key,10);
+    if(n>=1 && n<=curButtons.length){ curButtons[n-1].press=1; sTap(); answer(n-1); }
+  }
+});
+
+// ====== 更新（固定時間步長）======
+function update(dt){
+  pulse+=dt;
+  catWob+=dt*4;
+  if(catPop>1){ catPop-=dt*3; if(catPop<1)catPop=1; }
+  // 背景泡泡
+  for(const b of bubbles){ b.y-=b.sp*dt; if(b.y<-20){ b.y=LH+20; b.x=Math.random()*LW; } }
+  // 震動衰減
+  if(shakeMag>0){ shakeMag-=dt*40; if(shakeMag<0)shakeMag=0; shX=(Math.random()*2-1)*shakeMag; shY=(Math.random()*2-1)*shakeMag; } else {shX=0;shY=0;}
+  // 粒子
+  for(let i=particles.length-1;i>=0;i--){ const p=particles[i]; p.vy+=p.g*dt; p.x+=p.vx*dt; p.y+=p.vy*dt; p.life-=dt; if(p.life<=0) particles.splice(i,1); }
+  for(let i=floats.length-1;i>=0;i--){ const f=floats[i]; f.y+=f.vy*dt; f.life-=dt; if(f.life<=0) floats.splice(i,1); }
+  // 計時（僅遊玩中）
+  if(state==='playing'){
+    qTime-=dt;
+    const sec=Math.ceil(qTime);
+    if(qTime<=3 && qTime>0 && sec<lastTickSec){ lastTickSec=sec; sTick(); }
+    if(qTime<=0){ answer(-1); }
+  }
+}
+
+// ====== 繪製 ======
+function rr(x,y,w,h,r){ ctx.beginPath();
+  ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r);
+  ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
+
+function wrap(text,maxW,font){
+  ctx.font=font; const lines=[]; let line='';
+  for(const ch of text){
+    if(ch==='\n'){ lines.push(line); line=''; continue; }
+    const test=line+ch;
+    if(ctx.measureText(test).width>maxW && line){ lines.push(line); line=ch; }
+    else line=test;
+  }
+  if(line) lines.push(line); return lines;
+}
+
+function drawCat(cx,cy,s,mood){
+  ctx.save(); ctx.translate(cx,cy);
+  const wob=Math.sin(catWob)*s*0.03;
+  ctx.scale(catPop,1/Math.max(catPop,0.9));
+  ctx.lineJoin='round';
+  ctx.strokeStyle='#2f7a37'; ctx.lineWidth=s*0.05;
+  // 耳朵
+  ctx.fillStyle='#57c85a';
+  ctx.beginPath(); ctx.moveTo(-s*0.6,-s*0.5); ctx.lineTo(-s*0.32,-s*0.98); ctx.lineTo(-s*0.02,-s*0.5); ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(s*0.6,-s*0.5); ctx.lineTo(s*0.32,-s*0.98); ctx.lineTo(s*0.02,-s*0.5); ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.fillStyle='#ff9ecb';
+  ctx.beginPath(); ctx.moveTo(-s*0.44,-s*0.56); ctx.lineTo(-s*0.32,-s*0.86); ctx.lineTo(-s*0.16,-s*0.56); ctx.closePath(); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(s*0.44,-s*0.56); ctx.lineTo(s*0.32,-s*0.86); ctx.lineTo(s*0.16,-s*0.56); ctx.closePath(); ctx.fill();
+  // 身體（史萊姆果凍）
+  const grd=ctx.createLinearGradient(0,-s*0.6,0,s*0.7);
+  grd.addColorStop(0,'#8ee87f'); grd.addColorStop(1,'#5cc45f');
+  ctx.fillStyle=grd;
+  ctx.beginPath();
+  ctx.moveTo(-s*0.72,s*0.1+wob);
+  ctx.bezierCurveTo(-s*0.75,-s*0.55,s*0.75,-s*0.55,s*0.72,s*0.1+wob);
+  // 底部滴垂
+  ctx.bezierCurveTo(s*0.72,s*0.55,s*0.45,s*0.72,s*0.28,s*0.6);
+  ctx.bezierCurveTo(s*0.18,s*0.78,s*0.02,s*0.78,-s*0.06,s*0.6);
+  ctx.bezierCurveTo(-s*0.2,s*0.8,-s*0.42,s*0.74,-s*0.5,s*0.58);
+  ctx.bezierCurveTo(-s*0.66,s*0.5,-s*0.72,s*0.4,-s*0.72,s*0.1+wob);
+  ctx.closePath(); ctx.fill(); ctx.stroke();
+  // 高光
+  ctx.fillStyle='rgba(255,255,255,.35)';
+  ctx.beginPath(); ctx.ellipse(-s*0.28,-s*0.22,s*0.16,s*0.1,-0.5,0,Math.PI*2); ctx.fill();
+  // 臉
+  ctx.strokeStyle='#274d22'; ctx.fillStyle='#274d22'; ctx.lineWidth=s*0.055; ctx.lineCap='round';
+  const ex=s*0.28, ey=-s*0.02;
+  if(mood==='happy'){
+    // ^ ^ 眼
+    ctx.beginPath(); ctx.moveTo(-ex-s*0.09,ey); ctx.lineTo(-ex,ey-s*0.11); ctx.lineTo(-ex+s*0.09,ey); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(ex-s*0.09,ey); ctx.lineTo(ex,ey-s*0.11); ctx.lineTo(ex+s*0.09,ey); ctx.stroke();
+    ctx.beginPath(); ctx.arc(0,ey+s0(s,0.16),s*0.14,0.15*Math.PI,0.85*Math.PI); ctx.stroke();
+    // 腮紅
+    ctx.fillStyle='rgba(255,120,170,.5)';
+    ctx.beginPath(); ctx.arc(-ex-s*0.05,ey+s*0.14,s*0.08,0,7); ctx.fill();
+    ctx.beginPath(); ctx.arc(ex+s*0.05,ey+s*0.14,s*0.08,0,7); ctx.fill();
+  } else if(mood==='smug'){
+    // 半瞇壞笑眼
+    ctx.beginPath(); ctx.moveTo(-ex-s*0.1,ey-s*0.02); ctx.lineTo(-ex+s*0.1,ey+s*0.03); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(ex-s*0.1,ey+s*0.03); ctx.lineTo(ex+s*0.1,ey-s*0.02); ctx.stroke();
+    // 得意壞笑嘴
+    ctx.beginPath(); ctx.moveTo(-s*0.16,ey+s*0.18); ctx.quadraticCurveTo(0,ey+s*0.34,s*0.2,ey+s*0.12); ctx.stroke();
+  } else if(mood==='worried'){
+    ctx.beginPath(); ctx.arc(-ex,ey,s*0.075,0,7); ctx.fill();
+    ctx.beginPath(); ctx.arc(ex,ey,s*0.075,0,7); ctx.fill();
+    ctx.beginPath(); ctx.arc(0,ey+s*0.22,s*0.08,0,7); ctx.stroke();
+  } else {
+    // idle 圓眼
+    ctx.beginPath(); ctx.arc(-ex,ey,s*0.085,0,7); ctx.fill();
+    ctx.beginPath(); ctx.arc(ex,ey,s*0.085,0,7); ctx.fill();
+    ctx.fillStyle='#fff';
+    ctx.beginPath(); ctx.arc(-ex+s*0.03,ey-s*0.03,s*0.03,0,7); ctx.fill();
+    ctx.beginPath(); ctx.arc(ex+s*0.03,ey-s*0.03,s*0.03,0,7); ctx.fill();
+    ctx.fillStyle='#274d22';
+    ctx.strokeStyle='#274d22';
+    ctx.beginPath(); ctx.arc(0,ey+s*0.16,s*0.09,0.1*Math.PI,0.9*Math.PI); ctx.stroke();
+  }
+  ctx.restore();
+}
+function s0(s,v){ return s*v; }
+
+function heart(x,y,s,filled){
+  ctx.save(); ctx.translate(x,y);
+  ctx.beginPath();
+  ctx.moveTo(0,s*0.3);
+  ctx.bezierCurveTo(s*0.05,0,s,0,0,s);
+  ctx.moveTo(0,s*0.3);
+  ctx.bezierCurveTo(-s*0.05,0,-s,0,0,s);
+  ctx.closePath();
+  if(filled){ ctx.fillStyle='#ff5b7a'; ctx.fill(); ctx.strokeStyle='#c8324f'; ctx.lineWidth=s*0.12; ctx.stroke(); }
+  else { ctx.strokeStyle='#6b5f86'; ctx.lineWidth=s*0.16; ctx.stroke(); }
+  ctx.restore();
+}
+
+function drawBG(){
+  const g=ctx.createLinearGradient(0,0,0,LH);
+  g.addColorStop(0,'#241a44'); g.addColorStop(1,'#170f2e');
+  ctx.fillStyle=g; ctx.fillRect(0,0,LW,LH);
+  for(const b of bubbles){ ctx.fillStyle='rgba(120,220,120,'+b.a+')'; ctx.beginPath(); ctx.arc(b.x,b.y,b.r,0,7); ctx.fill(); }
+}
+function drawParticles(){
+  for(const p of particles){ ctx.globalAlpha=Math.max(0,p.life/p.max); ctx.fillStyle=p.col; ctx.beginPath(); ctx.arc(p.x,p.y,p.sz,0,7); ctx.fill(); }
+  ctx.globalAlpha=1;
+  for(const f of floats){ ctx.globalAlpha=Math.max(0,Math.min(1,f.life/f.max)); ctx.font='700 '+f.sz+'px sans-serif'; ctx.textAlign='center'; ctx.fillStyle=f.col; ctx.strokeStyle='rgba(0,0,0,.4)'; ctx.lineWidth=4; ctx.strokeText(f.text,f.x,f.y); ctx.fillText(f.text,f.x,f.y); }
+  ctx.globalAlpha=1;
+}
+
+function centerText(txt,x,y,font,color,maxW){
+  ctx.font=font; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillStyle=color;
+  if(maxW){
+    const lines=wrap(txt,maxW,font); const lh=parseInt(font.match(/(\d+)px/)[1],10)*1.35;
+    let yy=y-(lines.length-1)*lh/2;
+    for(const l of lines){ ctx.fillText(l,x,yy); yy+=lh; }
+    return lines.length*lh;
+  }
+  ctx.fillText(txt,x,y); return 0;
+}
+
+// ---- 各狀態畫面 ----
+function drawTitle(){
+  drawCat(LW/2,168,66,'idle');
+  centerText("你答錯了喵！",LW/2,278,"800 44px sans-serif","#8ee87f");
+  ctx.shadowColor='rgba(0,0,0,.4)';
+  centerText("史萊姆貓專出「看起來超簡單」的陷阱題",LW/2,330,"600 17px sans-serif","#e9e3ff",340);
+  centerText("你的直覺，注定被牠整到笑 😼",LW/2,358,"600 17px sans-serif","#c9bfee",340);
+  ctx.shadowColor='transparent';
+  // 規則卡
+  ctx.fillStyle='rgba(255,255,255,.06)'; rr(40,392,320,120,16); ctx.fill();
+  ctx.textAlign='left';
+  ctx.font='600 15px sans-serif'; ctx.fillStyle='#d8d0f5'; ctx.textBaseline='middle';
+  ctx.fillText("📖 讀題 → 憑直覺點答案",62,416);
+  ctx.fillText("⏰ 每題有倒數，越後面越急",62,444);
+  ctx.fillText("❤️ 答錯扣命，扣完就結束",62,472);
+  ctx.fillText("⌨️ 手機用點的／電腦按 1~4 鍵",62,500);
+  // 最高分挑釁
+  ctx.textAlign='center';
+  centerText("本機最高分 "+best+"　最長連對 "+bestStreak,LW/2,540,"700 16px sans-serif","#ffd25a");
+  // 開始
+  const bp=0.5+0.5*Math.sin(pulse*4);
+  ctx.fillStyle='rgba(126,214,106,'+(0.5+bp*0.4)+')'; rr(110,558,180,34,17); ctx.fill();
+  centerText("點擊開始挑戰",LW/2,575,"800 18px sans-serif","#10231a");
+}
+
+function drawHUD(){
+  // 命
+  for(let i=0;i<3;i++) heart(30+i*30,26,11,i<lives);
+  // 分數
+  ctx.textAlign='right'; ctx.textBaseline='middle';
+  ctx.font='800 20px sans-serif'; ctx.fillStyle='#fff'; ctx.fillText(String(score),LW-16,22);
+  ctx.font='600 12px sans-serif'; ctx.fillStyle='#ffd25a'; ctx.fillText("最高 "+best,LW-16,42);
+  // 題號 + 連對
+  ctx.textAlign='center'; ctx.font='700 14px sans-serif'; ctx.fillStyle='#c9bfee';
+  ctx.fillText("第 "+qNum+" 題"+(curQ&&curQ.easy?"（熱身）":""),LW/2,26);
+  if(streak>=2){ ctx.font='800 13px sans-serif'; ctx.fillStyle=COL.orange; ctx.fillText("🔥連對 "+streak,LW/2,46); }
+  // 計時條
+  const ratio=Math.max(0,qTime/qMax);
+  ctx.fillStyle='rgba(255,255,255,.1)'; rr(18,58,LW-36,10,5); ctx.fill();
+  let bc = ratio>0.5?COL.green:(ratio>0.25?COL.orange:COL.red);
+  if(ratio<0.25){ bc = (Math.floor(pulse*8)%2)?COL.red:'#ff8a8a'; }
+  ctx.fillStyle=bc; if((LW-36)*ratio>0){ rr(18,58,(LW-36)*ratio,10,5); ctx.fill(); }
+}
+
+function drawPlaying(){
+  drawHUD();
+  drawCat(LW/2,120,42,catMood);
+  // 題目
+  centerText(curQ.q,LW/2,238,"700 21px sans-serif","#ffffff",344);
+  // 選項
+  for(let i=0;i<curButtons.length;i++){
+    const b=curButtons[i]; const o=curQ._opts[i].o;
+    const sc=b.press>0?0.96:1;
+    if(b.press>0){ b.press-=0.08; if(b.press<0)b.press=0; }
+    ctx.save();
+    ctx.translate(b.x+b.w/2,b.y+b.h/2); ctx.scale(sc,sc); ctx.translate(-(b.x+b.w/2),-(b.y+b.h/2));
+    ctx.fillStyle='rgba(255,255,255,.10)'; ctx.strokeStyle='rgba(255,255,255,.22)'; ctx.lineWidth=2;
+    rr(b.x,b.y,b.w,b.h,14); ctx.fill(); ctx.stroke();
+    // 編號
+    ctx.fillStyle='rgba(255,255,255,.16)'; rr(b.x+8,b.y+b.h/2-13,26,26,8); ctx.fill();
+    ctx.fillStyle='#cabffb'; ctx.font='700 14px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText(String(i+1),b.x+21,b.y+b.h/2);
+    // 文字（stroop 上色）
+    let fs=20;
+    const col=curQ.stroop?o.c:'#ffffff';
+    ctx.fillStyle=col; ctx.textAlign='left';
+    while(fs>12){ ctx.font=(curQ.stroop?'800 ':'600 ')+fs+'px sans-serif'; if(ctx.measureText(o.t).width<=b.w-64) break; fs--; }
+    ctx.font=(curQ.stroop?'800 ':'600 ')+fs+'px sans-serif';
+    ctx.fillText(o.t,b.x+46,b.y+b.h/2);
+    ctx.restore();
+  }
+  drawParticles();
+}
+
+function drawReveal(){
+  drawHUD();
+  drawCat(LW/2,128,50,catMood);
+  const head = wasTimeout?"太慢了喵！":(wasCorrect?"答對了喵！":"你答錯了喵！");
+  const hc = wasCorrect?COL.green:COL.red;
+  centerText(head,LW/2,210,"800 34px sans-serif",hc);
+  // 正解
+  const correctOpt=curQ._opts.find(x=>x.o.ok).o;
+  centerText("正解：「"+correctOpt.t+"」",LW/2,256,"800 20px sans-serif",COL.green,344);
+  if(!wasCorrect && !wasTimeout && chosenIdx>=0){
+    centerText("你選了：「"+curQ._opts[chosenIdx].o.t+"」",LW/2,288,"700 16px sans-serif","#ff8a8a",344);
+  } else if(wasTimeout){
+    centerText("（時間到，沒選就是我贏囉～）",LW/2,288,"700 15px sans-serif","#ff8a8a",344);
+  }
+  // 揭曉說明
+  ctx.fillStyle='rgba(255,255,255,.06)'; rr(28,312,LW-56,150,16); ctx.fill();
+  centerText(curQ.reveal,LW/2,376,"600 17px sans-serif","#eae3ff",300);
+  // 貓吐槽
+  centerText(revealCatLine,LW/2,492,"800 17px sans-serif",wasCorrect?COL.green:COL.orange,344);
+  if(newRecord && wasCorrect){ centerText("🎉 破紀錄啦！",LW/2,522,"800 18px sans-serif","#ffd25a"); }
+  drawParticles();
+  // 繼續
+  const bp=0.5+0.5*Math.sin(pulse*5);
+  ctx.fillStyle='rgba(126,214,106,'+(0.45+bp*0.4)+')'; rr(115,556,170,32,16); ctx.fill();
+  centerText(lives>0?"點一下 → 下一題":"點一下 → 看成績",LW/2,572,"800 16px sans-serif","#10231a");
+}
+
+function drawOver(){
+  drawCat(LW/2,132,58,'smug');
+  centerText("被整慘了喵～",LW/2,214,"800 36px sans-serif","#ff7089");
+  centerText("最終分數",LW/2,262,"600 16px sans-serif","#c9bfee");
+  centerText(String(score),LW/2,300,"800 52px sans-serif","#ffffff");
+  // near-miss 邀請
+  if(score>=best && score>0){
+    centerText("🏆 新紀錄！你是最聰明的貓奴！",LW/2,352,"800 18px sans-serif","#ffd25a",344);
+  } else {
+    const diff=Math.max(1,best-score);
+    centerText("就差 "+diff+" 分破紀錄…再來一局雪恥喵！",LW/2,352,"800 18px sans-serif","#ffd25a",344);
+  }
+  // 炫耀鉤子
+  const pct=Math.min(99,Math.max(12,Math.round(30+score/30)));
+  ctx.fillStyle='rgba(255,255,255,.06)'; rr(40,378,320,96,16); ctx.fill();
+  centerText("你比 "+pct+"% 的貓還聰明 🧠",LW/2,410,"700 18px sans-serif","#8ee87f",300);
+  centerText("最長連對 "+streak+"　本機最佳 "+bestStreak,LW/2,444,"600 15px sans-serif","#d8d0f5");
+  // 重來
+  const bp=0.5+0.5*Math.sin(pulse*4);
+  ctx.fillStyle='rgba(126,214,106,'+(0.5+bp*0.4)+')'; rr(100,500,200,44,22); ctx.fill();
+  centerText("再挑戰一局",LW/2,522,"800 20px sans-serif","#10231a");
+  centerText("（點畫面任意處／按空白鍵）",LW/2,562,"600 13px sans-serif","#9a8fc0");
+}
+
+function render(){
+  // 清畫面（先重置變換避免震動殘影）
+  ctx.setTransform(1,0,0,1,0,0);
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  ctx.setTransform(S,0,0,S,shX*S,shY*S);
+  drawBG();
+  ctx.textBaseline='middle';
+  if(state==='title') drawTitle();
+  else if(state==='playing') drawPlaying();
+  else if(state==='reveal') drawReveal();
+  else if(state==='over') drawOver();
+}
+
+// ====== 主迴圈：固定時間步長 ======
+let acc=0; const STEP=1/60;
+function frame(now){
+  let dt=(now-tPrev)/1000; tPrev=now;
+  if(dt>0.25) dt=0.25;
+  acc+=dt;
+  let guard=0;
+  while(acc>=STEP && guard<6){ update(STEP); acc-=STEP; guard++; }
+  if(guard>=6) acc=0;
+  render();
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+})();
+</script>
+<script src="../../sc_config.js"></script>
+<script src="../../stats.js"></script>
+</body>
+</html>
