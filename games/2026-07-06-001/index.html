@@ -202,6 +202,16 @@ function spawnObstacle(){
   floaters.push({x:x,y:y-34,vy:-20,life:1.2,max:1.2,text:"毛線團！塞車了",color:"#c0392b",size:14});
   shakeMag=Math.min(shakeMag+4,10);
 }
+// 開局塞車點：擺在 SRC→NEST 直線上，讓「畫直線」不再是可行/最佳解（每局至少阻擋一次），逼玩家規劃繞路
+function spawnStartBlockers(){
+  var ts=[0.4,0.62];
+  for(var i=0;i<ts.length;i++){
+    var t=ts[i];
+    var x=SRC.x+(NEST.x-SRC.x)*t;
+    var y=SRC.y+(NEST.y-SRC.y)*t;
+    obstacles.push({x:x,y:y,r:26,hp:3,grow:0,shake:0});
+  }
+}
 function findObstacle(pt){
   for(var i=0;i<obstacles.length;i++){
     if(obstacles[i].hp>0 && dist(pt,obstacles[i])<obstacles[i].r+8) return obstacles[i];
@@ -250,6 +260,8 @@ function startGame(){
   tutTime=0; firstObsSpawned=false; spawnIdx=0;
   for(var i=0;i<unlocks.length;i++) unlocks[i].done=false;
   setPath(null);
+  spawnStartBlockers();          // 直線最短路徑上先擺塞車點，逼玩家規劃繞路
+  firstObsSpawned=true;          // 一開場就有塞車→提早顯示「改道繞開」教學
   // 初始 3 隻，分散在路徑上（部分即將交貨→前 15 秒先嚐甜頭）
   cats.push({t:0.15,dir:1,carry:true,lane:-6,phase:0,sq:0});
   cats.push({t:0.5, dir:1,carry:true,lane:0, phase:2,sq:0});
