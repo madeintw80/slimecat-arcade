@@ -107,7 +107,7 @@ function makePalette(p){
   return {pal:pal, feats:feats, K:pal.length-1};
 }
 
-// ===== 產生史萊姆貓像素圖（數學生成，保證對稱、可縮放） =====
+// ===== 產生史萊姆貓像素圖（數學生成，可縮放） =====
 function buildCat(S,feats){
   var g=new Int8Array(S*S);
   function idx(x,y){return y*S+x;}
@@ -162,6 +162,13 @@ function buildCat(S,feats){
   // 鼻子
   var nx2=Math.floor(cx), ny2=Math.floor(cy+R*0.08);
   if(inb(nx2,ny2)&&g[idx(nx2,ny2)]!==0) g[idx(nx2,ny2)]=3;
+  // 非對稱斑點：破除「左右鏡射照抄顏色」可被套用的規律，每幅隨機化偏移，
+  // 讓喵靈墨蓋住色號時無法靠鏡像格白嫖答案。只改本體(1)格，不動五官/輪廓/項圈/肚肚。
+  for(var sp=0;sp<2;sp++){
+    var sSide=(Math.random()<0.5?-1:1);
+    var spx=cx+sSide*R*(0.15+Math.random()*0.34), spy=cy+R*(0.02+Math.random()*0.44), spr=Math.max(0.9,R*(0.12+Math.random()*0.05));
+    for(y=0;y<S;y++)for(x=0;x<S;x++){ if(g[idx(x,y)]!==1) continue; dx=x+0.5-spx; dy=y+0.5-spy; if(dx*dx+dy*dy<=spr*spr) g[idx(x,y)]=3; }
+  }
   return g;
 }
 
@@ -306,6 +313,8 @@ function spreadInk(){
   var pick=cands[Math.floor(Math.random()*cands.length)];
   cur.ink[pick]=1; cur.inkCount++;
   var cc=cellCenter(pick); spawnInkP(cc[0],cc[1]);
+  // 喵靈墨每蔓延一格就侵蝕分數：放著不搶救不再是零代價的最佳解
+  if(cur.score>0){ cur.score=Math.max(0,cur.score-5); addFloat(cc[0],cc[1],'-5','#c58bff',14); }
   if(Math.random()<0.35) tone(90+Math.random()*30,0.1,'sawtooth',0.05);
 }
 
