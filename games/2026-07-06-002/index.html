@@ -143,19 +143,42 @@
     shuffle(empties);
     var n=Math.min(tierSpawn(),empties.length);
     var nc=tierColors(), sc=tierStone();
+    var freshStones=[];
     for(var i=0;i<n;i++){var p=empties[i];
       var color = (seededRand()<sc)? -1 : Math.floor(seededRand()*nc)%nc;
       grid[p.r][p.c]=mkCat(p.c,p.r,color);
+      if(color<0)freshStones.push({c:p.c,r:p.r});
       beep(520+seededRand()*80,0.05,"sine",0.04);
+    }
+    // 可解性驗證（bug 修復）：石頭貓（color<0）永遠無法配對消除，
+    // 若剛生成的盤面因此陷入「四方向皆無可行走法」的死局，逐一移除石頭貓
+    // （優先移除本回合新生成者，仍不行再清盤面上其餘石頭貓），確保含石頭貓的盤面至少存在一組可行解。
+    ensureSolvable(freshStones);
+  }
+
+  // 四方向是否還有任何可行走法（會造成位移或消除）
+  function anyMove(){
+    var dirs=["left","right","up","down"];
+    for(var i=0;i<dirs.length;i++){ if(computeMove(dirs[i]).changed) return true; }
+    return false;
+  }
+
+  // 可解性驗證：盤面若因石頭貓卡成無任何可行走法的死局，逐一移除石頭貓直到重新出現可行解
+  function ensureSolvable(freshStones){
+    if(anyMove()) return;
+    // 先移除本回合新生成的石頭貓
+    for(var i=0;i<freshStones.length;i++){
+      var p=freshStones[i], t=grid[p.r][p.c];
+      if(t && t.color<0){ grid[p.r][p.c]=null; if(anyMove()) return; }
+    }
+    // 仍無解，再移除盤面上其餘（先前累積的）石頭貓
+    for(var r=0;r<rows;r++)for(var c=0;c<cols;c++){
+      var t2=grid[r][c];
+      if(t2 && t2.color<0){ grid[r][c]=null; if(anyMove()) return; }
     }
   }
 
-  function checkOver(){
-    var can=false;
-    var dirs=["left","right","up","down"];
-    for(var i=0;i<dirs.length;i++){ if(computeMove(dirs[i]).changed){can=true;break;} }
-    if(!can) gameOver();
-  }
+  function checkOver(){ if(!anyMove()) gameOver(); }
 
   function gameOver(){
     mode="over";
