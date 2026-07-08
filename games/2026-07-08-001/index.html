@@ -1,0 +1,518 @@
+<!--GAMEMETA {"title":"貓爪碾派對","emoji":"🐾","genre":"街機／駕駛跑酷","inspiration":"車車屍搭普 - 足球狂歡季來臨！","desc":"滑動換道輾過毛球飆連段，擦邊閃障礙拚最高分"}-->
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>貓爪碾派對</title>
+<style>
+  /* 全站深色底、置中畫布、禁捲動 */
+  html,body{margin:0;padding:0;height:100%;background:#100d18;overflow:hidden;
+    font-family:system-ui,-apple-system,"Noto Sans TC","Microsoft JhengHei",sans-serif;
+    -webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent;}
+  #wrap{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;}
+  canvas{display:block;touch-action:none;background:#15121f;
+    box-shadow:0 10px 40px rgba(0,0,0,.6);border-radius:6px;}
+  /* 回大廳連結 */
+  #lobby{position:fixed;top:8px;left:10px;z-index:10;color:#d9c8ff;
+    font-size:14px;text-decoration:none;background:rgba(20,16,32,.55);
+    padding:5px 10px;border-radius:14px;border:1px solid rgba(255,255,255,.15);}
+  #lobby:active{background:rgba(60,40,90,.7);}
+</style>
+</head>
+<body>
+<a id="lobby" href="../../index.html">← 回遊戲區</a>
+<div id="wrap"><canvas id="c"></canvas></div>
+<script>
+(function(){
+"use strict";
+
+// ===== 基本設定：邏輯座標固定 400x600，實體緩衝 × dpr =====
+var DW=400, DH=600;
+var canvas=document.getElementById('c');
+var ctx=canvas.getContext('2d');
+var scale=1, dpr=1;
+
+function resize(){
+  var mw=window.innerWidth, mh=window.innerHeight;
+  scale=Math.min(mw/DW, mh/DH);
+  dpr=Math.min(window.devicePixelRatio||1, 3); // cap 3 防過大
+  canvas.style.width=(DW*scale)+'px';
+  canvas.style.height=(DH*scale)+'px';
+  canvas.width=Math.round(DW*scale*dpr);
+  canvas.height=Math.round(DH*scale*dpr);
+  ctx.setTransform(scale*dpr,0,0,scale*dpr,0,0); // 邏輯座標維持 400x600
+}
+window.addEventListener('resize',resize);
+resize();
+
+// ===== 賽道與車道參數 =====
+var roadLeft=50, laneW=100, N=3, roadRight=roadLeft+laneW*N; // 三車道，中心 100/200/300
+function laneX(i){ return roadLeft+laneW*i+laneW/2; }
+var carHalf=22, carY=468;
+
+// ===== 遊戲狀態 =====
+var state='title'; // title / play / over
+var anim=0;        // 全域動畫時間（選單用）
+var STEP=1/60, acc=0, last=performance.now();
+var paused=false;
+
+var t=0, score=0, combo=0, maxCombo=0, hearts=3;
+var iframe=0, slowTimer=0, timeScale=1, shake=0, comboPulse=0;
+var items=[], particles=[], pops=[];
+var distAcc=0, roadScroll=0, moveTimer=6, spawnCount=0;
+var shown70=false, shown130=false, bannerText='', bannerTime=-1;
+var targetLane=1;
+var car={x:laneX(1), sx:1, sy:1, bounce:0};
+var overTime=0, newRecord=false, prevBest=0;
+
+// ===== 最高分（localStorage，一律 try-catch）=====
+var best=0, bestCombo=0;
+function load(k,d){ try{ var v=localStorage.getItem(k); return v==null?d:(+v||d);}catch(e){return d;} }
+function save(k,v){ try{ localStorage.setItem(k,String(v)); }catch(e){} }
+best=load('catpaw_best',0); bestCombo=load('catpaw_combo',0);
+
+// ===== WebAudio 合成音效 =====
+var actx=null, master=null;
+function initAudio(){ if(actx)return; try{ actx=new (window.AudioContext||window.webkitAudioContext)();
+  master=actx.createGain(); master.gain.value=0.5; master.connect(actx.destination);}catch(e){actx=null;} }
+function tone(f,dur,type,vol,slide){ if(!actx)return; try{ if(actx.state==='suspended')actx.resume();
+  var o=actx.createOscillator(), g=actx.createGain(); o.type=type||'sine';
+  o.frequency.setValueAtTime(f,actx.currentTime);
+  if(slide)o.frequency.exponentialRampToValueAtTime(Math.max(30,slide),actx.currentTime+dur);
+  g.gain.setValueAtTime(0.0001,actx.currentTime);
+  g.gain.exponentialRampToValueAtTime(vol||0.2,actx.currentTime+0.008);
+  g.gain.exponentialRampToValueAtTime(0.0001,actx.currentTime+dur);
+  o.connect(g); g.connect(master); o.start(); o.stop(actx.currentTime+dur+0.03);}catch(e){} }
+function noise(dur,vol,filt){ if(!actx)return; try{ var n=Math.floor(actx.sampleRate*dur);
+  var buf=actx.createBuffer(1,n,actx.sampleRate), d=buf.getChannelData(0);
+  for(var i=0;i<n;i++)d[i]=Math.random()*2-1;
+  var s=actx.createBufferSource(); s.buffer=buf;
+  var f=actx.createBiquadFilter(); f.type='lowpass'; f.frequency.value=filt||1000;
+  var g=actx.createGain(); g.gain.setValueAtTime(vol||0.3,actx.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.0001,actx.currentTime+dur);
+  s.connect(f); f.connect(g); g.connect(master); s.start(); s.stop(actx.currentTime+dur+0.03);}catch(e){} }
+function sfxStart(){ tone(520,0.12,'triangle',0.3,760); }
+function sfxCrush(c){ var b=300+(c%12)*24; tone(b,0.07,'square',0.15,b+140); }
+function sfxMile(){ tone(660,0.09,'triangle',0.25,940); setTimeout(function(){tone(990,0.11,'sine',0.2,1250);},60); }
+function sfxNear(){ noise(0.11,0.13,2200); tone(760,0.1,'sine',0.11,1500); }
+function sfxCrash(){ noise(0.3,0.42,650); tone(150,0.3,'sawtooth',0.25,55); }
+function sfxOver(){ tone(420,0.18,'sawtooth',0.22,150); setTimeout(function(){tone(300,0.2,'sawtooth',0.2,120);},130);
+  setTimeout(function(){tone(210,0.28,'sawtooth',0.2,80);},280); }
+function sfxRecord(){ var arp=[523,659,784,1046,1318]; arp.forEach(function(f,i){ setTimeout(function(){tone(f,0.14,'triangle',0.24,f*1.02);},i*90);}); }
+function sfxWarn(){ tone(880,0.14,'square',0.2,640); }
+
+// ===== 顏色資源 =====
+var furColors=['#ff8fb1','#8fd0ff','#ffd36e','#b39cff','#8fe0a8','#ff9f6e'];
+var yarnColors=['#ef6f9a','#f2a154','#8f7be0','#57bcc9'];
+
+// ===== 生成賽道一列（保證至少一條可通行車道，杜絕反應不及的隨機死）=====
+function spawnRow(){
+  spawnCount++;
+  var feast = spawnCount<=3 || Math.random()<0.16; // 開局與偶發「毛球堆」列，全安全
+  if(feast){ for(var i=0;i<N;i++) items.push(mkFur(i)); return; }
+  var pObs=Math.min(0.6, 0.12 + t*0.0042); // 障礙密度隨時間上升
+  var safe=Math.floor(Math.random()*N);    // 保底安全道
+  for(var l=0;l<N;l++){
+    if(l===safe){ if(Math.random()<0.85) items.push(mkFur(l)); continue; }
+    var r=Math.random();
+    if(r<pObs) items.push(mkObs(l));
+    else if(r<pObs+(1-pObs)*0.72) items.push(mkFur(l));
+  }
+}
+function mkFur(lane){ return {kind:'fur', x:laneX(lane), y:-40, r:22, hw:22, hh:22,
+  color:furColors[Math.floor(Math.random()*furColors.length)], seed:Math.random()*6.28,
+  resolved:false, minGap:1e9}; }
+function mkObs(lane){ var carton=Math.random()<0.55;
+  return {kind:'obs', type:carton?'carton':'scratch', x:laneX(lane), y:-46,
+    hw:carton?32:34, hh:carton?30:26, seed:Math.random()*6.28, resolved:false, minGap:1e9}; }
+function spawnMove(){ var lane=Math.floor(Math.random()*N);
+  var mag=45+Math.min(95,(t-70)*0.6);
+  items.push({kind:'obs', type:'yarn', x:laneX(lane), y:-40, r:22, hw:22, hh:22,
+    vx:(Math.random()<0.5?-1:1)*mag, color:yarnColors[Math.floor(Math.random()*yarnColors.length)],
+    seed:Math.random()*6.28, resolved:false, minGap:1e9}); }
+
+function banner(txt){ bannerText=txt; bannerTime=2.6; sfxWarn(); }
+
+// ===== 粒子 / 飄字 =====
+function burst(x,y,col,n,spd){ for(var i=0;i<n;i++){ var a=Math.random()*6.28, s=spd*(0.4+Math.random());
+  particles.push({x:x,y:y,vx:Math.cos(a)*s,vy:Math.sin(a)*s-40,life:0.5+Math.random()*0.4,
+    max:0.9,color:col,size:2+Math.random()*3,g:260}); } }
+function pop(x,y,txt,col,size){ pops.push({x:x,y:y,txt:txt,color:col,size:size||18,life:0.9,max:0.9,vy:-42}); }
+function recordBurst(){ for(var i=0;i<40;i++){ var a=Math.random()*6.28, s=120+Math.random()*160;
+  particles.push({x:200,y:250,vx:Math.cos(a)*s,vy:Math.sin(a)*s-60,life:1+Math.random()*0.6,max:1.6,
+    color:furColors[i%furColors.length],size:3+Math.random()*4,g:200}); } }
+
+// ===== 開局 / 結束 =====
+function start(){
+  initAudio();
+  state='play'; t=0; score=0; combo=0; maxCombo=0; hearts=3; iframe=1.2;
+  slowTimer=0; timeScale=1; shake=0; comboPulse=0;
+  items=[]; particles=[]; pops=[]; distAcc=0; moveTimer=6; spawnCount=0;
+  shown70=false; shown130=false; bannerTime=-1;
+  targetLane=1; car.x=laneX(1); car.sx=1; car.sy=1; car.bounce=0;
+  newRecord=false; prevBest=best;
+  sfxStart();
+}
+function gameOver(){
+  state='over'; overTime=anim; sfxOver();
+  prevBest=best;
+  if(score>best){ best=score; newRecord=true; save('catpaw_best',best); }
+  else newRecord=false;
+  if(maxCombo>bestCombo){ bestCombo=maxCombo; save('catpaw_combo',bestCombo); }
+  if(newRecord){ recordBurst(); sfxRecord(); }
+  try{ if(window.SC) SC.over(Math.floor(score)); }catch(e){} // 匿名數據回報
+}
+
+// ===== 更新（固定時間步長）=====
+function update(step){
+  t+=step;
+  var speed=200+t*1.9;      // 車速隨時間持續上升（不封頂）
+  var rowGap=Math.max(120, 240 - t*0.62);
+  roadScroll+=speed*step;
+  distAcc+=speed*step;
+  if(distAcc>=rowGap){ distAcc-=rowGap; spawnRow(); }
+
+  // 第 3 分鐘壓力源：移動毛線團登場並持續加密
+  if(t>=70){
+    var activeMove=0; for(var m=0;m<items.length;m++) if(items[m].type==='yarn') activeMove++;
+    var cap=(t<130)?1:2;
+    moveTimer-=step;
+    if(moveTimer<=0){ if(activeMove<cap) spawnMove(); moveTimer=Math.max(1.8, 5.5-(t-70)*0.02); }
+  }
+  if(!shown70 && t>=70){ shown70=true; banner('⚠ 移動毛線團出現！'); }
+  if(!shown130 && t>=130){ shown130=true; banner('⚠ 障礙加密‧全面加速！'); }
+
+  if(iframe>0) iframe-=step;
+  if(bannerTime>0) bannerTime-=step;
+
+  // 轉向：車身平滑靠向目標車道，並做 squash-stretch
+  var tx=laneX(targetLane), d=tx-car.x;
+  car.x+=d*Math.min(1, step*13);
+  var lean=Math.min(0.13, Math.abs(d)*0.0022);
+  car.bounce*=Math.pow(0.82, step*60);
+  car.sx=(1+lean)*(1-car.bounce*0.5);
+  car.sy=(1-lean)*(1+car.bounce);
+
+  // 物件移動與碰撞
+  for(var i=0;i<items.length;i++){
+    var it=items[i];
+    it.y+=speed*step;
+    if(it.type==='yarn'){ it.x+=it.vx*step;
+      if(it.x<roadLeft+it.r){ it.x=roadLeft+it.r; it.vx=Math.abs(it.vx); }
+      if(it.x>roadRight-it.r){ it.x=roadRight-it.r; it.vx=-Math.abs(it.vx); } }
+    if(it.resolved){ if(it.y>640) it.dead=true; continue; }
+
+    var dx=Math.abs(car.x-it.x);
+    var atCar=Math.abs(it.y-carY) < (it.hh+26);
+
+    if(it.kind==='fur'){
+      if(atCar && dx<34){ crushFur(it); }
+      else if(it.y>carY+34){ it.resolved=true; } // 漏吃（不扣連段，連段只有撞障礙才歸零）
+    } else {
+      var gapEdge=dx-(carHalf+it.hw);
+      if(atCar){ if(gapEdge<it.minGap) it.minGap=gapEdge;
+        if(gapEdge<=0 && iframe<=0){ crash(it); } }
+      if(!it.resolved && it.y>carY+30){
+        if(it.minGap>3 && it.minGap<44){ nearMiss(it); } // 擦邊而過
+        it.resolved=true;
+      }
+    }
+    if(it.y>640) it.dead=true;
+  }
+  // 清除離場
+  var keep=[]; for(var k=0;k<items.length;k++) if(!items[k].dead) keep.push(items[k]); items=keep;
+
+  // 粒子 / 飄字
+  for(var p=0;p<particles.length;p++){ var pa=particles[p]; pa.vy+=pa.g*step;
+    pa.x+=pa.vx*step; pa.y+=pa.vy*step; pa.life-=step; }
+  particles=particles.filter(function(x){return x.life>0;});
+  for(var q=0;q<pops.length;q++){ pops[q].y+=pops[q].vy*step; pops[q].life-=step; }
+  pops=pops.filter(function(x){return x.life>0;});
+}
+
+function crushFur(it){
+  it.resolved=true; it.dead=true;
+  combo++; if(combo>maxCombo) maxCombo=combo;
+  var mult=Math.min(1+Math.floor(combo/8), 25);
+  var gain=10*mult; score+=gain;
+  comboPulse=1;
+  pop(it.x, carY-30, '+'+gain, '#fff2a0', 16);
+  burst(it.x, carY-6, it.color, 9, 150);
+  sfxCrush(combo);
+  if(combo%8===0){ sfxMile(); shake=Math.max(shake,6);
+    pop(200, 120, '連段 ×'+mult+'！', '#ffd36e', 26); burst(200,120,'#ffd36e',14,180); }
+}
+function nearMiss(it){
+  score+=8;
+  pop(car.x, carY-42, '好險！', '#7fe0ff', 15);
+  burst(it.x, carY, '#bfe9ff', 5, 120);
+  sfxNear();
+}
+function crash(it){
+  it.resolved=true;
+  hearts--; combo=0; iframe=1.1; slowTimer=0.34; shake=16; car.bounce=0.22;
+  pop(car.x, carY-40, '-1 ❤', '#ff6b6b', 20);
+  burst(car.x, carY, '#c98f4f', 16, 200);
+  burst(it.x, it.y, it.color||'#c9ad78', 10, 180);
+  sfxCrash();
+  if(hearts<=0) gameOver();
+}
+
+// ===== 主迴圈 =====
+function frame(now){
+  var dt=(now-last)/1000; last=now; if(dt>0.1) dt=0.1; anim+=dt;
+  if(paused){ render(); requestAnimationFrame(frame); return; }
+  var target=slowTimer>0?0.34:1;
+  timeScale+=(target-timeScale)*Math.min(1,dt*8);
+  if(slowTimer>0) slowTimer-=dt;
+  shake*=Math.pow(0.0025,dt);
+  comboPulse*=Math.pow(0.015,dt);
+  if(state==='play'){
+    acc+=dt*timeScale; var guard=0;
+    while(acc>=STEP && guard<8){ update(STEP); acc-=STEP; guard++; }
+    if(acc>0.4) acc=0;
+  } else {
+    roadScroll+=55*dt; // 選單時賽道緩慢流動
+    for(var p=0;p<particles.length;p++){ var pa=particles[p]; pa.vy+=pa.g*dt;
+      pa.x+=pa.vx*dt; pa.y+=pa.vy*dt; pa.life-=dt; }
+    particles=particles.filter(function(x){return x.life>0;});
+  }
+  render();
+  requestAnimationFrame(frame);
+}
+
+// ===== 繪圖工具 =====
+function roundRect(x,y,w,h,r){ ctx.beginPath(); ctx.moveTo(x+r,y);
+  ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r);
+  ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
+function heart(cx,cy,s,fill){ ctx.fillStyle=fill; ctx.beginPath();
+  ctx.moveTo(cx,cy+s*0.3);
+  ctx.bezierCurveTo(cx,cy,cx-s,cy,cx-s,cy+s*0.35);
+  ctx.bezierCurveTo(cx-s,cy+s*0.7,cx,cy+s*0.9,cx,cy+s*1.1);
+  ctx.bezierCurveTo(cx,cy+s*0.9,cx+s,cy+s*0.7,cx+s,cy+s*0.35);
+  ctx.bezierCurveTo(cx+s,cy,cx,cy,cx,cy+s*0.3); ctx.fill(); }
+
+function drawSlime(cx,cy,r){
+  ctx.fillStyle='#63c257'; // 貓耳
+  ctx.beginPath(); ctx.moveTo(cx-r*0.7,cy-r*0.3); ctx.lineTo(cx-r*0.95,cy-r*1.2); ctx.lineTo(cx-r*0.1,cy-r*0.7); ctx.closePath(); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(cx+r*0.7,cy-r*0.3); ctx.lineTo(cx+r*0.95,cy-r*1.2); ctx.lineTo(cx+r*0.1,cy-r*0.7); ctx.closePath(); ctx.fill();
+  ctx.fillStyle='#7bd36a'; // 史萊姆身體
+  ctx.beginPath(); ctx.arc(cx,cy,r,Math.PI,0);
+  ctx.lineTo(cx+r,cy+r*0.7); ctx.quadraticCurveTo(cx,cy+r*1.15,cx-r,cy+r*0.7); ctx.closePath(); ctx.fill();
+  ctx.fillStyle='rgba(255,255,255,0.35)';
+  ctx.beginPath(); ctx.ellipse(cx-r*0.35,cy-r*0.3,r*0.28,r*0.18,-0.5,0,6.3); ctx.fill();
+  ctx.fillStyle='#22331f'; // 眼睛
+  ctx.beginPath(); ctx.arc(cx-r*0.35,cy+r*0.05,r*0.16,0,6.3); ctx.arc(cx+r*0.35,cy+r*0.05,r*0.16,0,6.3); ctx.fill();
+  ctx.strokeStyle='#22331f'; ctx.lineWidth=2; // 微笑
+  ctx.beginPath(); ctx.arc(cx,cy+r*0.18,r*0.28,0.15*Math.PI,0.85*Math.PI); ctx.stroke();
+  ctx.fillStyle='rgba(255,140,150,0.5)'; // 腮紅
+  ctx.beginPath(); ctx.arc(cx-r*0.62,cy+r*0.35,r*0.14,0,6.3); ctx.arc(cx+r*0.62,cy+r*0.35,r*0.14,0,6.3); ctx.fill();
+}
+function drawCar(x,y,sx,sy){
+  ctx.save(); ctx.translate(x,y); ctx.scale(sx,sy);
+  ctx.fillStyle='rgba(0,0,0,0.25)'; ctx.beginPath(); ctx.ellipse(0,30,28,10,0,0,6.3); ctx.fill();
+  roundRect(-26,-14,52,40,8); ctx.fillStyle='#c98f4f'; ctx.fill();
+  ctx.strokeStyle='#8f5f2b'; ctx.lineWidth=3; ctx.stroke();
+  ctx.fillStyle='#b57c3f'; roundRect(-26,17,52,11,4); ctx.fill(); // 前緣
+  ctx.fillStyle='#fff2b0'; ctx.beginPath(); ctx.arc(-16,24,4,0,6.3); ctx.arc(16,24,4,0,6.3); ctx.fill();
+  drawSlime(0,-18,17);
+  ctx.restore();
+}
+function drawFur(it){
+  var r=it.r, wob=Math.sin(anim*8+it.seed)*1.4;
+  ctx.fillStyle=it.color; ctx.beginPath();
+  var n=12; for(var i=0;i<=n;i++){ var a=i/n*6.283; var rr=r+((i%2)?4:0)+wob*0.3;
+    var px=it.x+Math.cos(a)*rr, py=it.y+Math.sin(a)*rr; if(i===0)ctx.moveTo(px,py); else ctx.lineTo(px,py); }
+  ctx.closePath(); ctx.fill();
+  ctx.fillStyle='rgba(40,40,50,0.85)';
+  ctx.beginPath(); ctx.arc(it.x-r*0.3,it.y-2,2.2,0,6.3); ctx.arc(it.x+r*0.3,it.y-2,2.2,0,6.3); ctx.fill();
+  ctx.fillStyle='rgba(255,255,255,0.4)'; ctx.beginPath(); ctx.arc(it.x-r*0.35,it.y-r*0.35,r*0.24,0,6.3); ctx.fill();
+}
+function drawObs(it){
+  ctx.save(); ctx.translate(it.x,it.y);
+  ctx.fillStyle='rgba(0,0,0,0.18)'; ctx.beginPath(); ctx.ellipse(0,it.hh*0.85,it.hw,7,0,0,6.3); ctx.fill();
+  if(it.type==='carton'){
+    roundRect(-it.hw,-it.hh,it.hw*2,it.hh*2,6); ctx.fillStyle='#b47b41'; ctx.fill();
+    ctx.strokeStyle='#875c2c'; ctx.lineWidth=3; ctx.stroke();
+    ctx.strokeStyle='#e3c48f'; ctx.lineWidth=6; ctx.beginPath();
+    ctx.moveTo(0,-it.hh); ctx.lineTo(0,it.hh); ctx.moveTo(-it.hw,0); ctx.lineTo(it.hw,0); ctx.stroke();
+  } else if(it.type==='scratch'){
+    roundRect(-it.hw,-it.hh,it.hw*2,it.hh*2,6); ctx.fillStyle='#c9ad78'; ctx.fill();
+    ctx.strokeStyle='#93764a'; ctx.lineWidth=3; ctx.stroke();
+    ctx.strokeStyle='rgba(120,95,55,0.55)'; ctx.lineWidth=2;
+    for(var i=-it.hw+6;i<it.hw;i+=8){ ctx.beginPath(); ctx.moveTo(i,-it.hh+4); ctx.lineTo(i,it.hh-4); ctx.stroke(); }
+  } else { // yarn 毛線團（會移動）
+    ctx.fillStyle=it.color; ctx.beginPath(); ctx.arc(0,0,it.r,0,6.3); ctx.fill();
+    ctx.strokeStyle='rgba(0,0,0,0.18)'; ctx.lineWidth=2;
+    ctx.beginPath(); ctx.ellipse(0,0,it.r*0.9,it.r*0.4,0.6,0,6.3); ctx.stroke();
+    ctx.beginPath(); ctx.ellipse(0,0,it.r*0.4,it.r*0.9,0.6,0,6.3); ctx.stroke();
+    ctx.strokeStyle='rgba(255,255,255,0.3)'; ctx.beginPath(); ctx.arc(-it.r*0.3,-it.r*0.3,it.r*0.3,0,6.3); ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawRoad(){
+  var g=ctx.createLinearGradient(0,0,0,600);
+  g.addColorStop(0,'#241b34'); g.addColorStop(1,'#15121f');
+  ctx.fillStyle=g; ctx.fillRect(0,0,400,600);
+  ctx.fillStyle='#d8c39c'; ctx.fillRect(roadLeft,0,roadRight-roadLeft,600); // 貓抓板賽道
+  ctx.fillStyle='#8a6f45'; ctx.fillRect(roadLeft-8,0,8,600); ctx.fillRect(roadRight,0,8,600);
+  ctx.strokeStyle='rgba(150,120,80,0.25)'; ctx.lineWidth=2;
+  var gy=roadScroll%38;
+  for(var y=gy-38;y<600;y+=38){ ctx.beginPath(); ctx.moveTo(roadLeft,y); ctx.lineTo(roadRight,y); ctx.stroke(); }
+  ctx.strokeStyle='rgba(150,120,80,0.16)'; ctx.lineWidth=1;
+  for(var x=roadLeft+12;x<roadRight;x+=16){ ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,600); ctx.stroke(); }
+  ctx.strokeStyle='rgba(255,255,255,0.5)'; ctx.lineWidth=4;
+  ctx.setLineDash([18,20]); ctx.lineDashOffset=-(roadScroll%38);
+  for(var i=1;i<N;i++){ var lx=roadLeft+laneW*i; ctx.beginPath(); ctx.moveTo(lx,0); ctx.lineTo(lx,600); ctx.stroke(); }
+  ctx.setLineDash([]);
+}
+
+function drawParticles(){
+  for(var i=0;i<particles.length;i++){ var p=particles[i]; var a=Math.max(0,p.life/p.max);
+    ctx.globalAlpha=a; ctx.fillStyle=p.color;
+    ctx.beginPath(); ctx.arc(p.x,p.y,p.size,0,6.3); ctx.fill(); }
+  ctx.globalAlpha=1;
+}
+function drawPops(){
+  ctx.textAlign='center';
+  for(var i=0;i<pops.length;i++){ var p=pops[i]; var a=Math.max(0,p.life/p.max);
+    ctx.globalAlpha=a; ctx.fillStyle=p.color;
+    ctx.font='bold '+p.size+'px system-ui,sans-serif';
+    ctx.lineWidth=3; ctx.strokeStyle='rgba(0,0,0,0.35)';
+    ctx.strokeText(p.txt,p.x,p.y); ctx.fillText(p.txt,p.x,p.y); }
+  ctx.globalAlpha=1; ctx.textAlign='left';
+}
+
+function drawHUD(){
+  ctx.fillStyle='rgba(20,16,32,0.42)'; ctx.fillRect(0,0,400,46);
+  ctx.fillStyle='#fff'; ctx.font='bold 20px system-ui,sans-serif'; ctx.textAlign='left';
+  ctx.fillText('分數 '+Math.floor(score), 12, 30);
+  ctx.textAlign='right'; ctx.fillStyle='#e8d9ff'; ctx.font='bold 15px system-ui,sans-serif';
+  ctx.fillText('最高 '+Math.floor(best), 388, 20);
+  for(var i=0;i<3;i++){ heart(372-i*20, 27, 7, i<hearts?'#ff5d6c':'rgba(255,255,255,0.22)'); }
+  ctx.textAlign='left';
+  // 連段
+  if(combo>0){ var mult=Math.min(1+Math.floor(combo/8),25);
+    var sc=1+comboPulse*0.45; ctx.save(); ctx.translate(200,96); ctx.scale(sc,sc);
+    ctx.textAlign='center'; ctx.font='bold 30px system-ui,sans-serif';
+    ctx.lineWidth=4; ctx.strokeStyle='rgba(0,0,0,0.4)';
+    var col= mult>=4?'#ffcf3f': mult>=2?'#ffe98a':'#ffffff';
+    var txt='連段 '+combo+'  ×'+mult;
+    ctx.strokeText(txt,0,0); ctx.fillStyle=col; ctx.fillText(txt,0,0); ctx.restore(); ctx.textAlign='left'; }
+  // 警示橫幅
+  if(bannerTime>0){ var a=Math.min(1,bannerTime/0.4)*Math.min(1,(2.6-bannerTime)/0.3+1);
+    ctx.globalAlpha=Math.max(0,Math.min(1,bannerTime>2.3?(2.6-bannerTime)/0.3:bannerTime/0.4));
+    ctx.textAlign='center'; roundRect(50,150,300,40,20); ctx.fillStyle='rgba(180,40,60,0.85)'; ctx.fill();
+    ctx.fillStyle='#fff'; ctx.font='bold 18px system-ui,sans-serif'; ctx.fillText(bannerText,200,176);
+    ctx.globalAlpha=1; ctx.textAlign='left'; }
+}
+
+function drawTitle(){
+  drawRoad(); drawParticles();
+  var by=Math.sin(anim*2)*4;
+  drawCar(200,300+by,1,1);
+  roundRect(30,360,340,210,18); ctx.fillStyle='rgba(18,14,30,0.82)'; ctx.fill();
+  ctx.strokeStyle='rgba(255,255,255,0.15)'; ctx.lineWidth=2; ctx.stroke();
+  ctx.textAlign='center';
+  ctx.fillStyle='#8fe36a'; ctx.font='bold 34px system-ui,sans-serif'; ctx.fillText('貓爪碾派對',200,404);
+  ctx.fillStyle='#ffe98a'; ctx.font='15px system-ui,sans-serif';
+  ctx.fillText('滑動換道，輾過毛球狂飆連段！',200,432);
+  ctx.fillStyle='#cbb8ff'; ctx.font='13px system-ui,sans-serif';
+  ctx.fillText('撞到障礙：扣 ❤ 且連段歸零', 200, 454);
+  ctx.fillStyle='#9fb8d0';
+  ctx.fillText('手機：滑動 / 點左右換道', 200, 480);
+  ctx.fillText('電腦：← →　或　A D', 200, 500);
+  ctx.fillStyle='#fff'; ctx.font='bold 14px system-ui,sans-serif';
+  ctx.fillText('本機最高：'+Math.floor(best)+'　最佳連段：'+bestCombo, 200, 524);
+  var blink=0.55+0.45*Math.sin(anim*4);
+  ctx.globalAlpha=blink; ctx.fillStyle='#ffd36e'; ctx.font='bold 18px system-ui,sans-serif';
+  ctx.fillText('點擊開始', 200, 552); ctx.globalAlpha=1;
+  ctx.textAlign='left';
+}
+function drawOver(){
+  drawRoad();
+  for(var i=0;i<items.length;i++){ if(items[i].kind==='fur') drawFur(items[i]); else drawObs(items[i]); }
+  drawCar(car.x,carY,car.sx,car.sy);
+  drawParticles();
+  ctx.fillStyle='rgba(10,8,18,0.72)'; ctx.fillRect(0,0,400,600);
+  ctx.textAlign='center';
+  if(newRecord){ ctx.fillStyle='#ffd347'; ctx.font='bold 34px system-ui,sans-serif';
+    ctx.fillText('🎉 新紀錄！',200,210); }
+  else { ctx.fillStyle='#ff8f8f'; ctx.font='bold 32px system-ui,sans-serif';
+    ctx.fillText('遊戲結束',200,205); }
+  ctx.fillStyle='#fff'; ctx.font='bold 26px system-ui,sans-serif';
+  ctx.fillText('分數 '+Math.floor(score), 200, 262);
+  ctx.fillStyle='#cbb8ff'; ctx.font='16px system-ui,sans-serif';
+  ctx.fillText('最佳連段 '+maxCombo+'　本機最高 '+Math.floor(best), 200, 292);
+  // near-miss 再利用：差 X 分破紀錄
+  if(newRecord){ ctx.fillStyle='#ffe98a'; ctx.font='16px system-ui,sans-serif';
+    ctx.fillText('打破了自己的紀錄，太猛了！',200,326); }
+  else { var diff=Math.max(1,Math.floor(prevBest-score));
+    ctx.fillStyle='#ffd36e'; ctx.font='bold 18px system-ui,sans-serif';
+    ctx.fillText('只差 '+diff+' 分就破紀錄！',200,326); }
+  var blink=0.55+0.45*Math.sin(anim*4);
+  ctx.globalAlpha=blink; ctx.fillStyle='#8fe36a'; ctx.font='bold 22px system-ui,sans-serif';
+  ctx.fillText('點擊再衝一局',200,388); ctx.globalAlpha=1;
+  ctx.textAlign='left';
+}
+
+function render(){
+  ctx.save();
+  if(shake>0.3){ ctx.translate((Math.random()-0.5)*shake,(Math.random()-0.5)*shake); }
+  if(state==='title'){ drawTitle(); }
+  else if(state==='over'){ drawOver(); }
+  else {
+    drawRoad();
+    for(var i=0;i<items.length;i++){ if(items[i].kind==='fur') drawFur(items[i]); else drawObs(items[i]); }
+    drawParticles();
+    // 無敵期間閃爍
+    var showCar=!(iframe>0 && Math.floor(anim*18)%2===0);
+    if(showCar) drawCar(car.x,carY,car.sx,car.sy);
+    drawPops();
+    drawHUD();
+  }
+  ctx.restore();
+  if(paused && state==='play'){
+    ctx.fillStyle='rgba(0,0,0,0.5)'; ctx.fillRect(0,0,400,600);
+    ctx.fillStyle='#fff'; ctx.font='bold 26px system-ui,sans-serif'; ctx.textAlign='center';
+    ctx.fillText('暫停中',200,300); ctx.textAlign='left';
+  }
+}
+
+// ===== 輸入 =====
+var inputDown=false;
+function toLogical(e){ var r=canvas.getBoundingClientRect();
+  return { x:(e.clientX-r.left)/r.width*DW, y:(e.clientY-r.top)/r.height*DH }; }
+function steerTo(x){ targetLane=Math.max(0,Math.min(N-1,Math.floor((x-roadLeft)/laneW))); }
+
+canvas.addEventListener('pointerdown',function(e){ e.preventDefault(); var p=toLogical(e); inputDown=true;
+  if(state==='play'){ steerTo(p.x); }
+  else if(state==='title'){ start(); }
+  else if(state==='over'){ if(anim-overTime>0.35) start(); }
+},{passive:false});
+canvas.addEventListener('pointermove',function(e){ if(!inputDown||state!=='play')return;
+  e.preventDefault(); steerTo(toLogical(e).x); },{passive:false});
+window.addEventListener('pointerup',function(){ inputDown=false; });
+window.addEventListener('pointercancel',function(){ inputDown=false; }); // 清輸入狀態防卡鍵
+window.addEventListener('keydown',function(e){
+  if(e.key==='ArrowLeft'||e.key==='a'||e.key==='A'){ if(state==='play') targetLane=Math.max(0,targetLane-1); }
+  else if(e.key==='ArrowRight'||e.key==='d'||e.key==='D'){ if(state==='play') targetLane=Math.min(N-1,targetLane+1); }
+  else if(e.key===' '||e.key==='Enter'){ if(state!=='play'){ if(state==='title'||anim-overTime>0.35) start(); } e.preventDefault(); }
+});
+
+// blur / 切分頁：暫停並清輸入（防來電後角色自走 / 燒計時）
+function goPause(){ if(state==='play') paused=true; inputDown=false; }
+function goResume(){ paused=false; last=performance.now(); }
+window.addEventListener('blur',goPause);
+window.addEventListener('focus',goResume);
+document.addEventListener('visibilitychange',function(){ if(document.hidden) goPause(); else goResume(); });
+
+requestAnimationFrame(frame);
+})();
+</script>
+<script src="../../sc_config.js"></script>
+<script src="../../stats.js"></script>
+</body>
+</html>
