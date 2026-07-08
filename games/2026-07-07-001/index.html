@@ -160,7 +160,7 @@ try{ best=parseInt(localStorage.getItem('dacuo_best')||'0',10)||0;
      bestStreak=parseInt(localStorage.getItem('dacuo_streak')||'0',10)||0; }catch(e){}
 
 let score=0, lives=3, streak=0, qNum=0;
-let queue=[], curQ=null, curButtons=[];
+let queue=[], curQ=null, curButtons=[], lastQ=null;
 let qTime=0, qMax=16, lastTickSec=99;
 let chosenIdx=-1, wasCorrect=false, wasTimeout=false;
 let revealCatLine="", reveal_earned=0;
@@ -188,6 +188,7 @@ function startGame(){
   score=0; lives=3; streak=0; qNum=0;
   newRecord=false; recordFired=false; overReported=false;
   particles=[]; floats=[];
+  lastQ=null;
   buildQueue();
   state='playing';
   nextQuestion();
@@ -195,8 +196,13 @@ function startGame(){
 }
 
 function nextQuestion(){
-  if(queue.length===0) buildQueue(); // 用完重洗（單局通常用不完）
+  if(queue.length===0){
+    buildQueue(); // 整輪出完才重置清單並重新洗牌（單局通常用不完）
+    // 重洗後若第一題與上一輪最後一題相同，往後挪一位，避免連續重複
+    if(queue.length>1 && queue[0]===lastQ){ queue.push(queue.shift()); }
+  }
   curQ=queue.shift();
+  lastQ=curQ; // 記錄本輪已出題，供下一輪重洗時避免連續重複
   qNum++;
   // 洗選項位置，避免肌肉記憶
   curQ._opts=shuffle(curQ.opts.map((o,i)=>({o})));
