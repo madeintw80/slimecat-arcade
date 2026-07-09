@@ -167,7 +167,7 @@ function gameOver(){
 // ===== 更新（固定時間步長）=====
 function update(step){
   t+=step;
-  var speed=200+t*1.9;      // 車速隨時間持續上升（不封頂）
+  var speed=200*Math.min(2, Math.pow(1.08, Math.floor(t/10)));  // 車速隨存活時間遞增：初速維持 200，每存活 10 秒 +8%，上限初速 2 倍（避免失控）
   var rowGap=Math.max(120, 240 - t*0.62);
   roadScroll+=speed*step;
   distAcc+=speed*step;
