@@ -56,10 +56,16 @@ function resize(){
 window.addEventListener('resize',resize);
 
 /* ===== 遊戲狀態 ===== */
+/* 可調參數（方便後續微調數值）*/
+var SPAWN_BASE=9;        // 起始長磚間隔秒數（原 7，放慢約 22%）
+var SPAWN_MIN=3.6;       // 最短長磚間隔（原 2.8）
+var SPAWN_DECAY=0.024;   // 間隔隨時間縮短速率（原 0.03，難度曲線更平緩）
+var HINT_UNLOCK=25;      // 提示解鎖前需先遊玩的秒數（原 0，過早可用不合理）
+
 var state='title';           // title / play / over
 var board=[[],[],[],[],[]];
 var score=0, highScore=0, combo=0, comboExpire=0;
-var t=0, spawnFrom=0, spawnInterval=7;
+var t=0, spawnFrom=0, spawnInterval=SPAWN_BASE;
 var selected=[], particles=[], floats=[];
 var shake=0, mph=0, overGuard=0, hintTiles=[], hintT=0, hintCd=0;
 var paused=false, recordCelebrated=false, isRecord=false, idc=1;
@@ -75,7 +81,7 @@ function saveHigh(v){ try{ localStorage.setItem('cat_brick_high',String(v)); }ca
 highScore=loadHigh();
 
 /* ===== 難度曲線（隨時間增壓，第 3 分鐘仍在變化）===== */
-function curInterval(){ return Math.max(2.8, 7 - t*0.03); }   // 長磚間隔 7s→2.8s
+function curInterval(){ return Math.max(SPAWN_MIN, SPAWN_BASE - t*SPAWN_DECAY); }   // 長磚間隔隨參數放慢
 function curColorCount(){ return t<25?3 : (t<70?4:5); }        // 顏色數漸增
 function curNumMax(){ return t<40?6 : (t<90?7:8); }            // 數字範圍漸增
 
@@ -196,6 +202,30 @@ function doSpawn(){
   spawnFrom=t; spawnInterval=curInterval();
   var mh=0; for(c=0;c<COLS;c++) if(board[c].length>mh) mh=board[c].length;
   if(mh>=7) sfxDanger();
+  checkDeadlock();                 // 生成後再確認一次仍有解
+}
+
+/* ===== 無解偵測與自動重整（盤面變動後呼叫）===== */
+// 現有磚塊重洗成一組保證有解的新盤面，附短暫過場提示
+function reshuffleBoard(){
+  var all=[], c, r, i;
+  for(c=0;c<COLS;c++) for(r=0;r<board[c].length;r++) all.push(board[c][r]);
+  if(all.length<3) return;         // 磚太少湊不成組，等下一排即可，毋須重整
+  var guard=0;
+  do{
+    for(i=0;i<all.length;i++){ all[i].color=rnd(curColorCount()); all[i].num=1+rnd(curNumMax()); }
+  } while(!findGroup() && ++guard<40);
+  if(!findGroup()){ for(i=0;i<3 && i<all.length;i++){ all[i].num=1; all[i].color=i; } }  // 保底：同號三色
+  for(i=0;i<all.length;i++){ all[i].scale=0.2; burst(all[i].x+cellW/2, all[i].dispY+cellH/2, COLORS[all[i].color].fill); }
+  selected=[]; hintTiles=[]; hintT=0;
+  floats.push({x:200,y:boardTop+80,vy:-24,life:1.6,txt:'無解！自動重整',col:'#ffcf6b',sz:22});
+  tone(300,0.12,'triangle',0.14); tone(400,0.12,'triangle',0.12,0.06);
+  layout();
+}
+function checkDeadlock(){
+  if(state!=='play') return;
+  if(findGroup()) return;          // 仍有可消組合，無須處理
+  reshuffleBoard();
 }
 
 /* ===== 消除 ===== */
@@ -227,10 +257,12 @@ function doConfirm(){
   sfxClear(combo,len);
   shake=Math.max(shake, Math.min(9,3+len));
   layout();   // 上方磚塊自動下落
+  checkDeadlock();   // 消除後若已無解則立即自動重整
   if(!recordCelebrated && highScore>0 && score>highScore){ recordCelebrated=true; celebrate(); }
 }
 function hint(){
   if(hintCd>0) return;
+  if(t<HINT_UNLOCK) return;   // 開局約 25 秒後才解鎖提示
   var g=findGroup();
   if(g){ hintTiles=g; hintT=1.8; hintCd=3; tone(520,0.1,'sine',0.12); }
   else sfxBad();
@@ -259,7 +291,7 @@ function start(){
   state='play'; score=0; combo=0; comboExpire=0; t=0;
   selected=[]; particles=[]; floats=[]; shake=0;
   recordCelebrated=false; isRecord=false; hintTiles=[]; hintT=0; hintCd=0;
-  spawnFrom=0; spawnInterval=7; paused=false; overGuard=0; idc=1;
+  spawnFrom=0; spawnInterval=SPAWN_BASE; paused=false; overGuard=0; idc=1;
   initBoard();
 }
 function gameOver(){
@@ -504,7 +536,11 @@ function drawBottom(){
   // 按鈕
   drawBtn(clearBtn,'清除選取', selected.length>0, false);
   drawBtn(confirmBtn,'完成', !!type, !!type);
-  drawBtn(hintBtn, hintCd>0?('提示('+Math.ceil(hintCd)+')'):'提示', hintCd<=0, false);
+  // 提示：需先遊玩約 HINT_UNLOCK 秒才解鎖，之後受冷卻限制
+  var hintLock=HINT_UNLOCK-t;
+  var hintReady=hintLock<=0 && hintCd<=0;
+  var hintLabel=hintLock>0?('提示('+Math.ceil(hintLock)+')'):(hintCd>0?('提示('+Math.ceil(hintCd)+')'):'提示');
+  drawBtn(hintBtn, hintLabel, hintReady, false);
 }
 function drawTitle(){
   ctx.fillStyle='rgba(10,14,20,.9)'; ctx.fillRect(0,0,400,600);
