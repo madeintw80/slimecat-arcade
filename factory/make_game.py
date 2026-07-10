@@ -290,6 +290,29 @@ def next_id(date_str: str, games: list) -> str:
     return f"{date_str}-{n:03d}"
 
 
+def reserve_game_dir(date_str: str):
+    """撥一個今天的新編號並「建資料夾佔位」，回傳 (gid, gdir)。
+
+    防並行撞號的兩道保險（2026-07-10 健檢追蹤項）：
+    1. 撥號當下才重讀最新 games.json——不能用開場讀的舊快照，因為生成一款
+       要 20~45 分鐘，期間可能有別輪生產已上架新遊戲；games + retired 一起算，
+       下架遊戲的編號不重用（資料夾可能還在）
+    2. mkdir(exist_ok=False) 由作業系統保證原子性：兩個程序搶同一個資料夾
+       只有一個會成功，搶輸的拿到 FileExistsError → 序號 +1 重試，
+       所以編號跟資料夾永遠一對一，不會互相覆寫對方的遊戲檔案
+    """
+    fresh = json.loads(GAMES_JSON.read_text(encoding="utf-8"))
+    gid = next_id(date_str, fresh.get("games", []) + fresh.get("retired", []))
+    while True:
+        gdir = GAMES_DIR / gid
+        try:
+            gdir.mkdir(parents=True, exist_ok=False)
+            return gid, gdir
+        except FileExistsError:
+            # 撞名＝這個號碼被並行生產（或殘留資料夾）佔走了 → +1 再試
+            gid = f"{date_str}-{int(gid.rsplit('-', 1)[1]) + 1:03d}"
+
+
 def inject_stats(html: str) -> str:
     """把數據回報的 script 標籤插進 </body> 前（生成器不用知道 stats 的存在）。"""
     tags = ('<script src="../../sc_config.js"></script>\n'
@@ -342,8 +365,8 @@ def produce_from_decon(decon: dict) -> int:
     decon = {source, title, genre, doc}——doc 是解構筆記（臨摹模式，make_game）
     或原創企劃書（原創模式，original_mode.py），管線本身完全相同。
     """
-    history = (json.loads(HISTORY_FILE.read_text(encoding="utf-8"))
-               if HISTORY_FILE.exists() else {"used": []})
+    # 這份 data 只當 prompt 素材（給模型看「本站已有哪些遊戲」，舊幾分鐘沒關係）；
+    # 撥編號、上架寫檔都會「當下重讀最新檔」，不吃這份舊快照（防並行蓋檔，見下方註解）
     data = json.loads(GAMES_JSON.read_text(encoding="utf-8"))
     today = datetime.date.today().isoformat()
     feedback = ""
@@ -357,9 +380,7 @@ def produce_from_decon(decon: dict) -> int:
             continue
 
         meta["inspiration"] = decon["source"]  # 靈感欄以策劃解構為準
-        gid = next_id(today, data["games"])
-        gdir = GAMES_DIR / gid
-        gdir.mkdir(parents=True, exist_ok=True)
+        gid, gdir = reserve_game_dir(today)   # 撥號＋資料夾佔位（防並行撞號，見函式註解）
         (gdir / "index.html").write_text(inject_stats(html), encoding="utf-8")
         log(f"  📝 《{meta['title']}》→ games/{gid}/")
 
@@ -395,15 +416,25 @@ def produce_from_decon(decon: dict) -> int:
                 f"{crit.get('verdict','')}；待改進：{'；'.join(crit.get('fixes', [])[:3])}")
 
         # ── 上架 ──
-        data["games"].append(entry)
-        GAMES_JSON.write_text(json.dumps(data, ensure_ascii=False, indent=2),
+        # 🔴 read-then-update（防 last-writer-wins 蓋檔）：生產一輪要 20~45 分鐘，
+        # 開場讀的 data 是舊快照；拿它整檔覆寫，會把這段期間別的程序寫進
+        # games.json 的改動全部抹掉（例：12:00 生產撞上 11:30 留言修復還沒收工
+        # → 修復加的 bugs/changelog、玩家評分、甚至剛上架的新遊戲整批消失）。
+        # 比照 daily_feedback / fix_game（2026-07-10 健檢）：寫前重讀最新檔，
+        # 只把「自己這一筆」append 進去，別人的改動原封保留。
+        fresh = json.loads(GAMES_JSON.read_text(encoding="utf-8"))
+        fresh["games"].append(entry)
+        GAMES_JSON.write_text(json.dumps(fresh, ensure_ascii=False, indent=2),
                               encoding="utf-8")
         rebuild.rebuild()
+        # history.json 同理：讀→加→寫縮成連續三步，不用開場的舊快照
+        history = (json.loads(HISTORY_FILE.read_text(encoding="utf-8"))
+                   if HISTORY_FILE.exists() else {"used": []})
         history["used"].append({"date": today, "inspiration": decon["source"],
                                 "title": meta["title"], "id": gid})
         HISTORY_FILE.write_text(json.dumps(history, ensure_ascii=False, indent=2),
                                 encoding="utf-8")
-        log(f"✅ 上架完成：《{meta['title']}》（全站第 {len(data['games'])} 款）")
+        log(f"✅ 上架完成：《{meta['title']}》（全站第 {len(fresh['games'])} 款）")
         # 先部署、部署成功才推「新品出爐」——否則會出現「站根本沒更新卻已報喜」。
         # publish 失敗會 raise（見 publish_site.py），被這裡接住 → 改發失敗告警、不報喜。
         try:
