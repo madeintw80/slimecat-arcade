@@ -66,6 +66,13 @@ var targetLane=1;
 var car={x:laneX(1), sx:1, sy:1, bounce:0};
 var overTime=0, newRecord=false, prevBest=0;
 
+// ===== 回血機制參數（可調）=====
+// 以累積分數為觸發：每達門檻回復 1 點血量；門檻逐次遞增，避免補血頻率過高；上限不超過最大血量
+var HEAL_MAX=3;      // 回血上限（等於最大血量，HUD 僅顯示 3 顆心）
+var HEAL_BASE=1200;  // 首次回血所需的累積分數
+var HEAL_GROW=800;   // 每回血一次，下一次門檻的額外遞增量（門檻遞增，防止太頻繁）
+var nextHeal=HEAL_BASE, healCount=0;
+
 // ===== 最高分（localStorage，一律 try-catch）=====
 var best=0, bestCombo=0;
 function load(k,d){ try{ var v=localStorage.getItem(k); return v==null?d:(+v||d);}catch(e){return d;} }
@@ -101,6 +108,7 @@ function sfxOver(){ tone(420,0.18,'sawtooth',0.22,150); setTimeout(function(){to
   setTimeout(function(){tone(210,0.28,'sawtooth',0.2,80);},280); }
 function sfxRecord(){ var arp=[523,659,784,1046,1318]; arp.forEach(function(f,i){ setTimeout(function(){tone(f,0.14,'triangle',0.24,f*1.02);},i*90);}); }
 function sfxWarn(){ tone(880,0.14,'square',0.2,640); }
+function sfxHeal(){ tone(660,0.12,'sine',0.2,990); setTimeout(function(){tone(880,0.14,'triangle',0.18,1180);},70); }
 
 // ===== 顏色資源 =====
 var furColors=['#ff8fb1','#8fd0ff','#ffd36e','#b39cff','#8fe0a8','#ff9f6e'];
@@ -150,6 +158,7 @@ function start(){
   slowTimer=0; timeScale=1; shake=0; comboPulse=0;
   items=[]; particles=[]; pops=[]; distAcc=0; moveTimer=6; spawnCount=0;
   shown70=false; shown130=false; bannerTime=-1;
+  nextHeal=HEAL_BASE; healCount=0;
   targetLane=1; car.x=laneX(1); car.sx=1; car.sy=1; car.bounce=0;
   newRecord=false; prevBest=best;
   sfxStart();
@@ -223,6 +232,8 @@ function update(step){
   // 清除離場
   var keep=[]; for(var k=0;k<items.length;k++) if(!items[k].dead) keep.push(items[k]); items=keep;
 
+  tryHeal(); // 依累積分數觸發回血
+
   // 粒子 / 飄字
   for(var p=0;p<particles.length;p++){ var pa=particles[p]; pa.vy+=pa.g*step;
     pa.x+=pa.vx*step; pa.y+=pa.vy*step; pa.life-=step; }
@@ -242,6 +253,21 @@ function crushFur(it){
   sfxCrush(combo);
   if(combo%8===0){ sfxMile(); shake=Math.max(shake,6);
     pop(200, 120, '連段 ×'+mult+'！', '#ffd36e', 26); burst(200,120,'#ffd36e',14,180); }
+}
+// ===== 回血：累積分數到達門檻即回復 1 點血量（門檻遞增、上限封頂）=====
+function tryHeal(){
+  // 用 while 以防單幀跨過門檻（如小福利連段）；nextHeal 每次必增，不會無限迴圈
+  while(score>=nextHeal){
+    healCount++;
+    if(hearts<HEAL_MAX){
+      hearts++;
+      pop(car.x, carY-56, '+1 ❤', '#ff9fb0', 20);
+      burst(car.x, carY-20, '#ff9fb0', 12, 160);
+      sfxHeal();
+    }
+    // 門檻遞增：下一次回血需要更多分數，避免補血頻率過高
+    nextHeal += HEAL_BASE + HEAL_GROW*healCount;
+  }
 }
 function nearMiss(it){
   score+=8;
