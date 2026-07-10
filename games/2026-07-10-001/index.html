@@ -1,0 +1,609 @@
+<!--GAMEMETA {"title":"貓爪種苗記","emoji":"🌱","genre":"放置","inspiration":"我的花園世界","desc":"照顧盆栽收貓草，拍蟲防枯萎的開箱放置遊戲"}-->
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>貓爪種苗記</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html,body {
+    width:100%; height:100%; overflow:hidden;
+    background:#12241c;
+    font-family:-apple-system,"Segoe UI","Microsoft JhengHei",sans-serif;
+    -webkit-user-select:none; user-select:none; -webkit-tap-highlight-color:transparent;
+  }
+  #wrap { position:fixed; inset:0; display:flex; align-items:center; justify-content:center; }
+  #c { touch-action:none; display:block; background:#1b3a2b; border-radius:10px;
+       box-shadow:0 8px 40px rgba(0,0,0,.5); }
+  .back {
+    position:fixed; top:8px; left:10px; z-index:10;
+    color:#cfeecf; background:rgba(0,0,0,.35); padding:5px 11px; border-radius:14px;
+    font-size:13px; text-decoration:none; backdrop-filter:blur(4px);
+  }
+  .back:active { background:rgba(0,0,0,.6); }
+</style>
+</head>
+<body>
+<a class="back" href="../../index.html">← 回遊戲區</a>
+<div id="wrap"><canvas id="c"></canvas></div>
+<script>
+"use strict";
+(function(){
+  // ====== 基本設定 ======
+  const W = 400, H = 600;              // 邏輯座標尺寸（直式）
+  const cv = document.getElementById('c');
+  const ctx = cv.getContext('2d');
+
+  // ---- localStorage 讀寫（無痕模式會 throw，一律 try-catch）----
+  function load(k,d){ try{ const v=localStorage.getItem(k); return v==null?d:JSON.parse(v);}catch(e){return d;} }
+  function save(k,v){ try{ localStorage.setItem(k,JSON.stringify(v)); }catch(e){} }
+
+  let best    = load('catseed_best', 0);
+  let bestCol = load('catseed_bestcol', 0);
+
+  // ====== 高解析度縮放（緩衝 = 顯示尺寸 × dpr，邏輯座標維持 400×600）======
+  function resize(){
+    const vw = window.innerWidth, vh = window.innerHeight;
+    let cssW = vw, cssH = vw * 1.5;          // 維持 2:3
+    if (cssH > vh){ cssH = vh; cssW = vh / 1.5; }
+    cssW = Math.floor(cssW); cssH = Math.floor(cssH);
+    cv.style.width = cssW + 'px';
+    cv.style.height = cssH + 'px';
+    const dpr = Math.min(window.devicePixelRatio || 1, 3);  // cap 3
+    cv.width  = Math.round(cssW * dpr);
+    cv.height = Math.round(cssH * dpr);
+    const s = cssW / W;                       // 邏輯→顯示縮放
+    ctx.setTransform(s*dpr, 0, 0, s*dpr, 0, 0);
+  }
+  window.addEventListener('resize', resize);
+
+  // ====== WebAudio 合成音效 ======
+  let ac = null;
+  function initAudio(){ if(ac) return; try{ ac = new (window.AudioContext||window.webkitAudioContext)(); }catch(e){ ac=null; } }
+  function resumeAudio(){ try{ if(ac && ac.state==='suspended') ac.resume(); }catch(e){} }
+  function beep(freq,dur,type,vol,delay){
+    if(!ac) return;
+    try{
+      const t = ac.currentTime + (delay||0);
+      const o = ac.createOscillator(), g = ac.createGain();
+      o.type = type||'sine'; o.frequency.setValueAtTime(freq, t);
+      g.gain.setValueAtTime(0, t);
+      g.gain.linearRampToValueAtTime(vol||0.2, t+0.012);
+      g.gain.exponentialRampToValueAtTime(0.0001, t+dur);
+      o.connect(g); g.connect(ac.destination);
+      o.start(t); o.stop(t+dur+0.03);
+    }catch(e){}
+  }
+  function sndPlant(){ beep(320,0.1,'triangle',0.2); beep(520,0.09,'sine',0.12,0.04); }
+  function sndHarvest(rar,combo){
+    if(rar===0){ beep(500+Math.min(combo,12)*22,0.12,'sine',0.16); }
+    else if(rar===1){ beep(523,0.14,'sine',0.16); beep(659,0.14,'sine',0.13,0.02); beep(784,0.16,'sine',0.11,0.04); }
+    else { [523,659,784,1046,1318].forEach((f,i)=>beep(f,0.16,'sine',0.15,i*0.05)); beep(1568,0.3,'triangle',0.08,0.28); }
+  }
+  function sndNew(){ beep(880,0.1,'sine',0.14); beep(1174,0.14,'sine',0.12,0.08); }
+  function sndWither(){ beep(300,0.16,'sawtooth',0.18); beep(200,0.22,'sawtooth',0.15,0.1); beep(140,0.25,'sawtooth',0.11,0.2); }
+  function sndBest(){ [660,880,1046,1318,1568].forEach((f,i)=>beep(f,0.2,'triangle',0.13,i*0.07)); }
+
+  // ====== 貓草品種與稀有度 ======
+  const SPECIES = [
+    {id:0,name:'綠貓草',emoji:'🌱',rarity:0},
+    {id:1,name:'幸運喵',emoji:'🍀',rarity:0},
+    {id:2,name:'蒲公喵',emoji:'🌿',rarity:0},
+    {id:3,name:'三葉喵',emoji:'☘️',rarity:0},
+    {id:4,name:'麥穗喵',emoji:'🌾',rarity:0},
+    {id:5,name:'櫻花喵',emoji:'🌸',rarity:1},
+    {id:6,name:'鬱金喵',emoji:'🌷',rarity:1},
+    {id:7,name:'太陽喵',emoji:'🌼',rarity:1},
+    {id:8,name:'彩虹喵',emoji:'🌈',rarity:2},
+  ];
+  const RARITY = [
+    {name:'普通', col:'#9fe6a0', coins:10},
+    {name:'稀有', col:'#7cc7ff', coins:35},
+    {name:'傳說', col:'#ffd24a', coins:120},
+  ];
+  const SPIN_EMO = ['🌱','🌸','🌈'];   // 開箱轉動時各稀有度代表
+
+  // ====== 盆位（2 欄 × 3 列，共 6 個；隨收穫數解鎖）======
+  const pots = [];
+  function buildPots(){
+    pots.length = 0;
+    const colX = [25, 210], w = 165, h = 125;
+    const rowY = [128, 271, 414];
+    let idx = 0;
+    for(let r=0;r<3;r++) for(let c=0;c<2;c++){
+      const x = colX[c], y = rowY[r];
+      pots.push({ idx:idx++, x:x, y:y, w:w, h:h, cx:x+w/2,
+                  state:'empty', grow:0, growTime:5, rot:0, ripeT:0, waterCd:0, pests:[] });
+    }
+  }
+  buildPots();
+
+  // ====== 遊戲狀態 ======
+  let state = 'title';   // title / play / over
+  let score, hearts, combo, maxCombo, harvests, gameTime, unlocked;
+  let missRare, missLeg, collected, completeBonus;
+  let pestTimer, overLock, isNewBest;
+  let particles = [], floaters = [], reveals = [];
+  let shakeMag = 0, animT = 0;
+
+  function startGame(){
+    state='play';
+    score=0; hearts=5; combo=0; maxCombo=0; harvests=0; gameTime=0; unlocked=2;
+    missRare=0; missLeg=0; collected=new Set(); completeBonus=false;
+    pestTimer=pestInterval(); overLock=0; isNewBest=false;
+    particles=[]; floaters=[]; reveals=[]; shakeMag=0;
+    for(const p of pots){ p.state='empty'; p.grow=0; p.rot=0; p.ripeT=0; p.waterCd=0; p.pests=[]; }
+  }
+
+  // ====== 難度曲線（持續增壓：蟲更快、熟果更快枯）======
+  function pestInterval(){ return Math.max(1.1, 4.6 - gameTime*0.02); } // 生蟲間隔越來越短
+  function witherTime(){ return Math.max(4, 11 - gameTime*0.03); }      // 熟果枯萎越來越快
+  const ROT_PER_PEST = 0.34;
+  function comboMult(){ return 1 + Math.min(combo,20)*0.1; }            // 連段乘數 上限 3x
+
+  // ====== 抽稀有度（保底：越久沒中越容易中，把運氣包裝成成就）======
+  function rollRarity(){
+    const pLeg  = Math.min(0.5, 0.05 + missLeg*0.012);
+    const pRare = Math.min(0.6, 0.22 + missRare*0.02);
+    const r = Math.random();
+    if(r < pLeg){ missLeg=0; missRare=0; return 2; }
+    missLeg++;
+    if(r < pLeg + pRare){ missRare=0; return 1; }
+    missRare++;
+    return 0;
+  }
+
+  // ====== 特效小工具 ======
+  function addShake(m){ shakeMag = Math.max(shakeMag, m); }
+  function burst(x,y,col,n){
+    for(let i=0;i<n;i++){
+      const a=Math.random()*6.28, sp=1+Math.random()*3.2;
+      particles.push({x:x,y:y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp-1,life:0,max:0.5+Math.random()*0.5,
+                      col:col,size:2+Math.random()*3,g:0.12});
+      if(particles.length>260) particles.shift();
+    }
+  }
+  function spawnConfetti(){
+    const cols=['#ffd24a','#7cffb0','#7cc7ff','#ff9ce0','#fff2a0'];
+    for(let i=0;i<70;i++){
+      particles.push({x:Math.random()*W,y:-10-Math.random()*80,vx:(Math.random()-0.5)*3,vy:1+Math.random()*2.5,
+                      life:0,max:1.6+Math.random()*1.2,col:cols[(Math.random()*cols.length)|0],
+                      size:3+Math.random()*3,g:0.05});
+    }
+  }
+  function addFloat(x,y,txt,col){
+    floaters.push({x:x,y:y,txt:txt,col:col,life:0,max:1.0,vy:-24});
+    if(floaters.length>40) floaters.shift();
+  }
+
+  // ====== 互動：種下 / 澆水 / 收穫 / 拍蟲 ======
+  function plant(p){
+    p.state='grow'; p.grow=0; p.rot=0; p.pests=[]; p.waterCd=0;
+    p.growTime = Math.max(3.5, 5.5 - gameTime*0.004) + Math.random()*1;
+    burst(p.cx, p.y+p.h-34, '#6fcf6f', 6);
+    addFloat(p.cx, p.y+30, '種下!', '#bff5c0'); sndPlant();
+  }
+  function water(p){                       // 澆水＝主動加速成長，給予掌控感
+    if(p.waterCd>0) return;
+    p.waterCd = 0.1;
+    p.grow += 0.5 / p.growTime;
+    burst(p.cx, p.y+p.h-46, '#8fd0ff', 4); beep(720,0.06,'sine',0.1);
+    if(p.grow>=1){ p.grow=1; p.state='ripe'; p.ripeT=0; beep(680,0.1,'sine',0.16); addFloat(p.cx,p.y+30,'可收穫!','#fff2a0'); }
+  }
+  function shoo(p){                         // 拍掉害蟲（硬殼蟲要拍兩下）
+    const pest = p.pests[p.pests.length-1];
+    pest.hp--;
+    if(pest.hp<=0){ p.pests.pop(); burst(p.cx+pest.ox, p.y+p.h-40+pest.oy, '#3a5a40', 8); }
+    beep(pest.hp>0?170:240, 0.08, 'square', 0.18);
+    addFloat(p.cx, p.y+24, pest.hp>0?'咚!':'拍飛!', '#ffe08a');
+  }
+  function harvest(p){                      // 收穫＝開箱揭曉爽感時刻
+    const rar = rollRarity();
+    const pool = SPECIES.filter(s=>s.rarity===rar);
+    const un = pool.filter(s=>!collected.has(s.id));
+    let sp;
+    if(un.length && Math.random()<0.6) sp = un[(Math.random()*un.length)|0];  // 略偏補圖鑑缺口
+    else sp = pool[(Math.random()*pool.length)|0];
+    const isNew = !collected.has(sp.id);
+
+    combo++; if(combo>maxCombo) maxCombo=combo;
+    const mult = comboMult();
+    const coins = Math.round(RARITY[rar].coins * mult);
+    const nm = rar<2 && Math.random()<0.5;   // near-miss：開箱先閃更高一級再落地
+    score += coins;
+
+    reveals.push({x:p.cx, y:p.y-2, t:0, rar:rar, emo:sp.emoji, coins:coins, isNew:isNew, nm:nm});
+    addFloat(p.cx, p.y-14, '+'+coins, '#ffe08a');
+    if(combo>=2) addFloat(p.cx, p.y-32, '連段 x'+mult.toFixed(1), '#7cffb0');
+    burst(p.cx, p.y+p.h-40, RARITY[rar].col, rar===2?32:rar===1?16:9);
+    sndHarvest(rar, combo);
+    if(rar===2) addShake(9);
+    if(nm) addFloat(p.cx, p.y-50, '好可惜～差一點！', '#ffd24a');
+
+    if(isNew){
+      collected.add(sp.id); score += 40;
+      addFloat(p.cx, p.y-68, '新品種！+40', '#ff9ce0'); sndNew();
+      if(collected.size>=SPECIES.length && !completeBonus){
+        completeBonus=true; score += 600;
+        addFloat(W/2, 180, '圖鑑全收集！+600', '#ffd24a');
+        spawnConfetti(); addShake(12); sndBest();
+      }
+    }
+    // 收成後歸零，玩家需再點種下（維持主動節奏）
+    p.state='empty'; p.grow=0; p.rot=0; p.pests=[]; p.ripeT=0;
+    harvests++;
+  }
+  function wither(p){                       // 枯萎＝失敗代價（可歸因於玩家疏忽）
+    hearts--; combo=0;
+    burst(p.cx, p.y+p.h-40, '#7a5a3a', 18);
+    addFloat(p.cx, p.y+24, '枯萎了…', '#ff8a7a'); addShake(8); sndWither();
+    p.state='empty'; p.grow=0; p.rot=0; p.pests=[]; p.ripeT=0;
+    if(hearts<=0){ hearts=0; gameOver(); }
+  }
+
+  // ====== 生蟲（前 15 秒不會生；80 秒後出硬殼蟲；150 秒後偶爾雙蟲）======
+  function spawnPest(){
+    const cands = [];
+    for(let i=0;i<unlocked;i++){ const p=pots[i]; if((p.state==='grow'||p.state==='ripe')&&p.pests.length<3) cands.push(p); }
+    if(!cands.length) return;
+    const n = (gameTime>=150 && Math.random()<0.4) ? 2 : 1;   // 2.5 分後新壓力源：一次來兩隻
+    for(let k=0;k<n;k++){
+      const c2 = cands.filter(p=>p.pests.length<3);
+      if(!c2.length) break;
+      const p = c2[(Math.random()*c2.length)|0];
+      const tough = gameTime>=80 && Math.random()<0.35;       // 80 秒後新機制：硬殼蟲需拍兩下
+      p.pests.push({hp:tough?2:1, tough:tough, ox:(Math.random()*44-22), oy:(Math.random()*18-8), ph:Math.random()*6.28});
+    }
+    beep(150,0.1,'square',0.1);
+  }
+
+  // ====== 遊戲邏輯更新 ======
+  function gameLogic(dt){
+    gameTime += dt;
+    unlocked = Math.min(6, 2 + Math.floor(harvests/4));  // 每收 4 次解鎖新盆（注意力排程變複雜）
+    pestTimer -= dt;
+    if(gameTime>15 && pestTimer<=0){ spawnPest(); pestTimer = pestInterval(); }
+    const rr = 1 / witherTime();
+    for(let i=0;i<unlocked;i++){
+      const p = pots[i];
+      if(p.waterCd>0) p.waterCd -= dt;
+      if(p.state==='grow'){
+        if(p.pests.length===0){
+          p.grow += dt / p.growTime;
+          if(p.rot>0) p.rot = Math.max(0, p.rot - dt*0.25);   // 沒蟲則腐爛回復
+          if(p.grow>=1){ p.grow=1; p.state='ripe'; p.ripeT=0; beep(660,0.09,'sine',0.14); addFloat(p.cx,p.y+30,'可收穫!','#fff2a0'); }
+        } else {
+          p.rot += dt * ROT_PER_PEST * p.pests.length;        // 有蟲則停止成長並腐爛
+        }
+      } else if(p.state==='ripe'){
+        p.ripeT += dt;
+        p.rot += dt * (rr + ROT_PER_PEST * p.pests.length);   // 熟果會逐漸枯萎，蟲加速
+      }
+      if(p.rot>=1) wither(p);
+    }
+  }
+
+  function updateFx(dt){
+    animT += dt;
+    if(shakeMag>0) shakeMag = Math.max(0, shakeMag - dt*40);
+    if(overLock>0) overLock -= dt;
+    for(let i=particles.length-1;i>=0;i--){
+      const p=particles[i]; p.life+=dt; p.vy+=p.g; p.x+=p.vx; p.y+=p.vy;
+      if(p.life>=p.max) particles.splice(i,1);
+    }
+    for(let i=floaters.length-1;i>=0;i--){
+      const f=floaters[i]; f.life+=dt; f.y+=f.vy*dt;
+      if(f.life>=f.max) floaters.splice(i,1);
+    }
+    for(let i=reveals.length-1;i>=0;i--){
+      const r=reveals[i]; r.t+=dt; r.y-=dt*14;
+      if(r.t>=1.25) reveals.splice(i,1);
+    }
+  }
+
+  function update(dt){
+    updateFx(dt);
+    if(state==='play') gameLogic(dt);
+  }
+
+  function gameOver(){
+    state='over'; overLock=0.5;
+    const nb = score>best;
+    if(nb){ best=score; save('catseed_best',best); }
+    if(collected.size>bestCol){ bestCol=collected.size; save('catseed_bestcol',bestCol); }
+    isNewBest=nb;
+    if(nb){ spawnConfetti(); sndBest(); }
+    try{ if(window.SC) SC.over(score); }catch(e){}   // 匿名數據回報
+  }
+
+  // ====== 繪圖 ======
+  function rr(x,y,w,h,r){ ctx.beginPath(); ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
+  function txt(s,x,y,size,col,align,weight){ ctx.fillStyle=col; ctx.font=(weight||'700')+' '+size+'px -apple-system,"Microsoft JhengHei",sans-serif'; ctx.textAlign=align||'center'; ctx.textBaseline='middle'; ctx.fillText(s,x,y); }
+
+  function drawBackground(){
+    const g = ctx.createLinearGradient(0,0,0,H);
+    g.addColorStop(0,'#20493a'); g.addColorStop(1,'#132a20');
+    ctx.fillStyle=g; ctx.fillRect(-30,-30,W+60,H+60);
+    // 幾條淡色藤蔓裝飾
+    ctx.strokeStyle='rgba(140,220,160,0.06)'; ctx.lineWidth=20;
+    for(let i=0;i<4;i++){ ctx.beginPath(); ctx.moveTo(-20, 120+i*130); ctx.bezierCurveTo(120,90+i*130,280,150+i*130,W+20,110+i*130); ctx.stroke(); }
+  }
+
+  function drawSprout(cx, soilY, prog, rot, ripe){
+    const h = 8 + prog*44;
+    const lean = Math.sin(animT*2 + cx)*0.05 + rot*0.55;
+    const wilt = rot>0.5;
+    ctx.save();
+    ctx.translate(cx, soilY);
+    ctx.rotate(lean);
+    // 莖
+    ctx.strokeStyle = wilt ? '#8a7a4a' : '#4fae55';
+    ctx.lineWidth = 4; ctx.lineCap='round';
+    ctx.beginPath(); ctx.moveTo(0,0); ctx.quadraticCurveTo(3,-h*0.5,0,-h); ctx.stroke();
+    // 頭部史萊姆貓球
+    const r = 8 + prog*11, hy = -h;
+    const green = wilt ? '#a2925c' : '#6fcf6f';
+    // 貓耳
+    ctx.fillStyle = green;
+    ctx.beginPath(); ctx.moveTo(-r*0.7,hy-r*0.4); ctx.lineTo(-r*0.35,hy-r*1.2); ctx.lineTo(-r*0.05,hy-r*0.5); ctx.closePath(); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(r*0.7,hy-r*0.4); ctx.lineTo(r*0.35,hy-r*1.2); ctx.lineTo(r*0.05,hy-r*0.5); ctx.closePath(); ctx.fill();
+    // 頭
+    ctx.beginPath(); ctx.arc(0,hy,r,0,6.283); ctx.fill();
+    // 高光
+    ctx.fillStyle='rgba(255,255,255,0.25)'; ctx.beginPath(); ctx.arc(-r*0.3,hy-r*0.3,r*0.35,0,6.283); ctx.fill();
+    // 眼睛
+    ctx.fillStyle='#173a26';
+    if(wilt){
+      ctx.strokeStyle='#173a26'; ctx.lineWidth=1.6;
+      ctx.beginPath(); ctx.moveTo(-r*0.5,hy-2); ctx.lineTo(-r*0.2,hy+2); ctx.moveTo(-r*0.2,hy-2); ctx.lineTo(-r*0.5,hy+2); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(r*0.2,hy-2); ctx.lineTo(r*0.5,hy+2); ctx.moveTo(r*0.5,hy-2); ctx.lineTo(r*0.2,hy+2); ctx.stroke();
+    } else {
+      ctx.beginPath(); ctx.arc(-r*0.35,hy-1,r*0.16,0,6.283); ctx.fill();
+      ctx.beginPath(); ctx.arc( r*0.35,hy-1,r*0.16,0,6.283); ctx.fill();
+    }
+    ctx.restore();
+    if(ripe){
+      const pl = 0.6 + Math.sin(animT*6)*0.4;
+      txt('✨', cx+16, soilY-h-6, 16, 'rgba(255,242,160,'+pl.toFixed(2)+')');
+      txt('✨', cx-16, soilY-h+4, 12, 'rgba(255,242,160,'+pl.toFixed(2)+')');
+    }
+  }
+
+  function drawPot(p, i){
+    const locked = i>=unlocked;
+    const bx=p.x, by=p.y, bw=p.w, bh=p.h;
+    // 盆器
+    const potTop = by+bh-46, potBot = by+bh-2;
+    ctx.fillStyle = locked ? '#33403a' : '#a9744f';
+    ctx.beginPath();
+    ctx.moveTo(bx+28, potTop); ctx.lineTo(bx+bw-28, potTop);
+    ctx.lineTo(bx+bw-38, potBot); ctx.lineTo(bx+38, potBot); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = locked ? '#3d4b44' : '#c98a5f';
+    rr(bx+24, potTop-8, bw-48, 14, 5); ctx.fill();
+    // 土
+    if(!locked){ ctx.fillStyle='#5a3d28'; rr(bx+28, potTop-4, bw-56, 8, 3); ctx.fill(); }
+
+    if(locked){
+      txt('🔒', p.cx, by+bh/2-20, 30, '#8aa89a');
+      const need = Math.max(0, 4*(i-1) - harvests);
+      txt('再收 '+need+' 次解鎖', p.cx, by+bh/2+14, 12, '#9dbcae');
+      return;
+    }
+
+    // ripe 光暈
+    if(p.state==='ripe'){
+      const gl = 0.35 + Math.sin(animT*5)*0.2;
+      ctx.strokeStyle='rgba(255,226,120,'+gl.toFixed(2)+')'; ctx.lineWidth=3;
+      rr(bx+6, by+6, bw-12, bh-12, 12); ctx.stroke();
+    }
+
+    // 植物
+    if(p.state==='empty'){
+      txt('＋', p.cx, potTop-16, 26, 'rgba(200,240,200,0.5)');
+      txt('點我種下', p.cx, potTop+2, 12, 'rgba(200,240,200,0.6)');
+    } else {
+      drawSprout(p.cx, potTop-2, p.grow, p.rot, p.state==='ripe');
+    }
+
+    // 成長 / 枯萎進度條
+    const barX = bx+30, barW = bw-60, barY = by+bh+2;
+    if(p.state==='grow'){
+      ctx.fillStyle='rgba(0,0,0,0.3)'; rr(barX,barY,barW,5,2); ctx.fill();
+      ctx.fillStyle='#7cffb0'; rr(barX,barY,barW*Math.min(1,p.grow),5,2); ctx.fill();
+    } else if(p.state==='ripe'){
+      ctx.fillStyle='rgba(0,0,0,0.3)'; rr(barX,barY,barW,5,2); ctx.fill();
+      ctx.fillStyle='#ff8a6a'; rr(barX,barY,barW*Math.min(1,p.rot),5,2); ctx.fill();
+    }
+    if(p.rot>0.45 && p.state==='grow'){ txt('⚠', p.cx, by+14, 16, '#ff9a6a'); }
+
+    // 害蟲
+    for(const pest of p.pests){
+      const px = p.cx + pest.ox, py = potTop - 20 + pest.oy + Math.sin(animT*4+pest.ph)*2;
+      const pr = pest.tough ? 11 : 8;
+      ctx.fillStyle = pest.tough ? '#2b3a2f' : '#3a5a40';
+      ctx.beginPath(); ctx.arc(px,py,pr,0,6.283); ctx.fill();
+      ctx.fillStyle='#ff5a5a';
+      ctx.beginPath(); ctx.arc(px-pr*0.35,py-1,1.6,0,6.283); ctx.fill();
+      ctx.beginPath(); ctx.arc(px+pr*0.35,py-1,1.6,0,6.283); ctx.fill();
+      if(pest.tough){ ctx.strokeStyle='#7a8a7a'; ctx.lineWidth=2; ctx.beginPath(); ctx.arc(px,py,pr+1,3.14,6.283); ctx.stroke(); }
+    }
+  }
+
+  function drawHUD(){
+    // 生命
+    for(let i=0;i<5;i++){ txt(i<hearts?'❤':'🤍', 22+i*20, 20, 15, i<hearts?'#ff6a8a':'#557', 'center'); }
+    // 分數
+    txt('🪙 '+score, W/2, 18, 22, '#fff2a0');
+    // 最高分
+    txt('最佳 '+best, W-14, 14, 12, '#bfe0cf', 'right');
+    // 連段
+    if(combo>=2){ txt('連段 x'+comboMult().toFixed(1), W/2, 42, 14, '#7cffb0'); }
+
+    // 圖鑑
+    const n=SPECIES.length, cellW=40, gap=2, totW=n*cellW+(n-1)*gap, sx=(W-totW)/2, sy=76;
+    txt('圖鑑 '+collected.size+'/'+n, W/2, 66, 11, '#cfeecf');
+    let hintOne=false;
+    for(let i=0;i<n;i++){
+      const x=sx+i*(cellW+gap), got=collected.has(SPECIES[i].id);
+      ctx.fillStyle = got?'rgba(255,255,255,0.14)':'rgba(0,0,0,0.28)';
+      rr(x,sy,cellW,30,5); ctx.fill();
+      if(!got && !hintOne){ ctx.strokeStyle='rgba(255,210,120,'+(0.4+Math.sin(animT*4)*0.3).toFixed(2)+')'; ctx.lineWidth=2; rr(x,sy,cellW,30,5); ctx.stroke(); hintOne=true; }
+      txt(got?SPECIES[i].emoji:'？', x+cellW/2, sy+15, got?18:14, got?'#fff':'rgba(200,220,210,0.4)');
+    }
+  }
+
+  function drawReveals(){
+    for(const r of reveals){
+      const a = r.t<1.05 ? 1 : Math.max(0,(1.25-r.t)/0.2);
+      let showRar, showEmo;
+      if(r.t<0.42){ const idx=Math.floor(r.t*30)%3; showRar=idx; showEmo=SPIN_EMO[idx]; }        // 轉動
+      else if(r.nm && r.t<0.62){ showRar=Math.min(2,r.rar+1); showEmo=SPIN_EMO[showRar]; }         // near-miss 假閃更高級
+      else { showRar=r.rar; showEmo=r.emo; }
+      const sc = r.t<0.42 ? 0.7+r.t*0.7 : 1;
+      const col = RARITY[showRar].col;
+      ctx.save(); ctx.globalAlpha=a; ctx.translate(r.x, r.y);
+      ctx.fillStyle='rgba(10,20,15,0.85)'; rr(-40,-30,80,44,8); ctx.fill();
+      ctx.strokeStyle=col; ctx.lineWidth=2; rr(-40,-30,80,44,8); ctx.stroke();
+      txt(showEmo, 0, -12, 22*sc, '#fff');
+      txt(RARITY[showRar].name, 0, 6, 11, col);
+      ctx.restore();
+    }
+  }
+
+  function drawFx(){
+    for(const p of particles){
+      const a=Math.max(0,1-p.life/p.max);
+      ctx.globalAlpha=a; ctx.fillStyle=p.col;
+      ctx.beginPath(); ctx.arc(p.x,p.y,p.size,0,6.283); ctx.fill();
+    }
+    ctx.globalAlpha=1;
+    for(const f of floaters){
+      const a=Math.max(0,1-f.life/f.max);
+      ctx.globalAlpha=a; txt(f.txt, f.x, f.y, 14, f.col);
+    }
+    ctx.globalAlpha=1;
+  }
+
+  function drawTitle(){
+    ctx.fillStyle='rgba(0,0,0,0.35)'; ctx.fillRect(0,0,W,H);
+    txt('🐱🌱', W/2, 150, 46, '#fff');
+    txt('貓爪種苗記', W/2, 210, 38, '#eafff0');
+    txt('點盆栽種下貓草，收穫時開箱抽稀有！', W/2, 258, 15, '#cfeecf');
+    txt('— 玩法 —', W/2, 312, 14, '#9fe6a0');
+    txt('點空盆＝種下　點成長中＝澆水加速', W/2, 340, 13, '#dff5e6');
+    txt('發光＝點擊收穫開箱　有蟲先點掉牠！', W/2, 364, 13, '#dff5e6');
+    txt('放著不管會枯萎，扣一顆愛心', W/2, 388, 13, '#ffcaba');
+    txt('鍵盤：1–6 對應盆位，空白鍵自動處理', W/2, 418, 12, '#9dbcae');
+    const bl = 0.5+Math.sin(animT*4)*0.5;
+    txt('點擊 / 空白鍵 開始', W/2, 476, 20, 'rgba(255,242,160,'+(0.4+bl*0.6).toFixed(2)+')');
+    txt('最高分 '+best+'　圖鑑紀錄 '+bestCol+'/'+SPECIES.length, W/2, 520, 13, '#bfe0cf');
+  }
+
+  function drawOver(){
+    ctx.fillStyle='rgba(0,0,0,0.62)'; ctx.fillRect(0,0,W,H);
+    const nb = isNewBest;
+    txt(nb?'🎉 新紀錄！':'🥀 遊戲結束', W/2, 160, 30, nb?'#ffd24a':'#eafff0');
+    txt('本輪分數', W/2, 218, 14, '#bfe0cf');
+    txt('🪙 '+score, W/2, 252, 40, '#fff2a0');
+    if(nb){
+      txt('打破了自己的最高分！', W/2, 300, 15, '#7cffb0');
+    } else {
+      const diff = Math.max(1, best - score);
+      txt('只差 '+diff+' 分就破紀錄！', W/2, 300, 16, '#ffd24a');
+    }
+    txt('圖鑑收集 '+collected.size+'/'+SPECIES.length+'　最高連段 x'+comboMult0(maxCombo).toFixed(1), W/2, 340, 14, '#dff5e6');
+    txt('歷史最佳 '+best, W/2, 366, 12, '#9dbcae');
+    const bl = 0.5+Math.sin(animT*4)*0.5;
+    txt('點擊 / 空白鍵　再種一輪', W/2, 440, 20, 'rgba(255,242,160,'+(0.4+bl*0.6).toFixed(2)+')');
+  }
+  function comboMult0(c){ return 1 + Math.min(c,20)*0.1; }
+
+  function render(){
+    // 清整個緩衝
+    ctx.save(); ctx.setTransform(1,0,0,1,0,0); ctx.clearRect(0,0,cv.width,cv.height); ctx.restore();
+    // 螢幕震動
+    const sx=(Math.random()-0.5)*shakeMag, sy=(Math.random()-0.5)*shakeMag;
+    ctx.save(); ctx.translate(sx,sy);
+    drawBackground();
+    if(state==='title'){ drawTitle(); ctx.restore(); return; }
+    for(let i=0;i<pots.length;i++) drawPot(pots[i], i);
+    drawHUD();
+    drawFx();
+    drawReveals();
+    if(state==='play'){
+      txt('點盆栽：種下→澆水→收穫；有蟲先拍掉！', W/2, 588, 11, 'rgba(220,240,225,0.55)');
+    }
+    if(state==='over') drawOver();
+    ctx.restore();
+  }
+
+  // ====== 主迴圈（固定時間步長 accumulator，120Hz 不會加倍速）======
+  let last = performance.now(), acc = 0;
+  const STEP = 1/60;
+  function frame(now){
+    try{
+      let dt = (now-last)/1000; last=now;
+      if(dt>0.25) dt=0.25;      // 切視窗回來不暴衝
+      acc += dt;
+      let guard=0;
+      while(acc>=STEP && guard<8){ update(STEP); acc-=STEP; guard++; }
+      render();
+    }catch(e){ /* 任何例外都吞掉，避免中斷迴圈 */ }
+    requestAnimationFrame(frame);
+  }
+
+  // ====== 輸入 ======
+  function toLogical(clientX, clientY){
+    const rect = cv.getBoundingClientRect();     // 用 rect 比例換算，不用 canvas.width
+    return { x:(clientX-rect.left)/rect.width*W, y:(clientY-rect.top)/rect.height*H };
+  }
+  function tapPot(x,y){
+    for(let i=0;i<unlocked;i++){
+      const p=pots[i];
+      if(x>=p.x && x<=p.x+p.w && y>=p.y && y<=p.y+p.h){
+        if(p.pests.length){ shoo(p); return; }       // 優先拍蟲
+        if(p.state==='ripe'){ harvest(p); return; }
+        if(p.state==='grow'){ water(p); return; }
+        if(p.state==='empty'){ plant(p); return; }
+        return;
+      }
+    }
+  }
+  function autoAct(){    // 空白鍵：自動處理最急的盆
+    let target=null, pri=-1;
+    for(let i=0;i<unlocked;i++){
+      const p=pots[i]; let pr=-1;
+      if(p.pests.length) pr=3; else if(p.state==='ripe') pr=2; else if(p.state==='empty') pr=1; else if(p.state==='grow') pr=0;
+      if(pr>pri){ pri=pr; target=p; }
+    }
+    if(target){ if(target.pests.length)shoo(target); else if(target.state==='ripe')harvest(target); else if(target.state==='empty')plant(target); else water(target); }
+  }
+  function onDown(e){
+    const l = toLogical(e.clientX, e.clientY);
+    if(state==='title'){ initAudio(); resumeAudio(); startGame(); return; }
+    if(state==='over'){ if(overLock<=0) startGame(); return; }
+    tapPot(l.x, l.y);
+  }
+  function onKey(e){
+    const k=e.key;
+    if(state==='title'){ if(k===' '||k==='Enter'){ initAudio(); resumeAudio(); startGame(); e.preventDefault(); } return; }
+    if(state==='over'){ if((k===' '||k==='Enter') && overLock<=0){ startGame(); e.preventDefault(); } return; }
+    if(k>='1' && k<='6'){ const i=+k-1; if(i<unlocked){ const p=pots[i]; if(p.pests.length)shoo(p); else if(p.state==='ripe')harvest(p); else if(p.state==='grow')water(p); else if(p.state==='empty')plant(p); } e.preventDefault(); }
+    else if(k===' '||k==='Enter'){ autoAct(); e.preventDefault(); }
+  }
+  cv.addEventListener('pointerdown', onDown);
+  window.addEventListener('keydown', onKey);
+  // 來電 / 切視窗 / 觸控中斷：清狀態（本遊戲無拖曳持續態，僅保險用）
+  cv.addEventListener('pointercancel', function(){});
+  window.addEventListener('blur', function(){ resumeAudio(); });
+
+  // ====== 啟動 ======
+  resize();
+  requestAnimationFrame(frame);
+})();
+</script>
+<script src="../../sc_config.js"></script>
+<script src="../../stats.js"></script>
+</body>
+</html>
