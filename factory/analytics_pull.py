@@ -27,7 +27,11 @@ HERE = Path(__file__).resolve().parent
 SUMMARY_FILE = HERE / "analytics_summary.json"
 
 SHEET_ID = "1lWyPRyRXr3hB6i-lVksq6pozFl0CXQYZa9RhnkDyRoA"  # SlimeCat Analytics
-PORTFOLIO_TOKEN = Path("C:/Users/User/projects/Portfolio/token.json")
+# OAuth 憑證改走 Batnini 共用模組（single source of truth），不再寫死路徑：
+# Portfolio 一旦重新授權/搬家，這裡自動跟著換，不會各自過期而靜默 401。
+sys.path.insert(0, "C:/Users/User/projects/_common")
+from batnini_secrets import OAUTH_TOKEN_FILE  # noqa: E402
+PORTFOLIO_TOKEN = OAUTH_TOKEN_FILE            # 沿用原變數名（daily_feedback 有 import 它）
 GAMES_JSON = HERE.parent / "games.json"
 
 

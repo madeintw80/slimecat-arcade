@@ -266,7 +266,7 @@
       "date": "2026-07-06",
       "inspiration": "Jewel Coloring",
       "desc": "點對顏色，把史萊姆貓從喵靈墨中一格格召回！",
-      "ai_score": 6,
+      "ai_score": null,
       "updated_at": "2026-07-07",
       "changelog": [
         {
@@ -299,7 +299,7 @@
       "date": "2026-07-07",
       "inspiration": "Brain Puzzle 3: Crazy Mind",
       "desc": "史萊姆貓出腦洞陷阱題，你的直覺注定被牠整到笑",
-      "ai_score": 7,
+      "ai_score": null,
       "bugs": [
         {
           "date": "2026-07-08",
@@ -332,7 +332,7 @@
       "date": "2026-07-08",
       "inspiration": "車車屍搭普 - 足球狂歡季來臨！",
       "desc": "滑動換道輾過毛球飆連段，擦邊閃障礙拚最高分",
-      "ai_score": 8,
+      "ai_score": null,
       "bugs": [
         {
           "date": "2026-07-09",
@@ -426,7 +426,7 @@
       "date": "2026-07-10",
       "inspiration": "我的花園世界",
       "desc": "照顧盆栽收貓草，拍蟲防枯萎的開箱放置遊戲",
-      "ai_score": 6
+      "ai_score": null
     }
   ]
 }

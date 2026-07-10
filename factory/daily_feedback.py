@@ -46,6 +46,21 @@ MAX_FB_PER_GAME = 5      # 大廳每款最多顯示幾條回饋
 FALLBACK_REPLY = "收到！已記進工廠設計筆記，會影響之後的版本 🐱"
 
 
+def merge_games_json(apply_changes):
+    """重讀最新 games.json → 套用 apply_changes(fresh, idx) 就地修改 → 寫回。
+
+    為什麼要這樣（last-writer-wins bug）：本流程久跑（改款要 10~30 分鐘），
+    若照舊把開場讀進來的整份快照覆寫回去，會抹掉這期間別的程序（例如 12:00 生產）
+    剛 append 的新遊戲。比照 BroTrip「read-then-update-or-append」原則：寫前重讀最新檔，
+    只把自己這輪要動的 entry/欄位 merge 進去。idx = {id: 遊戲物件}，方便用 id 定位。"""
+    fresh = json.loads(GAMES_JSON.read_text(encoding="utf-8"))
+    idx = {g["id"]: g for g in fresh.get("games", []) + fresh.get("retired", [])}
+    apply_changes(fresh, idx)
+    GAMES_JSON.write_text(json.dumps(fresh, ensure_ascii=False, indent=2),
+                          encoding="utf-8")
+    return fresh
+
+
 def sheets_svc():
     from google.oauth2.credentials import Credentials
     from googleapiclient.discovery import build
@@ -189,15 +204,24 @@ def main() -> int:
         by_game = {}
         for it in fix_rows:
             by_game.setdefault(it["game"], []).append(it)
+        new_bugs = {}   # gid -> 這輪新增的 bug 物件（等下只把這些 merge 進最新檔）
         for gid, its in by_game.items():
             g = id2game[gid]
             for it in its:
                 instr = plan[it["row"]].get("fix_instruction") or it["note"]
-                g.setdefault("bugs", []).append({
-                    "date": today, "note": f"[玩家留言] {it['note'][:80]} ➜ {instr[:120]}",
-                    "status": "open", "source": "web"})
-        GAMES_JSON.write_text(json.dumps(data, ensure_ascii=False, indent=2),
-                              encoding="utf-8")
+                bug = {"date": today,
+                       "note": f"[玩家留言] {it['note'][:80]} ➜ {instr[:120]}",
+                       "status": "open", "source": "web"}
+                g.setdefault("bugs", []).append(bug)          # 就地加給下面 fix_one 讀
+                new_bugs.setdefault(gid, []).append(bug)
+        # 🔴 read-then-update：重讀最新檔、只把新 bug 併進對應遊戲（不整檔覆寫），
+        # 避免抹掉並行程序（例 12:00 生產）剛上架的新遊戲。
+        def _apply_bugs(fresh, idx):
+            for gid, bugs in new_bugs.items():
+                tgt = idx.get(gid)
+                if tgt is not None:
+                    tgt.setdefault("bugs", []).extend(bugs)
+        merge_games_json(_apply_bugs)
         for gid in by_game:
             log(f"🔧 按留言改款《{id2title[gid]}》…")
             ok = fix_game.fix_one(id2game[gid], data)
@@ -221,14 +245,15 @@ def main() -> int:
         log(f"⚠️ 回寫 Sheet 失敗（回覆沒標記，明天會重複處理同批留言）：{e}")
 
     # 4) 回覆發布到大廳（games.json feedback[] → rebuild → publish）
-    for gid, items in fb_add.items():
-        g = id2game.get(gid)
-        if not g:
-            continue
-        g.setdefault("feedback", []).extend(items)
-        g["feedback"] = g["feedback"][-MAX_FB_PER_GAME:]
-    GAMES_JSON.write_text(json.dumps(data, ensure_ascii=False, indent=2),
-                          encoding="utf-8")
+    #    🔴 read-then-update：重讀最新檔只併自己的 feedback，理由同上（防抹掉並行新上架的遊戲）。
+    def _apply_feedback(fresh, idx):
+        for gid, items in fb_add.items():
+            tgt = idx.get(gid)
+            if tgt is None:
+                continue
+            tgt.setdefault("feedback", []).extend(items)
+            tgt["feedback"] = tgt["feedback"][-MAX_FB_PER_GAME:]
+    merge_games_json(_apply_feedback)
     rebuild.rebuild()
     try:
         import publish_site

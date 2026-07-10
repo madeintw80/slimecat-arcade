@@ -263,7 +263,21 @@ def stage_critic(html: str, meta: dict):
         out = run_claude(prompt, SMALL_TIMEOUT, model=MODEL_CRITIC)
         i, j = out.find("{"), out.rfind("}")
         crit = json.loads(out[i:j + 1])
-        crit["total"] = int(crit.get("total") or sum(crit["scores"].values()))
+        # 🔴 不信模型自報的 total：haiku 常把單維 1-10 分當成總分回（例 total=7），
+        # 被當成 50 分制上架 → 公開卡片顯示 6/7/8 這種假分數。
+        # 改成先驗五維齊全且各為 1-10 整數，再一律自己加總（忽略模型自報 total）。
+        scores = crit.get("scores") or {}
+        dims = ("onboarding", "juice", "goal", "difficulty", "one_more")
+        clean = {}
+        for d in dims:
+            v = scores.get(d)
+            # 每維必須是 1-10 的整數（容忍 8.0 這種整數值 float，擋掉 8.5／缺項／超範圍）；
+            # 不合格就 raise → 被下面 except 接住當「自評失敗」→ 不設 ai_score（卡片隱藏分數）。
+            if isinstance(v, bool) or not isinstance(v, (int, float)) or v != int(v) or not 1 <= v <= 10:
+                raise ValueError(f"自評維度 {d}={v!r} 非 1-10 整數（五維不齊或超範圍）")
+            clean[d] = int(v)
+        crit["scores"] = clean
+        crit["total"] = sum(clean.values())   # 一律五維加總（滿分 50），不看模型自報 total
         return crit
     except Exception as e:
         log(f"  ⚠️ 自評失敗（不擋出貨）：{e}")
@@ -350,7 +364,12 @@ def produce_from_decon(decon: dict) -> int:
         log(f"  📝 《{meta['title']}》→ games/{gid}/")
 
         # ── 品管 ──
-        ok, errs = validate(gdir / "index.html", shot_name=gid)
+        try:
+            ok, errs = validate(gdir / "index.html", shot_name=gid)
+        except Exception as e:
+            # Playwright 本身炸掉（沒裝好／瀏覽器當掉）就視同品管失敗，走重試流程；
+            # 別讓例外往上炸穿整條 pipeline（否則 notify_fail 不會發、零告警）。
+            ok, errs = False, [f"playwright 掛了：{e}"]
         if not ok:
             log(f"  ❌ 煙霧測試失敗：{errs}")
             feedback = "\n".join(errs)[:800]
@@ -385,12 +404,15 @@ def produce_from_decon(decon: dict) -> int:
         HISTORY_FILE.write_text(json.dumps(history, ensure_ascii=False, indent=2),
                                 encoding="utf-8")
         log(f"✅ 上架完成：《{meta['title']}》（全站第 {len(data['games'])} 款）")
-        notify(entry, crit)
+        # 先部署、部署成功才推「新品出爐」——否則會出現「站根本沒更新卻已報喜」。
+        # publish 失敗會 raise（見 publish_site.py），被這裡接住 → 改發失敗告警、不報喜。
         try:
             import publish_site
             publish_site.publish(f"🏭 新遊戲《{meta['title']}》上架")
+            notify(entry, crit)
         except Exception as e:
             log(f"⚠️ 自動部署失敗（本機照常可玩）：{e}")
+            notify_fail(f"《{meta['title']}》已生成但部署失敗、公開站尚未更新：{e}")
         return 0
 
     log("❌ 重試後仍失敗，今天停產（明天排程會再試）")

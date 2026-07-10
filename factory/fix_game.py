@@ -192,7 +192,17 @@ def fix_one(g: dict, data: dict) -> bool:
         g["updated_at"] = today
         g.setdefault("changelog", []).append(
             {"date": today, "summary": player_summary(g, bugs)})
-        GAMES_JSON.write_text(json.dumps(data, ensure_ascii=False, indent=2),
+        # 🔴 read-then-update（last-writer-wins bug）：不寫開場讀進來的整份 data，
+        # 改重讀最新 games.json、只把「這一款」的 bug/更新日誌 merge 回去，
+        # 避免抹掉並行程序（例 12:00 生產）這段期間剛上架的新遊戲。
+        fresh = json.loads(GAMES_JSON.read_text(encoding="utf-8"))
+        fidx = {x["id"]: x for x in fresh.get("games", []) + fresh.get("retired", [])}
+        ftgt = fidx.get(g["id"])
+        if ftgt is not None:                       # 本流程是這款唯一的寫入者，可整組覆蓋這三欄
+            ftgt["bugs"] = g.get("bugs", [])
+            ftgt["updated_at"] = g["updated_at"]
+            ftgt["changelog"] = g.get("changelog", [])
+        GAMES_JSON.write_text(json.dumps(fresh, ensure_ascii=False, indent=2),
                               encoding="utf-8")
         rebuild.rebuild()
         with LEARN_FILE.open("a", encoding="utf-8") as f:

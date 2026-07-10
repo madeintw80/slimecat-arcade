@@ -25,12 +25,12 @@ def publish(msg: str = "🏭 SlimeCat 遊戲區更新") -> int:
         return 0
     c = _git("commit", "-m", msg)
     if c.returncode != 0:
-        print(f"❌ commit 失敗：{c.stderr[-300:]}")
-        return 1
+        # 🔴 失敗改用 raise（原本 return 1 呼叫端不看→靜默失敗：站沒更新卻已推「新品出爐」）。
+        # 讓上層的 try/except 接住 → 記 log／改發失敗告警。
+        raise RuntimeError(f"commit 失敗：{c.stderr[-300:]}")
     p = _git("push", "origin", "main")
     if p.returncode != 0:
-        print(f"❌ push 失敗：{p.stderr[-300:]}")
-        return 1
+        raise RuntimeError(f"push 失敗：{p.stderr[-300:]}")
     print(f"🚀 已部署：{msg}")
     print("   （GitHub Pages 約 1-2 分鐘後生效）")
     return 0
@@ -38,4 +38,9 @@ def publish(msg: str = "🏭 SlimeCat 遊戲區更新") -> int:
 
 if __name__ == "__main__":
     message = " ".join(sys.argv[1:]) or "🏭 SlimeCat 遊戲區更新"
-    sys.exit(publish(message))
+    # 直接在命令列跑時，把 raise 轉回乾淨的 exit 1（保留原本 CLI 退出碼契約，不噴 traceback）
+    try:
+        sys.exit(publish(message))
+    except RuntimeError as e:
+        print(f"❌ {e}")
+        sys.exit(1)

@@ -246,7 +246,7 @@ const GAMES = [
     "genre": "解壓",
     "date": "2026-07-06",
     "desc": "點對顏色，把史萊姆貓從喵靈墨中一格格召回！",
-    "ai_score": 6,
+    "ai_score": null,
     "updated_at": "2026-07-07",
     "changelog": [
       {
@@ -278,7 +278,7 @@ const GAMES = [
     "genre": "益智",
     "date": "2026-07-07",
     "desc": "史萊姆貓出腦洞陷阱題，你的直覺注定被牠整到笑",
-    "ai_score": 7,
+    "ai_score": null,
     "bugs": [
       {
         "date": "2026-07-08",
@@ -310,7 +310,7 @@ const GAMES = [
     "genre": "街機／駕駛跑酷",
     "date": "2026-07-08",
     "desc": "滑動換道輾過毛球飆連段，擦邊閃障礙拚最高分",
-    "ai_score": 8,
+    "ai_score": null,
     "bugs": [
       {
         "date": "2026-07-09",
@@ -402,6 +402,6 @@ const GAMES = [
     "genre": "放置",
     "date": "2026-07-10",
     "desc": "照顧盆栽收貓草，拍蟲防枯萎的開箱放置遊戲",
-    "ai_score": 6
+    "ai_score": null
   }
 ];
