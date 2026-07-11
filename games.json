@@ -427,6 +427,16 @@
       "inspiration": "我的花園世界",
       "desc": "照顧盆栽收貓草，拍蟲防枯萎的開箱放置遊戲",
       "ai_score": null
+    },
+    {
+      "id": "2026-07-11-001",
+      "title": "喵光斬暗陣",
+      "emoji": "✨",
+      "genre": "動作",
+      "date": "2026-07-11",
+      "inspiration": "Towaga: Among Shadows",
+      "desc": "劃爪光斬掃四面暗影鼠，連擊保貓命",
+      "ai_score": 40
     }
   ]
 }
