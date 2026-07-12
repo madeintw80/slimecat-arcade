@@ -94,7 +94,7 @@ function setHS(v){ try{localStorage.setItem('mlza_hi',String(v));}catch(e){} }
 let state='title';
 let enemies=[],particles=[],popups=[],trail=[];
 let score=0,hp=maxHP,combo=0,maxCombo=0,comboTimer=0;
-let gameTime=0,spawnTimer=1.4,speedMul=1,nextHeal=450;
+let gameTime=0,spawnTimer=1.4,speedMul=1,nextHeal=650;
 let invuln=0,shake=0,flash=0,hitFlash=0,healFlash=0,catSquash=1,hintTimer=0;
 let slowmo=0,timeScale=1,overGuard=0;
 let kbActive=false,beamAngle=-Math.PI/2;
@@ -108,7 +108,7 @@ function comboMult(){ return Math.min(1+Math.floor(combo/6),9); }
 function reset(){
   enemies.length=0;particles.length=0;popups.length=0;trail.length=0;
   score=0;hp=maxHP;combo=0;maxCombo=0;comboTimer=0;
-  gameTime=0;spawnTimer=1.4;speedMul=1;nextHeal=450;
+  gameTime=0;spawnTimer=1.4;speedMul=1;nextHeal=650;
   invuln=0;shake=0;flash=0;hitFlash=0;healFlash=0;catSquash=1;slowmo=0;timeScale=1;
   kbActive=false;keys.clear();drawing=false;beamAngle=-Math.PI/2;
   waveTimer=5;warnTimer=0;warnAngles=[];
@@ -127,8 +127,8 @@ function gameOver(){
 
 /* ====== 敵人：暗影鼠，多方向逼近；三種行為維持節奏 ====== */
 function makeEnemy(x,y,type){
-  let r=13,sb=44;
-  if(type==='dash'){ r=11;sb=40; }
+  let r=13,sb=48;
+  if(type==='dash'){ r=11;sb=46; }
   else if(type==='split'){ r=19;sb=32; }
   return {x:x,y:y,type:type,r:r,speedBase:sb,phase:Math.random()*6.28,amp:70,pulse:Math.random()*6};
 }
@@ -147,15 +147,15 @@ function pickType(t){
   if(r<0.45)return 'basic'; if(r<0.78)return 'dash'; return 'split';
 }
 
-/* 第 3 分鐘壓力源：120 秒後每 ~20 秒一次「暗潮」——先 1.1 秒紅圈預警，再八方齊湧（可反應） */
+/* 第 3 分鐘壓力源：90 秒後每 ~14 秒一次「暗潮」——先 1.1 秒紅圈預警，再八方齊湧（可反應） */
 function startWarn(){
   warnTimer=1.1;warnAngles=[];
-  const n=7,base=Math.random()*6.28;
+  const n=9,base=Math.random()*6.28;
   for(let i=0;i<n;i++)warnAngles.push(base+i/n*Math.PI*2+(Math.random()-0.5)*0.3);
 }
 function doWave(){
   warnAngles.forEach(a=>{ spawnRing(Math.random()<0.5?'basic':'dash',a); });
-  warnAngles=[];waveTimer=20;
+  warnAngles=[];waveTimer=14;
 }
 
 /* ====== 命中 / 消滅 ====== */
@@ -175,7 +175,7 @@ function killEnemy(e,idx){
   if(e.type==='split'){ spawnAtPos(e.x-14,e.y,'basic'); spawnAtPos(e.x+14,e.y,'basic'); }
 }
 function checkHeal(){
-  while(score>=nextHeal){ nextHeal+=450; if(hp<maxHP){ hp++; healFlash=1; healSound(); popup(CX,CY-40,'+1 貓命','#7ef29a',18); } }
+  while(score>=nextHeal){ nextHeal+=650; if(hp<maxHP){ hp++; healFlash=1; healSound(); popup(CX,CY-40,'+1 貓命','#7ef29a',18); } }
 }
 function damage(){
   hp--;combo=0;invuln=0.8;shake=11;hitFlash=1;catSquash=0.6;
@@ -249,9 +249,9 @@ function update(sdt){
   gameTime+=sdt;
   speedMul=Math.min(0.8+gameTime*0.011,3.0);               // 速度隨時間持續增壓（硬性驗收）
   spawnTimer-=sdt;
-  const interval=Math.max(0.40,2.1-gameTime*0.012);        // 出怪頻率隨時間變密
+  const interval=Math.max(0.32,1.9-gameTime*0.012);        // 出怪頻率隨時間變密
   if(spawnTimer<=0){ spawnRing(pickType(gameTime)); spawnTimer=interval*(0.8+Math.random()*0.4); }
-  if(gameTime>=120){
+  if(gameTime>=90){
     if(warnTimer>0){ warnTimer-=sdt; if(warnTimer<=0)doWave(); }
     else { waveTimer-=sdt; if(waveTimer<=0)startWarn(); }
   }
