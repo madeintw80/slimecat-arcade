@@ -92,10 +92,16 @@
     {id:2,name:'蒲公喵',emoji:'🌿',rarity:0},
     {id:3,name:'三葉喵',emoji:'☘️',rarity:0},
     {id:4,name:'麥穗喵',emoji:'🌾',rarity:0},
-    {id:5,name:'櫻花喵',emoji:'🌸',rarity:1},
-    {id:6,name:'鬱金喵',emoji:'🌷',rarity:1},
-    {id:7,name:'太陽喵',emoji:'🌼',rarity:1},
-    {id:8,name:'彩虹喵',emoji:'🌈',rarity:2},
+    {id:5,name:'竹葉喵',emoji:'🎋',rarity:0},
+    {id:6,name:'銀杏喵',emoji:'🍁',rarity:0},
+    {id:7,name:'多肉喵',emoji:'🌵',rarity:0},
+    {id:8,name:'櫻花喵',emoji:'🌸',rarity:1},
+    {id:9,name:'鬱金喵',emoji:'🌷',rarity:1},
+    {id:10,name:'太陽喵',emoji:'🌼',rarity:1},
+    {id:11,name:'玫瑰喵',emoji:'🌹',rarity:1},
+    {id:12,name:'向日喵',emoji:'🌻',rarity:1},
+    {id:13,name:'彩虹喵',emoji:'🌈',rarity:2},
+    {id:14,name:'星塵喵',emoji:'⭐',rarity:2},
   ];
   const RARITY = [
     {name:'普通', col:'#9fe6a0', coins:10},
@@ -140,6 +146,7 @@
   function pestInterval(){ return Math.max(1.1, 4.6 - gameTime*0.02); } // 生蟲間隔越來越短
   function witherTime(){ return Math.max(4, 11 - gameTime*0.03); }      // 熟果枯萎越來越快
   const ROT_PER_PEST = 0.34;
+  const THIRST_PER_SEC = 0.09;   // 成長中未澆水的乾枯速率（沒澆水也會枯死）
   function comboMult(){ return 1 + Math.min(combo,20)*0.1; }            // 連段乘數 上限 3x
 
   // ====== 抽稀有度（保底：越久沒中越容易中，把運氣包裝成成就）======
@@ -184,10 +191,11 @@
     burst(p.cx, p.y+p.h-34, '#6fcf6f', 6);
     addFloat(p.cx, p.y+30, '種下!', '#bff5c0'); sndPlant();
   }
-  function water(p){                       // 澆水＝主動加速成長，給予掌控感
+  function water(p){                       // 澆水＝主動加速成長並補水（抵銷乾枯）
     if(p.waterCd>0) return;
     p.waterCd = 0.1;
     p.grow += 0.5 / p.growTime;
+    p.rot = Math.max(0, p.rot - 0.4);      // 澆水補水，回復乾枯
     burst(p.cx, p.y+p.h-46, '#8fd0ff', 4); beep(720,0.06,'sine',0.1);
     if(p.grow>=1){ p.grow=1; p.state='ripe'; p.ripeT=0; beep(680,0.1,'sine',0.16); addFloat(p.cx,p.y+30,'可收穫!','#fff2a0'); }
   }
@@ -203,7 +211,7 @@
     const pool = SPECIES.filter(s=>s.rarity===rar);
     const un = pool.filter(s=>!collected.has(s.id));
     let sp;
-    if(un.length && Math.random()<0.6) sp = un[(Math.random()*un.length)|0];  // 略偏補圖鑑缺口
+    if(un.length && Math.random()<0.35) sp = un[(Math.random()*un.length)|0];  // 略偏補圖鑑缺口
     else sp = pool[(Math.random()*pool.length)|0];
     const isNew = !collected.has(sp.id);
 
@@ -271,7 +279,7 @@
       if(p.state==='grow'){
         if(p.pests.length===0){
           p.grow += dt / p.growTime;
-          if(p.rot>0) p.rot = Math.max(0, p.rot - dt*0.25);   // 沒蟲則腐爛回復
+          p.rot += dt * THIRST_PER_SEC;                       // 沒澆水會逐漸乾枯，久了枯死
           if(p.grow>=1){ p.grow=1; p.state='ripe'; p.ripeT=0; beep(660,0.09,'sine',0.14); addFloat(p.cx,p.y+30,'可收穫!','#fff2a0'); }
         } else {
           p.rot += dt * ROT_PER_PEST * p.pests.length;        // 有蟲則停止成長並腐爛
@@ -440,8 +448,11 @@
     // 連段
     if(combo>=2){ txt('連段 x'+comboMult().toFixed(1), W/2, 42, 14, '#7cffb0'); }
 
-    // 圖鑑
-    const n=SPECIES.length, cellW=40, gap=2, totW=n*cellW+(n-1)*gap, sx=(W-totW)/2, sy=76;
+    // 圖鑑（cellW 自適應，條目多時自動縮窄避免溢出；≤9 條時維持原本 40）
+    const n=SPECIES.length, gap=2, sy=76;
+    let cellW=40;
+    if(n*cellW+(n-1)*gap > W-16){ cellW = Math.floor((W-16-(n-1)*gap)/n); }
+    const totW=n*cellW+(n-1)*gap, sx=(W-totW)/2;
     txt('圖鑑 '+collected.size+'/'+n, W/2, 66, 11, '#cfeecf');
     let hintOne=false;
     for(let i=0;i<n;i++){
