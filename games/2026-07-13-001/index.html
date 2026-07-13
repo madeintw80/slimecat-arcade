@@ -1,0 +1,660 @@
+<!--GAMEMETA {"title":"喵影浮現","emoji":"🐾","genre":"接龍益智","inspiration":"Jigsaw Drop: Solitaire Puzzle","desc":"點掉相鄰數字的貓罐頭，連消揭開躲在底下的史萊姆貓"}-->
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>喵影浮現</title>
+<style>
+  /* 全站零外部資源，樣式全部內嵌 */
+  html,body{margin:0;padding:0;height:100%;background:#14121c;overflow:hidden;
+    font-family:"Microsoft JhengHei","PingFang TC",system-ui,sans-serif;-webkit-tap-highlight-color:transparent;}
+  #wrap{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;
+    background:radial-gradient(circle at 50% 30%,#241f36,#100e18 70%);}
+  canvas{touch-action:none;display:block;border-radius:14px;
+    box-shadow:0 10px 40px rgba(0,0,0,.6);}
+  #lobby{position:fixed;top:8px;left:10px;z-index:10;color:#9fd8b0;
+    font-size:13px;text-decoration:none;background:rgba(0,0,0,.35);
+    padding:5px 10px;border-radius:10px;}
+  #lobby:active{color:#fff;}
+</style>
+</head>
+<body>
+<a id="lobby" href="../../index.html">← 回遊戲區</a>
+<div id="wrap"><canvas id="cv"></canvas></div>
+<script>
+"use strict";
+(function(){
+// ====== 邏輯畫布尺寸：固定 400 x 600 直式 ======
+const LW=400, LH=600;
+const cv=document.getElementById("cv");
+const ctx=cv.getContext("2d");
+let fit=1, dpr=1;
+
+// 高解析度輸出＋等比縮放：實體緩衝 = 顯示尺寸 × dpr，邏輯座標維持 400x600
+function resize(){
+  fit=Math.min(window.innerWidth/LW, window.innerHeight/LH);
+  const dw=LW*fit, dh=LH*fit;
+  dpr=Math.min(window.devicePixelRatio||1, 3);
+  cv.style.width=dw+"px"; cv.style.height=dh+"px";
+  cv.width=Math.round(dw*dpr); cv.height=Math.round(dh*dpr);
+  ctx.setTransform(fit*dpr,0,0,fit*dpr,0,0);
+}
+window.addEventListener("resize",resize); resize();
+
+// 把輸入座標用 getBoundingClientRect 比例換算回邏輯座標
+function toLogic(e){
+  const r=cv.getBoundingClientRect();
+  return {x:(e.clientX-r.left)/r.width*LW, y:(e.clientY-r.top)/r.height*LH};
+}
+
+// ====== WebAudio 合成音效（禁外部音檔） ======
+let AC=null;
+function audioReady(){ if(!AC){ try{AC=new (window.AudioContext||window.webkitAudioContext)();}catch(e){AC=null;} } if(AC&&AC.state==="suspended") AC.resume(); }
+function tone(freq,dur,type,vol,slide){
+  if(!AC) return;
+  try{
+    const o=AC.createOscillator(), g=AC.createGain(), t=AC.currentTime;
+    o.type=type||"sine"; o.frequency.setValueAtTime(freq,t);
+    if(slide) o.frequency.exponentialRampToValueAtTime(Math.max(40,slide),t+dur);
+    g.gain.setValueAtTime(0.0001,t);
+    g.gain.exponentialRampToValueAtTime(vol||0.2,t+0.012);
+    g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
+    o.connect(g); g.connect(AC.destination); o.start(t); o.stop(t+dur+0.02);
+  }catch(e){}
+}
+function sMatch(combo){ const f=420+Math.min(combo,14)*46; tone(f,0.14,"triangle",0.22,f*1.5); tone(f/2,0.1,"sine",0.08); }
+function sDraw(){ tone(240,0.12,"sawtooth",0.14,150); }
+function sWrong(){ tone(170,0.09,"square",0.10,120); }
+function sLocked(){ tone(120,0.08,"sine",0.10); }
+function sReveal(){ tone(880,0.18,"sine",0.12,1320); }
+function sClear(){ [523,659,784,1046,1318].forEach((f,i)=>setTimeout(()=>tone(f,0.22,"triangle",0.2,f*1.3),i*90)); }
+function sOver(){ [400,320,250,180].forEach((f,i)=>setTimeout(()=>tone(f,0.22,"sawtooth",0.16,f*0.8),i*110)); }
+function sRecord(){ [660,880,1046,1320,1600].forEach((f,i)=>setTimeout(()=>tone(f,0.2,"square",0.16,f*1.2),i*80)); }
+
+// ====== 儲存最高分 ======
+const KEY="catshadow_best";
+let best=0; try{ best=parseInt(localStorage.getItem(KEY)||"0",10)||0; }catch(e){best=0;}
+
+// ====== 牌陣配置 ======
+const cols=5, cw=62, ch=64, regionX=30, regionY=94, rowStep=ch*0.6;
+// 9 種數字用的和諧色盤
+const PAL=["#e8574a","#ef8f3c","#f2c94c","#7bd66a","#4bc0a8","#54a0e0","#7a6cf0","#c86fd6","#ef6fa0"];
+
+// ====== 遊戲狀態 ======
+let state="title"; // title / play / clear / over
+let G=null;
+let particles=[];
+let floaters=[];
+let shake=0, flash=0, dim=0;
+let clearTimer=0, revealTimer=0;
+let paused=false;
+let lastAction=0, nowT=0;
+let overInfo={score:0,rec:false,diff:0};
+
+function rnd(n){ return Math.floor(Math.random()*n); }
+
+// 產生第 L 層的牌陣
+function newLevel(L){
+  const rows=Math.min(4+(L-1),7);
+  const cards=[];
+  for(let r=0;r<rows;r++){
+    for(let c=0;c<cols;c++){
+      const x=regionX + c*cw + (r%2)*cw/2;
+      const y=regionY + r*rowStep;
+      cards.push({r,c,x,y,val:1+rnd(9),removed:false,anim:0});
+    }
+  }
+  // 預算每張牌的「壓牌者」（下一排水平重疊者）
+  cards.forEach(a=>{
+    a.coverers=cards.filter(b=>b.r===a.r+1 && Math.abs(b.x-a.x)<cw*0.75);
+  });
+  const total=cards.length;
+  // 抽牌堆（安全閥）：斷路時可換中央罐頭，數量隨層數收斂製造張力
+  let stockN=Math.max(6, Math.round(total*0.8)-(L-1)*3);
+  const stock=[];
+  for(let i=0;i<stockN;i++) stock.push(1+rnd(9));
+  const base=stock.pop(); // 首張中央牌免費給
+  // 浮現時限：第 1 層無限（前 15 秒保證安全），之後逐層收緊但有下限
+  const tLimit = L<2 ? 0 : Math.max(22, 60-(L-2)*7);
+  return {L,rows,cards,total,stock,base,left:total,
+    time:tLimit,timeMax:tLimit,hint:null,hintPulse:0};
+}
+
+function startGame(){
+  audioReady();
+  G={score:0, level:1, combo:0, maxCombo:0, ...newLevel(1)};
+  particles=[]; floaters=[]; shake=0; flash=0; dim=0;
+  state="play"; lastAction=nowT;
+}
+
+// 判斷是否可自由點選（壓牌者都被移除）
+function isFree(a){ if(a.removed) return false; return a.coverers.every(b=>b.removed); }
+function matchBase(v){ return v===G.base-1 || v===G.base+1; }
+
+// 揭曉特效
+function burst(x,y,color,n){
+  for(let i=0;i<n;i++){
+    const ang=Math.random()*Math.PI*2, sp=40+Math.random()*160;
+    particles.push({x,y,vx:Math.cos(ang)*sp,vy:Math.sin(ang)*sp-30,
+      life:0.5+Math.random()*0.4,age:0,col:color,sz:2+Math.random()*4});
+  }
+}
+function floatText(x,y,txt,col,big){ floaters.push({x,y,txt,col,age:0,life:0.9,big:big||false}); }
+
+// 點掉一張牌
+function playCard(a){
+  a.removed=true; a.anim=0.001;
+  G.left--;
+  G.combo++; if(G.combo>G.maxCombo)G.maxCombo=G.combo;
+  const gain=5*G.combo;
+  G.score+=gain;
+  G.base=a.val;
+  const cx=a.x+cw/2, cy=a.y+ch/2;
+  burst(cx,cy,PAL[a.val-1],G.combo>=5?18:11);
+  floatText(cx,cy-6,"+"+gain,"#fff",G.combo>=5);
+  if(G.combo>=2) floatText(cx,cy-26,"連擊 x"+G.combo,"#ffe27a",G.combo>=8);
+  sMatch(G.combo);
+  revealTimer=0.25;
+  if(G.combo>=5) shake=Math.min(10,4+G.combo*0.3);
+  if(G.combo===5||G.combo===10){ flash=0.35; sReveal(); }
+  lastAction=nowT; G.hint=null;
+  if(G.left<=0){ levelClear(); return; }
+}
+
+// 從抽牌堆換中央牌（斷連擊＝損失趨避）
+function doDraw(){
+  if(!G.stock.length) return;
+  if(G.combo>=3){ shake=6; dim=0.4; sDraw(); }
+  else sDraw();
+  G.base=G.stock.pop();
+  if(G.combo>=2) floatText(200,470,"連擊中斷!","#ff8a8a",true);
+  G.combo=0;
+  lastAction=nowT; G.hint=null;
+  checkDead();
+}
+
+// 是否還有任何一步
+function anyMove(){ return G.cards.some(a=>isFree(a)&&matchBase(a.val)); }
+function checkDead(){
+  if(state!=="play") return;
+  if(!anyMove() && G.stock.length===0) gameOver("dead");
+}
+
+function levelClear(){
+  state="clear"; clearTimer=0;
+  const stockBonus=G.stock.length*8;
+  const timeBonus=G.time>0?Math.round(G.time)*3:0;
+  G.pendingBonus=stockBonus+timeBonus+50;
+  G.score+=G.pendingBonus;
+  sClear(); flash=0.6;
+  // 全圖揭曉的慶祝彩帶
+  for(let i=0;i<60;i++){
+    particles.push({x:regionX+Math.random()*310,y:regionY+Math.random()*260,
+      vx:(Math.random()-0.5)*120,vy:-40-Math.random()*120,
+      life:1.1+Math.random()*0.6,age:0,col:PAL[rnd(9)],sz:3+Math.random()*4});
+  }
+}
+function nextLevel(){
+  G.level++;
+  Object.assign(G, newLevel(G.level));
+  G.combo=0; state="play"; lastAction=nowT;
+}
+
+function gameOver(reason){
+  if(state==="over") return;
+  state="over";
+  const rec=G.score>best;
+  overInfo={score:G.score, rec, diff:rec?0:best-G.score, reason};
+  if(rec){ best=G.score; try{localStorage.setItem(KEY,String(best));}catch(e){} sRecord(); flash=0.7; }
+  else sOver();
+  if(window.SC){ try{ SC.over(G.score); }catch(e){} }
+}
+
+// ====== 繪製工具 ======
+function rr(g,x,y,w,h,r){ g.beginPath();
+  g.moveTo(x+r,y); g.arcTo(x+w,y,x+w,y+h,r); g.arcTo(x+w,y+h,x,y+h,r);
+  g.arcTo(x,y+h,x,y,r); g.arcTo(x,y,x+w,y,r); g.closePath(); }
+
+// 畫躲在牌底下的史萊姆貓（每層換心情/色相）
+function drawScene(g,L){
+  const X=regionX-6,Y=regionY-6,W=310+12,H=(G.rows-1)*rowStep+ch+12;
+  const hue=(L*47)%360;
+  g.save();
+  rr(g,X,Y,W,H,14); g.clip();
+  // 背景
+  const bg=g.createLinearGradient(0,Y,0,Y+H);
+  bg.addColorStop(0,"hsl("+hue+",45%,26%)");
+  bg.addColorStop(1,"hsl("+((hue+40)%360)+",50%,16%)");
+  g.fillStyle=bg; g.fillRect(X,Y,W,H);
+  // 光暈
+  const gl=g.createRadialGradient(X+W/2,Y+H*0.42,10,X+W/2,Y+H*0.42,W*0.7);
+  gl.addColorStop(0,"hsla("+hue+",60%,60%,.35)"); gl.addColorStop(1,"transparent");
+  g.fillStyle=gl; g.fillRect(X,Y,W,H);
+  // 貓身（綠色史萊姆＋貓耳）
+  const cx=X+W/2, by=Y+H*0.58, bw=W*0.5, bh=H*0.42;
+  g.fillStyle="#4fd07a";
+  // 耳朵
+  g.beginPath(); g.moveTo(cx-bw*0.55,by-bh*0.75); g.lineTo(cx-bw*0.2,by-bh*0.55);
+  g.lineTo(cx-bw*0.62,by-bh*0.15); g.closePath(); g.fill();
+  g.beginPath(); g.moveTo(cx+bw*0.55,by-bh*0.75); g.lineTo(cx+bw*0.2,by-bh*0.55);
+  g.lineTo(cx+bw*0.62,by-bh*0.15); g.closePath(); g.fill();
+  g.fillStyle="#7be89b"; // 耳內
+  g.beginPath(); g.moveTo(cx-bw*0.45,by-bh*0.62); g.lineTo(cx-bw*0.28,by-bh*0.52);
+  g.lineTo(cx-bw*0.48,by-bh*0.3); g.closePath(); g.fill();
+  g.beginPath(); g.moveTo(cx+bw*0.45,by-bh*0.62); g.lineTo(cx+bw*0.28,by-bh*0.52);
+  g.lineTo(cx+bw*0.48,by-bh*0.3); g.closePath(); g.fill();
+  // 果凍身體
+  const bodyGrad=g.createLinearGradient(0,by-bh*0.6,0,by+bh);
+  bodyGrad.addColorStop(0,"#63e08c"); bodyGrad.addColorStop(1,"#37b866");
+  g.fillStyle=bodyGrad;
+  g.beginPath();
+  g.moveTo(cx-bw,by);
+  g.quadraticCurveTo(cx-bw,by-bh, cx,by-bh);
+  g.quadraticCurveTo(cx+bw,by-bh, cx+bw,by);
+  // 底部滴垂
+  g.quadraticCurveTo(cx+bw,by+bh*0.9, cx+bw*0.5,by+bh*0.75);
+  g.quadraticCurveTo(cx+bw*0.25,by+bh*1.05, cx,by+bh*0.8);
+  g.quadraticCurveTo(cx-bw*0.25,by+bh*1.05, cx-bw*0.5,by+bh*0.75);
+  g.quadraticCurveTo(cx-bw,by+bh*0.9, cx-bw,by);
+  g.closePath(); g.fill();
+  // 高光
+  g.fillStyle="rgba(255,255,255,.25)";
+  g.beginPath(); g.ellipse(cx-bw*0.4,by-bh*0.4,bw*0.22,bh*0.22,0,0,7); g.fill();
+  // 臉：依層換心情
+  const mood=L%5;
+  g.fillStyle="#20303a";
+  const ey=by-bh*0.05, ex=bw*0.34, er=bh*0.12;
+  if(mood===1){ // 眨眼
+    g.beginPath(); g.ellipse(cx-ex,ey,er,er,0,0,7); g.fill();
+    g.lineWidth=4; g.strokeStyle="#20303a";
+    g.beginPath(); g.moveTo(cx+ex-er,ey); g.lineTo(cx+ex+er,ey); g.stroke();
+  } else if(mood===2){ // 愛心眼
+    g.fillStyle="#ff6f91";
+    [-1,1].forEach(s=>{ g.beginPath();
+      g.moveTo(cx+s*ex,ey+er*0.5);
+      g.bezierCurveTo(cx+s*ex-er,ey-er*0.6,cx+s*ex-er*0.2,ey-er,cx+s*ex,ey-er*0.3);
+      g.bezierCurveTo(cx+s*ex+er*0.2,ey-er,cx+s*ex+er,ey-er*0.6,cx+s*ex,ey+er*0.5);
+      g.fill(); });
+    g.fillStyle="#20303a";
+  } else if(mood===3){ // 墨鏡
+    g.fillRect(cx-ex-er,ey-er*0.7,er*2,er*1.4);
+    g.fillRect(cx+ex-er,ey-er*0.7,er*2,er*1.4);
+    g.fillRect(cx-er*0.4,ey-er*0.3,er*0.8,er*0.4);
+  } else { // 普通亮眼
+    g.beginPath(); g.ellipse(cx-ex,ey,er,er*1.15,0,0,7); g.fill();
+    g.beginPath(); g.ellipse(cx+ex,ey,er,er*1.15,0,0,7); g.fill();
+    g.fillStyle="#fff";
+    g.beginPath(); g.arc(cx-ex+2,ey-2,er*0.32,0,7); g.fill();
+    g.beginPath(); g.arc(cx+ex+2,ey-2,er*0.32,0,7); g.fill();
+    g.fillStyle="#20303a";
+  }
+  // 腮紅
+  g.fillStyle="rgba(255,140,170,.55)";
+  g.beginPath(); g.ellipse(cx-ex*1.15,ey+er*1.4,er*0.7,er*0.5,0,0,7); g.fill();
+  g.beginPath(); g.ellipse(cx+ex*1.15,ey+er*1.4,er*0.7,er*0.5,0,0,7); g.fill();
+  // 嘴
+  g.strokeStyle="#20303a"; g.lineWidth=3; g.lineCap="round";
+  g.beginPath();
+  if(mood===4){ g.arc(cx,ey+er*1.6,er*0.9,0.15*Math.PI,0.85*Math.PI); }
+  else { g.moveTo(cx-er*0.5,ey+er*1.8); g.quadraticCurveTo(cx,ey+er*2.6,cx+er*0.5,ey+er*1.8); }
+  g.stroke();
+  g.restore();
+}
+
+// 畫一張貓罐頭
+function drawCan(g,a){
+  const free=isFree(a), lock=!free, play=free&&matchBase(a.val);
+  let x=a.x,y=a.y,w=cw-4,h=ch-4;
+  g.save();
+  g.translate(x+2,y+2);
+  const col=PAL[a.val-1];
+  // 陰影
+  g.fillStyle="rgba(0,0,0,.35)"; rr(g,2,4,w,h,10); g.fill();
+  // 罐身
+  g.fillStyle= lock ? shade(col,-0.42) : col;
+  rr(g,0,0,w,h,10); g.fill();
+  // 頂蓋條
+  g.fillStyle=lock?shade(col,-0.25):shade(col,0.22);
+  rr(g,0,0,w,h*0.32,10); g.fill();
+  g.fillStyle="rgba(255,255,255,.18)"; rr(g,4,3,w-8,h*0.2,5); g.fill();
+  // 數字
+  g.fillStyle= lock? "rgba(255,255,255,.55)":"#241a12";
+  g.font="bold 30px system-ui"; g.textAlign="center"; g.textBaseline="middle";
+  g.fillText(a.val, w/2, h*0.6);
+  // 小魚符號（點數示意）
+  g.font="12px system-ui"; g.fillStyle=lock?"rgba(255,255,255,.4)":"rgba(40,26,18,.7)";
+  g.fillText("🐟", w/2, h*0.86);
+  // 可點的金色脈動外框
+  if(play){
+    const p=0.5+0.5*Math.sin(nowT*6);
+    g.lineWidth=3; g.strokeStyle="rgba(255,220,120,"+(0.55+0.4*p)+")";
+    rr(g,-1,-1,w+2,h+2,11); g.stroke();
+  }
+  g.restore();
+}
+function shade(hex,amt){
+  const n=parseInt(hex.slice(1),16);
+  let r=(n>>16)&255,gg=(n>>8)&255,b=n&255;
+  if(amt>0){ r+= (255-r)*amt; gg+=(255-gg)*amt; b+=(255-b)*amt; }
+  else { r*= (1+amt); gg*=(1+amt); b*=(1+amt); }
+  return "rgb("+(r|0)+","+(gg|0)+","+(b|0)+")";
+}
+
+// ====== 主渲染 ======
+function render(){
+  ctx.save();
+  if(shake>0){ ctx.translate((Math.random()-0.5)*shake,(Math.random()-0.5)*shake); }
+  // 背景
+  ctx.fillStyle="#171326"; ctx.fillRect(-20,-20,LW+40,LH+40);
+
+  if(state==="title"){ renderTitle(); ctx.restore(); return; }
+
+  // 頂部資訊
+  ctx.textAlign="left"; ctx.textBaseline="alphabetic";
+  ctx.fillStyle="#c9f5d6"; ctx.font="bold 15px system-ui";
+  ctx.fillText("喵影浮現", 12, 24);
+  ctx.textAlign="right"; ctx.fillStyle="#8fb0d8"; ctx.font="12px system-ui";
+  ctx.fillText("最高 "+best, LW-12, 20);
+  ctx.textAlign="left"; ctx.fillStyle="#fff"; ctx.font="bold 26px system-ui";
+  ctx.fillText(G.score, 12, 54);
+  ctx.textAlign="right"; ctx.fillStyle="#ffd76a"; ctx.font="bold 14px system-ui";
+  ctx.fillText("第 "+G.level+" 層", LW-12, 42);
+  const pct=Math.round((G.total-G.left)/G.total*100);
+  ctx.fillStyle="#9be7b0"; ctx.font="12px system-ui";
+  ctx.fillText("浮現 "+pct+"%", LW-12, 60);
+  // 連擊
+  if(G.combo>=2){
+    ctx.textAlign="left";
+    const sc=1+Math.min(G.combo,12)*0.04;
+    ctx.save(); ctx.translate(120,50); ctx.scale(sc,sc);
+    ctx.fillStyle="#ffe27a"; ctx.font="bold 20px system-ui";
+    ctx.fillText("連擊 x"+G.combo, 0, 4); ctx.restore();
+  }
+
+  // 躲在牌底下的貓（拼圖本體）
+  drawScene(ctx,G.level);
+  if(revealTimer>0){ // 剝落瞬間閃光
+    ctx.fillStyle="rgba(255,255,255,"+(revealTimer*0.5)+")";
+    rr(ctx,regionX-6,regionY-6,322,(G.rows-1)*rowStep+ch+12,14); ctx.fill();
+  }
+
+  // 罐頭（由上排到下排，下排覆蓋上排）
+  for(let r=0;r<G.rows;r++)
+    for(let c=0;c<cols;c++){
+      const a=G.cards[r*cols+c];
+      if(a.removed) continue;
+      drawCan(ctx,a);
+    }
+
+  // 提示脈動
+  if(G.hint && !G.hint.removed){
+    const p=0.5+0.5*Math.sin(nowT*8);
+    ctx.lineWidth=4; ctx.strokeStyle="rgba(120,240,255,"+(0.4+0.5*p)+")";
+    rr(ctx,G.hint.x,G.hint.y,cw-4,ch-4,11); ctx.stroke();
+  }
+
+  // 時限條
+  if(G.timeMax>0){
+    const bw=LW-60, bx=30, byy=430;
+    ctx.fillStyle="rgba(255,255,255,.12)"; rr(ctx,bx,byy,bw,8,4); ctx.fill();
+    const frac=Math.max(0,G.time/G.timeMax);
+    ctx.fillStyle= frac<0.25?"#ff6f6f":(frac<0.5?"#ffb347":"#6fd0ff");
+    rr(ctx,bx,byy,bw*frac,8,4); ctx.fill();
+    ctx.textAlign="center"; ctx.fillStyle="#cfe6ff"; ctx.font="11px system-ui";
+    ctx.fillText("浮現時限 "+Math.ceil(G.time)+"s", LW/2, byy-4);
+  } else {
+    ctx.textAlign="center"; ctx.fillStyle="#7fdf99"; ctx.font="11px system-ui";
+    ctx.fillText("教學層 · 慢慢點", LW/2, 428);
+  }
+
+  // 中央基準罐頭
+  const baseX=200, baseY=505;
+  ctx.save(); ctx.translate(baseX-46,baseY-52);
+  const fake={x:0,y:0,val:G.base,removed:false,coverers:[]};
+  // 直接畫大一號基準牌
+  const w=92,h=104,col=PAL[G.base-1];
+  ctx.fillStyle="rgba(0,0,0,.4)"; rr(ctx,4,6,w,h,14); ctx.fill();
+  ctx.fillStyle=col; rr(ctx,0,0,w,h,14); ctx.fill();
+  ctx.fillStyle=shade(col,0.22); rr(ctx,0,0,w,h*0.3,14); ctx.fill();
+  ctx.fillStyle="#241a12"; ctx.font="bold 52px system-ui";
+  ctx.textAlign="center"; ctx.textBaseline="middle";
+  ctx.fillText(G.base,w/2,h*0.58);
+  ctx.restore();
+  ctx.textAlign="center"; ctx.textBaseline="alphabetic";
+  ctx.fillStyle="#ffe9a8"; ctx.font="bold 13px system-ui";
+  const lo=G.base-1, hi=G.base+1;
+  let hintStr= (lo>=1?lo:"—")+" 或 "+(hi<=9?hi:"—");
+  ctx.fillText("點 "+hintStr, baseX, baseY+70);
+
+  // 抽牌堆（左）
+  const dkX=64, dkY=505;
+  ctx.save();
+  for(let i=Math.min(3,G.stock.length)-1;i>=0;i--){
+    ctx.fillStyle= G.stock.length? "#5b4b7a":"#3a3350";
+    rr(ctx,dkX-24-i*2, dkY-30-i*2, 48,60,10); ctx.fill();
+    ctx.strokeStyle="rgba(255,255,255,.15)"; ctx.lineWidth=1;
+    rr(ctx,dkX-24-i*2, dkY-30-i*2, 48,60,10); ctx.stroke();
+  }
+  if(!G.stock.length){ rr(ctx,dkX-24,dkY-30,48,60,10); ctx.fillStyle="#2c2740"; ctx.fill(); }
+  ctx.fillStyle="#fff"; ctx.font="bold 18px system-ui"; ctx.textAlign="center";
+  ctx.fillText("↻",dkX,dkY+2);
+  ctx.fillStyle="#cbb8ef"; ctx.font="11px system-ui";
+  ctx.fillText("抽 "+G.stock.length, dkX, dkY+34);
+  ctx.restore();
+
+  // 提示鈕（右）
+  const hbX=336;
+  ctx.fillStyle="rgba(90,120,160,.4)"; rr(ctx,hbX-30,dkY-28,60,56,12); ctx.fill();
+  ctx.fillStyle="#bfe4ff"; ctx.font="22px system-ui"; ctx.textAlign="center";
+  ctx.fillText("💡",hbX,dkY+2);
+  ctx.font="11px system-ui"; ctx.fillText("提示",hbX,dkY+34);
+
+  // 粒子/飄字
+  renderFx();
+
+  // 全域閃白/變暗
+  if(flash>0){ ctx.fillStyle="rgba(255,255,255,"+flash*0.5+")"; ctx.fillRect(-20,-20,LW+40,LH+40); }
+  if(dim>0){ ctx.fillStyle="rgba(20,10,30,"+dim*0.6+")"; ctx.fillRect(-20,-20,LW+40,LH+40); }
+
+  if(state==="clear") renderClear();
+  if(state==="over") renderOver();
+  ctx.restore();
+}
+
+function renderFx(){
+  particles.forEach(p=>{
+    const al=Math.max(0,1-p.age/p.life);
+    ctx.globalAlpha=al; ctx.fillStyle=p.col;
+    ctx.beginPath(); ctx.arc(p.x,p.y,p.sz,0,7); ctx.fill();
+  });
+  ctx.globalAlpha=1;
+  floaters.forEach(f=>{
+    const al=Math.max(0,1-f.age/f.life);
+    ctx.globalAlpha=al; ctx.fillStyle=f.col;
+    ctx.font="bold "+(f.big?22:16)+"px system-ui"; ctx.textAlign="center";
+    ctx.fillText(f.txt,f.x,f.y);
+  });
+  ctx.globalAlpha=1;
+}
+
+function renderTitle(){
+  ctx.textAlign="center";
+  // 示範貓
+  const demoG={rows:5,level:2};
+  const save=G; G={rows:5}; drawScene(ctx,3); G=save;
+  ctx.fillStyle="rgba(20,15,35,.55)"; ctx.fillRect(-20,-20,LW+40,LH+40);
+  ctx.fillStyle="#8ef0a8"; ctx.font="bold 40px system-ui";
+  ctx.fillText("喵影浮現", LW/2, 150);
+  ctx.font="16px system-ui"; ctx.fillStyle="#ffe27a";
+  ctx.fillText("🐾 連消罐頭，揭開躲藏的史萊姆貓 🐾", LW/2, 186);
+
+  ctx.fillStyle="rgba(255,255,255,.08)"; rr(ctx,40,222,320,196,16); ctx.fill();
+  ctx.fillStyle="#dff5e6"; ctx.font="15px system-ui"; ctx.textAlign="left";
+  const lines=[
+    "規則：點掉數字比中央罐頭",
+    "　　「大 1 或小 1」的罐頭，",
+    "　　連續點下去揭開底下的貓！",
+    "",
+    "🖱️ 滑鼠／手指：點可亮的罐頭",
+    "↻ 空白鍵／點抽牌堆：換中央牌",
+    "　　（會中斷連擊，慎用）",
+    "🔢 數字鍵 1-9：快點同號罐頭",
+  ];
+  lines.forEach((t,i)=>ctx.fillText(t,58,252+i*21));
+
+  ctx.textAlign="center"; ctx.fillStyle="#9fd8ff"; ctx.font="13px system-ui";
+  ctx.fillText("最高分 "+best, LW/2, 452);
+  const p=0.5+0.5*Math.sin(nowT*3);
+  ctx.fillStyle="rgba(255,255,255,"+(0.6+0.4*p)+")"; ctx.font="bold 22px system-ui";
+  ctx.fillText("點擊開始", LW/2, 500);
+  ctx.fillStyle="#7fae90"; ctx.font="11px system-ui";
+  ctx.fillText("越晚的層數浮現時限越短 — 挑戰更深的喵影", LW/2, 540);
+}
+
+function renderClear(){
+  ctx.fillStyle="rgba(15,25,20,.55)"; ctx.fillRect(-20,-20,LW+40,LH+40);
+  ctx.textAlign="center"; ctx.fillStyle="#8ef0a8"; ctx.font="bold 30px system-ui";
+  ctx.fillText("第 "+G.level+" 層浮現完成！", LW/2, 250);
+  ctx.fillStyle="#fff"; ctx.font="18px system-ui";
+  ctx.fillText("獎勵 +"+G.pendingBonus, LW/2, 292);
+  ctx.fillStyle="#ffe27a"; ctx.font="15px system-ui";
+  ctx.fillText("目前分數 "+G.score, LW/2, 322);
+  const p=0.5+0.5*Math.sin(nowT*4);
+  ctx.fillStyle="rgba(255,255,255,"+(0.5+0.4*p)+")";
+  ctx.fillText("點擊進入下一層 →", LW/2, 372);
+}
+
+function renderOver(){
+  ctx.fillStyle="rgba(10,8,18,.72)"; ctx.fillRect(-20,-20,LW+40,LH+40);
+  ctx.textAlign="center";
+  if(overInfo.rec){
+    ctx.fillStyle="#ffd34d"; ctx.font="bold 34px system-ui";
+    ctx.fillText("🏆 新紀錄！", LW/2, 236);
+    ctx.fillStyle="#fff"; ctx.font="22px system-ui";
+    ctx.fillText(overInfo.score+" 分", LW/2, 278);
+  } else {
+    ctx.fillStyle="#ff8a8a"; ctx.font="bold 30px system-ui";
+    ctx.fillText(overInfo.reason==="time"?"時間到！":"喵影卡住了", LW/2, 232);
+    ctx.fillStyle="#fff"; ctx.font="20px system-ui";
+    ctx.fillText("本局 "+overInfo.score+" 分", LW/2, 272);
+    ctx.fillStyle="#ffd76a"; ctx.font="16px system-ui";
+    ctx.fillText("再 "+overInfo.diff+" 分就破紀錄！", LW/2, 302);
+  }
+  ctx.fillStyle="#9fd8ff"; ctx.font="13px system-ui";
+  ctx.fillText("抵達第 "+G.level+" 層 · 最高連擊 x"+G.maxCombo, LW/2, 338);
+  const p=0.5+0.5*Math.sin(nowT*4);
+  ctx.fillStyle="rgba(255,255,255,"+(0.6+0.4*p)+")"; ctx.font="bold 22px system-ui";
+  ctx.fillText("點擊 / 按鍵 再玩一局", LW/2, 400);
+}
+
+// ====== 更新（固定步長 accumulator，不受 fps 影響） ======
+let acc=0, prev=0;
+function update(dt){
+  nowT+=dt;
+  // 特效衰減
+  particles.forEach(p=>{ p.age+=dt; p.vy+=260*dt; p.x+=p.vx*dt; p.y+=p.vy*dt; });
+  particles=particles.filter(p=>p.age<p.life);
+  floaters.forEach(f=>{ f.age+=dt; f.y-=26*dt; });
+  floaters=floaters.filter(f=>f.age<f.life);
+  if(shake>0) shake=Math.max(0,shake-dt*24);
+  if(flash>0) flash=Math.max(0,flash-dt*2);
+  if(dim>0) dim=Math.max(0,dim-dt*2);
+  if(revealTimer>0) revealTimer=Math.max(0,revealTimer-dt*4);
+
+  if(state==="play" && !paused){
+    if(G.timeMax>0){
+      G.time-=dt;
+      if(G.time<=0){ G.time=0; gameOver("time"); }
+    }
+    // 閒置提示（延到 8 秒才給，避免太雞婆）
+    if(!G.hint && nowT-lastAction>8){
+      const cand=G.cards.filter(a=>isFree(a)&&matchBase(a.val));
+      if(cand.length) G.hint=cand[0];
+    }
+  }
+  if(state==="clear"){ clearTimer+=dt; }
+}
+
+function frame(t){
+  if(!prev) prev=t;
+  let dt=(t-prev)/1000; prev=t;
+  if(dt>0.05) dt=0.05; // 分頁切回不暴衝
+  acc+=dt;
+  // 固定 1/120 步長推進特效與計時
+  while(acc>=1/120){ update(1/120); acc-=1/120; }
+  render();
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+// ====== 輸入處理 ======
+function handlePoint(lx,ly){
+  audioReady();
+  if(state==="title"){ startGame(); return; }
+  if(state==="over"){ startGame(); return; }
+  if(state==="clear"){ if(clearTimer>0.5) nextLevel(); return; }
+  if(state!=="play") return;
+
+  // 抽牌堆
+  if(lx>36 && lx<92 && ly>470 && ly<540){ doDraw(); return; }
+  // 提示鈕
+  if(lx>306 && lx<366 && ly>472 && ly<538){
+    const cand=G.cards.filter(a=>isFree(a)&&matchBase(a.val));
+    if(cand.length){ G.hint=cand[0]; tone(600,0.1,"sine",0.12); }
+    else { sWrong(); }
+    lastAction=nowT; return;
+  }
+  // 中央基準牌本身當備援抽牌？ 不，避免誤觸。
+
+  // 牌陣：找點到的最上層（最大 r）罐頭
+  let hit=null;
+  for(let r=G.rows-1;r>=0 && !hit;r--)
+    for(let c=0;c<cols;c++){
+      const a=G.cards[r*cols+c];
+      if(a.removed) continue;
+      if(lx>=a.x && lx<=a.x+cw-4 && ly>=a.y && ly<=a.y+ch-4){ hit=a; break; }
+    }
+  if(!hit) return;
+  if(!isFree(hit)){ sLocked(); shake=Math.max(shake,3); return; } // 被壓住
+  if(matchBase(hit.val)){ playCard(hit); }
+  else { sWrong(); floatText(hit.x+cw/2,hit.y,"✗","#ff9a9a"); shake=Math.max(shake,2); } // 試錯零成本
+}
+
+cv.addEventListener("pointerdown",e=>{ e.preventDefault(); const p=toLogic(e); handlePoint(p.x,p.y); },{passive:false});
+// 防卡鍵/自走：離開視窗或取消都不保留輸入狀態
+cv.addEventListener("pointercancel",()=>{},{passive:true});
+window.addEventListener("blur",()=>{ paused=true; });
+document.addEventListener("visibilitychange",()=>{ paused=document.hidden; prev=0; });
+window.addEventListener("focus",()=>{ paused=false; prev=0; });
+
+window.addEventListener("keydown",e=>{
+  audioReady();
+  if(state==="title"||state==="over"){ startGame(); e.preventDefault(); return; }
+  if(state==="clear"){ if(clearTimer>0.5) nextLevel(); e.preventDefault(); return; }
+  if(state!=="play") return;
+  if(e.key===" "||e.key==="Enter"||e.key==="ArrowDown"){ doDraw(); e.preventDefault(); return; }
+  if(e.key==="h"||e.key==="H"){
+    const cand=G.cards.filter(a=>isFree(a)&&matchBase(a.val));
+    if(cand.length) G.hint=cand[0]; lastAction=nowT; e.preventDefault(); return;
+  }
+  const d=parseInt(e.key,10);
+  if(d>=1 && d<=9){
+    // 數字鍵：點最上層、可自由且符合的同號罐頭
+    let target=null;
+    for(let r=G.rows-1;r>=0 && !target;r--)
+      for(let c=0;c<cols;c++){
+        const a=G.cards[r*cols+c];
+        if(!a.removed && a.val===d && isFree(a) && matchBase(a.val)){ target=a; break; }
+      }
+    if(target) playCard(target);
+    else sWrong();
+    e.preventDefault();
+  }
+});
+})();
+</script>
+<script src="../../sc_config.js"></script>
+<script src="../../stats.js"></script>
+</body>
+</html>
