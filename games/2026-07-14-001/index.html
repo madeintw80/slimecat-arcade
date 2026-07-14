@@ -1,0 +1,534 @@
+<!--GAMEMETA {"title":"喵兵合體陣","emoji":"🐱","genre":"策略合成防禦","inspiration":"赵云与阿斗","desc":"拖曳合體同款史萊姆貓兵升階，自動禦敵，別讓格子塞爆"}-->
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>喵兵合體陣</title>
+<style>
+  /* 全站底色與置中，禁止捲動 */
+  html,body{margin:0;padding:0;height:100%;background:#0d1420;overflow:hidden;
+    font-family:"Microsoft JhengHei","PingFang TC",system-ui,sans-serif;
+    -webkit-tap-highlight-color:transparent;user-select:none;}
+  #wrap{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;}
+  canvas{display:block;touch-action:none;background:#111a2b;border-radius:10px;
+    box-shadow:0 8px 40px rgba(0,0,0,.6);}
+  /* 回大廳連結 */
+  #back{position:fixed;top:8px;left:10px;z-index:10;color:#8fd0a0;text-decoration:none;
+    font-size:14px;background:rgba(0,0,0,.35);padding:4px 10px;border-radius:14px;}
+  #back:hover{color:#c6f7d4;}
+</style>
+</head>
+<body>
+<a id="back" href="../../index.html">← 回遊戲區</a>
+<div id="wrap"><canvas id="cv"></canvas></div>
+<script>
+"use strict";
+(function(){
+// ====== 邏輯尺寸（固定 400x600 直式）======
+const LW=400, LH=600;
+const cv=document.getElementById('cv');
+const ctx=cv.getContext('2d');
+
+// ====== 高解析度輸出與等比縮放 ======
+let scale=1, dpr=1;
+function resize(){
+  const vw=window.innerWidth, vh=window.innerHeight;
+  scale=Math.min(vw/LW, vh/LH);                 // 等比縮放到視窗
+  const dw=Math.round(LW*scale), dh=Math.round(LH*scale);
+  dpr=Math.min(window.devicePixelRatio||1, 3);  // DPR 上限 3
+  cv.style.width=dw+'px'; cv.style.height=dh+'px';
+  cv.width=Math.round(dw*dpr); cv.height=Math.round(dh*dpr);
+  // 邏輯座標維持 400x600
+  ctx.setTransform(scale*dpr,0,0,scale*dpr,0,0);
+}
+window.addEventListener('resize',resize);
+resize();
+
+// ====== WebAudio 合成音效 ======
+let AC=null;
+function actx(){ if(!AC){ try{AC=new (window.AudioContext||window.webkitAudioContext)();}catch(e){AC=null;} } return AC; }
+function beep(freq,dur,type,vol,slideTo){
+  const ac=actx(); if(!ac||freq<=0) return;
+  try{
+    const o=ac.createOscillator(), g=ac.createGain();
+    o.type=type||'square'; o.frequency.setValueAtTime(freq,ac.currentTime);
+    if(slideTo&&slideTo>0) o.frequency.exponentialRampToValueAtTime(slideTo,ac.currentTime+dur);
+    g.gain.setValueAtTime(vol||0.2,ac.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.0001,ac.currentTime+dur);
+    o.connect(g); g.connect(ac.destination);
+    o.start(); o.stop(ac.currentTime+dur+0.02);
+  }catch(e){}
+}
+function sfxFire(){ beep(680,0.05,'square',0.04,520); }
+function sfxMerge(l){ const f=260+l*70; beep(f,0.16,'triangle',0.28,f*2); beep(f*1.5,0.10,'sine',0.12); }
+function sfxKill(){ beep(220,0.12,'square',0.16,90); }
+function sfxBreak(){ beep(130,0.28,'sawtooth',0.30,55); }
+function sfxTile(){ beep(440,0.06,'sine',0.07,660); }
+function sfxOver(){ beep(300,0.5,'sawtooth',0.3,70); }
+function sfxRecord(){ [523,659,784,1046].forEach((f,i)=>setTimeout(()=>beep(f,0.18,'triangle',0.25),i*110)); }
+
+// ====== 格盤幾何 ======
+const COLS=5, ROWS=4;
+const GL=8, GT=322, GR=392, GB=594;
+const CW=(GR-GL)/COLS, CH=(GB-GT)/ROWS;
+const CR=Math.min(CW,CH)*0.42;               // 貓半徑
+const DEFENSE_Y=314;                         // 防線
+function cellCX(c){ return GL+CW*(c+0.5); }
+function cellCY(r){ return GT+CH*(r+0.5); }
+function cellAt(x,y){
+  if(x<GL||x>GR||y<GT||y>GB) return null;
+  const c=Math.floor((x-GL)/CW), r=Math.floor((y-GT)/CH);
+  if(c<0||c>=COLS||r<0||r>=ROWS) return null;
+  return {r,c};
+}
+
+// ====== 貓兵等級名（史萊姆貓宇宙，非原作角色）======
+const NAMES=['喵兵','喵衛','喵騎','喵尉','喵將','喵帥','喵王','喵神'];
+function catName(l){ return l<=NAMES.length? NAMES[l-1] : '喵皇＋'; }
+function catDmg(l){ return l*3+2; }                              // 傷害隨等級
+function catCd(l){ return Math.max(0.28, 1.05-l*0.09); }        // 射擊冷卻
+function catColor(l){ const k=Math.min(l,8); return 'hsl('+(108+k*7)+','+ (60+k*3) +'%,'+(42+k*4)+'%)'; }
+
+// ====== 遊戲狀態 ======
+let state='title';   // title / play / over
+let grid, enemies, projs, parts, floats;
+let hp, score, best, gameT;
+let eSpawnT, tSpawnT, shake, flash, warnPulse;
+let deathReason='';
+let isRecord=false, reported=false;
+let drag=null;                      // 指標拖曳中的貓
+let cur={r:3,c:2}, hold=null;       // 鍵盤游標與拿取
+try{ best=parseInt(localStorage.getItem('catmerge_best')||'0',10)||0; }catch(e){ best=0; }
+
+function reset(){
+  grid=[]; for(let r=0;r<ROWS;r++){ grid.push(new Array(COLS).fill(null)); }
+  enemies=[]; projs=[]; parts=[]; floats=[];
+  hp=5; score=0; gameT=0;
+  eSpawnT=1.2; tSpawnT=1.0; shake=0; flash=0; warnPulse=0;
+  deathReason=''; isRecord=false; reported=false; drag=null; hold=null;
+  cur={r:3,c:2};
+  // 開局先給 4 隻，讓玩家馬上有得合（早期成功）
+  for(let i=0;i<4;i++) spawnTile(1);
+}
+
+function newCat(l){ return {level:l, cd:catCd(l)*0.5, pop:1, recoil:0}; }
+
+function spawnTile(forceLv){
+  const empty=[];
+  for(let r=0;r<ROWS;r++) for(let c=0;c<COLS;c++) if(!grid[r][c]) empty.push([r,c]);
+  if(empty.length===0){ gameOver('grid'); return; }
+  const p=empty[(Math.floor((gameT*97+empty.length*13)%empty.length))];
+  // 後期偶爾掉 2 階（增援也增加塞爆風險）
+  let lv=forceLv||1;
+  if(!forceLv && gameT>50 && (Math.floor(gameT*7)%5===0)) lv=2;
+  grid[p[0]][p[1]]=newCat(lv);
+  sfxTile();
+}
+
+// ====== 敵人 ======
+function spawnEnemy(){
+  const elite = gameT>40 && ((Math.floor(gameT*11)%100)/100) < Math.min(0.35,(gameT-40)*0.004);
+  let mhp=Math.round(4+gameT*0.14);
+  let spd=22+gameT*0.16;
+  if(elite){ mhp=Math.round(mhp*2.3); spd*=0.8; }
+  spd=Math.min(spd,72);
+  const x=30+ (Math.floor(gameT*53)%1000)/1000*(LW-60);
+  enemies.push({x:x, y:46, hp:mhp, mhp:mhp, spd:spd, elite:!!elite, r: elite?18:14, hitT:0});
+}
+
+function nearestEnemy(x,y){
+  let best=null, bd=1e9;
+  for(const e of enemies){ const dx=e.x-x, dy=e.y-y, d=dx*dx+dy*dy; if(d<bd){bd=d;best=e;} }
+  return best;
+}
+
+function addParticles(x,y,color,n,spd){
+  for(let i=0;i<n;i++){
+    const a=(i/n)*6.283+ (gameT*3);
+    const s=spd*(0.4+ (i%5)/5);
+    if(parts.length<220) parts.push({x:x,y:y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,life:0.5,mx:0.5,c:color,r:2+ (i%3)});
+  }
+}
+function addFloat(x,y,txt,color){ floats.push({x:x,y:y,txt:txt,c:color,life:0.9,mx:0.9}); }
+
+// ====== 合體 / 移動 判定 ======
+function resolveDrop(sr,sc,tr,tc){
+  if(sr===tr&&sc===tc) return false;
+  const src=grid[sr][sc]; if(!src) return false;
+  const tgt=grid[tr][tc];
+  if(!tgt){ // 移到空格（重新佈陣）
+    grid[tr][tc]=src; grid[sr][sc]=null; src.pop=Math.max(src.pop,0.4);
+    return true;
+  }
+  if(tgt.level===src.level){ // 同階合體升級
+    const nl=src.level+1;
+    grid[tr][tc]=newCat(nl); grid[sr][sc]=null;
+    const gain=nl*10; score+=gain;
+    const cx=cellCX(tc), cy=cellCY(tr);
+    addParticles(cx,cy,catColor(nl),14+nl*2, 90+nl*8);
+    addFloat(cx,cy-CR,'+'+gain,'#ffe08a');
+    if(nl>=3) addFloat(cx,cy-8,catName(nl)+'！','#fff');
+    shake=Math.min(14,4+nl*1.4); flash=Math.max(flash,nl>=5?0.5:0.25);
+    sfxMerge(nl);
+    return true;
+  }
+  return false; // 不同階 → 彈回
+}
+
+// ====== 遊戲結束 ======
+function gameOver(reason){
+  if(state!=='play') return;
+  state='over';
+  deathReason = reason==='grid' ? '格子塞爆了！' : '防線被攻破！';
+  if(score>best){ best=score; isRecord=true; try{localStorage.setItem('catmerge_best',String(best));}catch(e){} sfxRecord(); }
+  else { sfxOver(); }
+  // 匿名數據回報（僅一次）
+  if(!reported){ reported=true; try{ if(window.SC) SC.over(score); }catch(e){} }
+}
+
+// ====== 更新（固定時間步長 1/60）======
+function step(dt){
+  if(state!=='play') return;
+  gameT+=dt;
+  if(shake>0) shake=Math.max(0,shake-dt*30);
+  if(flash>0) flash=Math.max(0,flash-dt*1.6);
+  warnPulse+=dt;
+
+  // 敵人生成（隨時間加速）
+  eSpawnT-=dt;
+  if(eSpawnT<=0){ if(enemies.length<70) spawnEnemy(); eSpawnT=Math.max(0.55,2.1-gameT*0.012); }
+
+  // 貓兵生成（第 3 分鐘後更快 → 塞爆壓力升級）
+  tSpawnT-=dt;
+  if(tSpawnT<=0){ spawnTile(0); let base=Math.max(0.95,2.5-gameT*0.013); if(gameT>90) base=Math.max(0.75,base-0.35); tSpawnT=base; }
+
+  // 敵人移動 / 破防
+  for(let i=enemies.length-1;i>=0;i--){
+    const e=enemies[i];
+    e.y+=e.spd*dt; if(e.hitT>0) e.hitT-=dt;
+    if(e.y>=DEFENSE_Y){
+      enemies.splice(i,1);
+      hp-=e.elite?2:1; shake=12; flash=Math.max(flash,0.6);
+      addParticles(e.x,DEFENSE_Y,'#ff5a5a',16,120); sfxBreak();
+      if(hp<=0){ hp=0; gameOver('hp'); return; }
+    }
+  }
+
+  // 貓兵射擊（自動瞄準最近敵人）
+  for(let r=0;r<ROWS;r++) for(let c=0;c<COLS;c++){
+    const cat=grid[r][c]; if(!cat) continue;
+    if(cat.pop>0) cat.pop=Math.max(0,cat.pop-dt*3);
+    if(cat.recoil>0) cat.recoil=Math.max(0,cat.recoil-dt*4);
+    cat.cd-=dt;
+    if(cat.cd<=0){
+      const cx=cellCX(c), cy=cellCY(r);
+      const e=nearestEnemy(cx,cy);
+      if(e){ projs.push({x:cx,y:cy,t:e,dmg:catDmg(cat.level),col:catColor(cat.level),life:1.6}); cat.cd=catCd(cat.level); cat.recoil=1; if(Math.floor(gameT*10)%2===0) sfxFire(); }
+      else cat.cd=0.15;
+    }
+  }
+
+  // 子彈
+  for(let i=projs.length-1;i>=0;i--){
+    const p=projs[i]; p.life-=dt;
+    let tx,ty;
+    if(p.t && enemies.indexOf(p.t)>=0){ tx=p.t.x; ty=p.t.y; } else { p.t=null; tx=p.x; ty=p.y-200; }
+    const dx=tx-p.x, dy=ty-p.y, d=Math.hypot(dx,dy)||1;
+    const sp=430*dt; p.x+=dx/d*sp; p.y+=dy/d*sp;
+    if(p.t && d<p.t.r+6){
+      p.t.hp-=p.dmg; p.t.hitT=0.12;
+      addParticles(p.t.x,p.t.y,p.col,5,70);
+      if(p.t.hp<=0){
+        const e=p.t; const idx=enemies.indexOf(e);
+        if(idx>=0) enemies.splice(idx,1);
+        const gain=Math.round(e.mhp*1.2)+2; score+=gain;
+        addParticles(e.x,e.y,e.elite?'#ffcf5a':'#ff8a8a',e.elite?18:10,110);
+        addFloat(e.x,e.y,'+'+gain,'#9ff5b0'); sfxKill();
+      }
+      projs.splice(i,1); continue;
+    }
+    if(p.life<=0) projs.splice(i,1);
+  }
+
+  // 粒子 / 飄字
+  for(let i=parts.length-1;i>=0;i--){ const q=parts[i]; q.x+=q.vx*dt;q.y+=q.vy*dt;q.vy+=140*dt;q.life-=dt; if(q.life<=0) parts.splice(i,1); }
+  for(let i=floats.length-1;i>=0;i--){ const f=floats[i]; f.y-=26*dt; f.life-=dt; if(f.life<=0) floats.splice(i,1); }
+}
+
+// ====== 繪製 ======
+function drawSlimeCat(x,y,r,level,alpha){
+  ctx.save(); ctx.globalAlpha=alpha==null?1:alpha;
+  const col=catColor(level);
+  // 身體
+  ctx.fillStyle=col;
+  ctx.beginPath(); ctx.arc(x,y+r*0.12,r,0,6.283); ctx.fill();
+  // 貓耳
+  ctx.beginPath();
+  ctx.moveTo(x-r*0.7,y-r*0.5); ctx.lineTo(x-r*0.25,y-r*0.95); ctx.lineTo(x-r*0.1,y-r*0.4); ctx.closePath();
+  ctx.moveTo(x+r*0.7,y-r*0.5); ctx.lineTo(x+r*0.25,y-r*0.95); ctx.lineTo(x+r*0.1,y-r*0.4); ctx.closePath();
+  ctx.fill();
+  // 高階皇冠
+  if(level>=6){ ctx.fillStyle='#ffd34d'; ctx.beginPath();
+    ctx.moveTo(x-r*0.5,y-r*0.7); ctx.lineTo(x-r*0.5,y-r*1.05); ctx.lineTo(x-r*0.2,y-r*0.8);
+    ctx.lineTo(x,y-r*1.15); ctx.lineTo(x+r*0.2,y-r*0.8); ctx.lineTo(x+r*0.5,y-r*1.05); ctx.lineTo(x+r*0.5,y-r*0.7);
+    ctx.closePath(); ctx.fill(); }
+  // 眼睛
+  ctx.fillStyle='#12331f';
+  ctx.beginPath(); ctx.arc(x-r*0.32,y+r*0.02,r*0.13,0,6.283); ctx.arc(x+r*0.32,y+r*0.02,r*0.13,0,6.283); ctx.fill();
+  ctx.fillStyle='#fff';
+  ctx.beginPath(); ctx.arc(x-r*0.28,y-r*0.03,r*0.05,0,6.283); ctx.arc(x+r*0.36,y-r*0.03,r*0.05,0,6.283); ctx.fill();
+  // 腮紅 + 嘴
+  ctx.fillStyle='rgba(255,140,160,.5)';
+  ctx.beginPath(); ctx.arc(x-r*0.5,y+r*0.3,r*0.12,0,6.283); ctx.arc(x+r*0.5,y+r*0.3,r*0.12,0,6.283); ctx.fill();
+  ctx.strokeStyle='#12331f'; ctx.lineWidth=1.4;
+  ctx.beginPath(); ctx.arc(x,y+r*0.28,r*0.14,0.15*Math.PI,0.85*Math.PI); ctx.stroke();
+  // 等級徽章
+  ctx.fillStyle='rgba(0,0,0,.55)'; ctx.beginPath(); ctx.arc(x+r*0.72,y+r*0.72,r*0.42,0,6.283); ctx.fill();
+  ctx.fillStyle='#fff'; ctx.font='bold '+Math.round(r*0.6)+'px system-ui'; ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.fillText(String(level),x+r*0.72,y+r*0.74);
+  ctx.restore();
+}
+
+function drawEnemy(e){
+  ctx.save();
+  const bob=Math.sin((e.y+e.x)*0.05)*2;
+  const hit=e.hitT>0;
+  ctx.fillStyle=hit?'#fff': (e.elite?'#b06bff':'#6b4a8a');
+  ctx.beginPath(); ctx.arc(e.x,e.y+bob,e.r,0,6.283); ctx.fill();
+  if(e.elite){ ctx.strokeStyle='#ffcf5a'; ctx.lineWidth=2.5; ctx.stroke(); }
+  // 怒眉 + 眼
+  ctx.strokeStyle='#1a0d24'; ctx.lineWidth=2;
+  ctx.beginPath(); ctx.moveTo(e.x-e.r*0.5,e.y-e.r*0.35+bob); ctx.lineTo(e.x-e.r*0.1,e.y-e.r*0.15+bob);
+  ctx.moveTo(e.x+e.r*0.5,e.y-e.r*0.35+bob); ctx.lineTo(e.x+e.r*0.1,e.y-e.r*0.15+bob); ctx.stroke();
+  ctx.fillStyle='#ff3b3b';
+  ctx.beginPath(); ctx.arc(e.x-e.r*0.3,e.y+bob,e.r*0.14,0,6.283); ctx.arc(e.x+e.r*0.3,e.y+bob,e.r*0.14,0,6.283); ctx.fill();
+  // 血條
+  const w=e.r*2, hpr=Math.max(0,e.hp/e.mhp);
+  ctx.fillStyle='rgba(0,0,0,.5)'; ctx.fillRect(e.x-w/2,e.y-e.r-8+bob,w,4);
+  ctx.fillStyle=hpr>0.4?'#6bff8a':'#ff7a5a'; ctx.fillRect(e.x-w/2,e.y-e.r-8+bob,w*hpr,4);
+  ctx.restore();
+}
+
+function drawHUD(){
+  ctx.fillStyle='rgba(0,0,0,.35)'; ctx.fillRect(0,0,LW,40);
+  ctx.textBaseline='middle';
+  ctx.fillStyle='#ffe08a'; ctx.font='bold 18px system-ui'; ctx.textAlign='left';
+  ctx.fillText('分數 '+score,10,20);
+  ctx.fillStyle='#8fd0a0'; ctx.font='13px system-ui'; ctx.textAlign='right';
+  ctx.fillText('最佳 '+best,LW-10,20);
+  // 血量 pips
+  const total=5;
+  for(let i=0;i<total;i++){
+    const x=LW/2-(total*11)/2+i*11+5, y=20;
+    ctx.fillStyle=i<hp?'#ff5a6a':'rgba(255,255,255,.18)';
+    ctx.beginPath(); ctx.arc(x,y,4,0,6.283); ctx.fill();
+  }
+}
+
+function drawBoard(){
+  // 戰場背景
+  ctx.fillStyle='#0e1728'; ctx.fillRect(0,40,LW,DEFENSE_Y-40);
+  // 防線
+  ctx.strokeStyle='#3a5a7a'; ctx.lineWidth=3; ctx.setLineDash([8,6]);
+  ctx.beginPath(); ctx.moveTo(0,DEFENSE_Y); ctx.lineTo(LW,DEFENSE_Y); ctx.stroke(); ctx.setLineDash([]);
+  ctx.fillStyle='#3a5a7a'; ctx.font='11px system-ui'; ctx.textAlign='center'; ctx.textBaseline='bottom';
+  ctx.fillText('防 線',LW/2,DEFENSE_Y-2);
+  // 格盤背景
+  ctx.fillStyle='#152238'; ctx.fillRect(GL-2,GT-2,GR-GL+4,GB-GT+4);
+  // 塞爆警示
+  let filled=0; for(let r=0;r<ROWS;r++)for(let c=0;c<COLS;c++) if(grid[r][c]) filled++;
+  const danger=filled>=COLS*ROWS-2;
+  for(let r=0;r<ROWS;r++) for(let c=0;c<COLS;c++){
+    const x=GL+CW*c, y=GT+CH*r;
+    ctx.strokeStyle=(danger&&Math.sin(warnPulse*8)>0)?'rgba(255,90,90,.7)':'rgba(255,255,255,.06)';
+    ctx.lineWidth=1; ctx.strokeRect(x+1,y+1,CW-2,CH-2);
+  }
+}
+
+function drawPlay(){
+  drawBoard();
+  // 子彈
+  for(const p of projs){ ctx.fillStyle=p.col; ctx.beginPath(); ctx.arc(p.x,p.y,3.5,0,6.283); ctx.fill(); }
+  // 敵人
+  for(const e of enemies) drawEnemy(e);
+  // 貓兵
+  for(let r=0;r<ROWS;r++) for(let c=0;c<COLS;c++){
+    const cat=grid[r][c]; if(!cat) continue;
+    if(drag && drag.sr===r && drag.sc===c){ // 拖曳來源淡化
+      drawSlimeCat(cellCX(c),cellCY(r),CR,cat.level,0.22); continue;
+    }
+    const pop=1+cat.pop*0.25;
+    const ry=cellCY(r)-cat.recoil*3;
+    drawSlimeCat(cellCX(c),ry,CR*pop,cat.level,1);
+  }
+  // 鍵盤游標
+  if(state==='play'){
+    const x=GL+CW*cur.c, y=GT+CH*cur.r;
+    ctx.strokeStyle='#ffe08a'; ctx.lineWidth=2; ctx.strokeRect(x+2,y+2,CW-4,CH-4);
+  }
+  // 鍵盤拿取中的貓
+  if(hold){ drawSlimeCat(cellCX(cur.c),cellCY(cur.r)-CR*0.6,CR,hold.level,0.85); }
+  // 指標拖曳中的貓
+  if(drag){ drawSlimeCat(drag.x,drag.y,CR*1.1,drag.level,0.95); }
+  // 粒子
+  for(const q of parts){ ctx.globalAlpha=Math.max(0,q.life/q.mx); ctx.fillStyle=q.c; ctx.beginPath(); ctx.arc(q.x,q.y,q.r,0,6.283); ctx.fill(); }
+  ctx.globalAlpha=1;
+  // 飄字
+  ctx.textAlign='center'; ctx.textBaseline='middle';
+  for(const f of floats){ ctx.globalAlpha=Math.max(0,f.life/f.mx); ctx.fillStyle=f.c; ctx.font='bold 16px system-ui'; ctx.fillText(f.txt,f.x,f.y); }
+  ctx.globalAlpha=1;
+  drawHUD();
+}
+
+function drawTitle(){
+  ctx.fillStyle='#0e1728'; ctx.fillRect(0,0,LW,LH);
+  // 標題貓
+  drawSlimeCat(LW/2,150,44,6,1);
+  ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.fillStyle='#a7f0bd'; ctx.font='bold 40px system-ui'; ctx.fillText('喵兵合體陣',LW/2,240);
+  ctx.fillStyle='#ffe08a'; ctx.font='15px system-ui';
+  ctx.fillText('拖曳兩隻相同喵兵合體升階，自動禦敵！',LW/2,286);
+  ctx.fillStyle='#8fb4d0'; ctx.font='14px system-ui';
+  const tips=[
+    '滑鼠／手指：拖曳同款喵兵疊在一起＝升級',
+    '鍵盤：方向鍵移動、Enter 拿起／放下、Esc 取消',
+    '高階喵兵傷害更高、射速更快，自動攻擊敵人',
+    '別讓敵人越過防線（5 滴血），也別讓格子塞爆！'
+  ];
+  tips.forEach((t,i)=>ctx.fillText(t,LW/2,332+i*26));
+  // 最佳
+  ctx.fillStyle='#c6f7d4'; ctx.font='13px system-ui';
+  ctx.fillText('本機最高分：'+best,LW/2,452);
+  // 開始鈕脈動
+  const p=0.5+0.5*Math.sin(gameT2*4);
+  ctx.globalAlpha=0.6+0.4*p;
+  ctx.fillStyle='#2ec76b'; ctx.beginPath(); roundRect(LW/2-90,500,180,54,14); ctx.fill();
+  ctx.globalAlpha=1;
+  ctx.fillStyle='#06210f'; ctx.font='bold 22px system-ui'; ctx.fillText('點擊開始',LW/2,527);
+}
+
+function drawOver(){
+  drawPlay(); // 底層戰場定格
+  ctx.fillStyle='rgba(6,12,22,.82)'; ctx.fillRect(0,0,LW,LH);
+  ctx.textAlign='center'; ctx.textBaseline='middle';
+  if(isRecord){
+    ctx.fillStyle='#ffd34d'; ctx.font='bold 34px system-ui'; ctx.fillText('🎉 新紀錄！',LW/2,180);
+    ctx.fillStyle='#fff'; ctx.font='20px system-ui'; ctx.fillText('史上最強喵陣：'+score,LW/2,224);
+  }else{
+    ctx.fillStyle='#ff8a8a'; ctx.font='bold 30px system-ui'; ctx.fillText('陣線瓦解',LW/2,175);
+    ctx.fillStyle='#fff'; ctx.font='18px system-ui'; ctx.fillText('本局分數：'+score,LW/2,214);
+    const diff=Math.max(1,best-score+1);
+    ctx.fillStyle='#ffe08a'; ctx.font='16px system-ui';
+    ctx.fillText('只差 '+diff+' 分就破紀錄，再來一局！',LW/2,244);
+  }
+  ctx.fillStyle='#8fb4d0'; ctx.font='14px system-ui'; ctx.fillText(deathReason,LW/2,282);
+  ctx.fillStyle='#c6f7d4'; ctx.font='13px system-ui'; ctx.fillText('最高分：'+best,LW/2,308);
+  // 重來鈕
+  const p=0.5+0.5*Math.sin(gameT2*4);
+  ctx.globalAlpha=0.6+0.4*p;
+  ctx.fillStyle='#2ec76b'; ctx.beginPath(); roundRect(LW/2-90,360,180,54,14); ctx.fill();
+  ctx.globalAlpha=1;
+  ctx.fillStyle='#06210f'; ctx.font='bold 22px system-ui'; ctx.fillText('再來一局',LW/2,387);
+}
+
+function roundRect(x,y,w,h,r){ ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); }
+
+// ====== 主迴圈（固定時間步長）======
+let acc=0, last=0, gameT2=0;
+const STEP=1/60;
+function frame(now){
+  try{
+    if(!last) last=now;
+    let dt=(now-last)/1000; last=now;
+    if(dt>0.25) dt=0.25;            // 分頁切回防跳
+    gameT2+=dt;
+    acc+=dt;
+    while(acc>=STEP){ step(STEP); acc-=STEP; }
+    // 畫面（含震動位移）
+    ctx.save();
+    if(shake>0 && state==='play'){ ctx.translate((Math.sin(gameT2*60)*shake), (Math.cos(gameT2*57)*shake)); }
+    ctx.clearRect(-20,-20,LW+40,LH+40);
+    ctx.fillStyle='#111a2b'; ctx.fillRect(-20,-20,LW+40,LH+40);
+    if(state==='title') drawTitle();
+    else if(state==='play') drawPlay();
+    else drawOver();
+    ctx.restore();
+    // 破防白閃
+    if(flash>0){ ctx.fillStyle='rgba(255,80,80,'+(flash*0.5)+')'; ctx.fillRect(0,0,LW,LH); }
+  }catch(e){ /* 靜默保護：不拋未捕捉例外 */ }
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+// ====== 輸入：座標換算（用 getBoundingClientRect 比例）======
+function toLogical(clientX,clientY){
+  const rect=cv.getBoundingClientRect();
+  return { x:(clientX-rect.left)/rect.width*LW, y:(clientY-rect.top)/rect.height*LH };
+}
+function startGame(){ if(!AC) actx(); if(AC&&AC.state==='suspended'){ try{AC.resume();}catch(e){} } reset(); state='play'; }
+
+function onDown(e){
+  const t=(e.touches&&e.touches[0])||e;
+  const p=toLogical(t.clientX,t.clientY);
+  if(state==='title'){ startGame(); return; }
+  if(state==='over'){ startGame(); return; }
+  // 遊玩中：拿取貓
+  const cell=cellAt(p.x,p.y);
+  if(cell && grid[cell.r][cell.c]){
+    drag={ level:grid[cell.r][cell.c].level, sr:cell.r, sc:cell.c, x:p.x, y:p.y };
+    cur={r:cell.r,c:cell.c};
+  }
+}
+function onMove(e){
+  if(!drag) return;
+  const t=(e.touches&&e.touches[0])||e;
+  const p=toLogical(t.clientX,t.clientY);
+  drag.x=p.x; drag.y=p.y;
+}
+function onUp(e){
+  if(!drag) return;
+  const t=(e.changedTouches&&e.changedTouches[0])||e;
+  const p=toLogical(t.clientX,t.clientY);
+  const cell=cellAt(p.x,p.y);
+  if(cell){ resolveDrop(drag.sr,drag.sc,cell.r,cell.c); }
+  drag=null;
+}
+function clearInput(){ drag=null; }
+
+// 指標事件（滑鼠＋觸控統一）
+cv.addEventListener('pointerdown',e=>{ e.preventDefault(); onDown(e); },{passive:false});
+cv.addEventListener('pointermove',e=>{ onMove(e); },{passive:false});
+window.addEventListener('pointerup',e=>{ onUp(e); });
+cv.addEventListener('pointercancel',clearInput);
+window.addEventListener('blur',clearInput);
+document.addEventListener('visibilitychange',()=>{ if(document.hidden){ clearInput(); last=0; } });
+
+// 鍵盤操作
+window.addEventListener('keydown',e=>{
+  if(state!=='play'){
+    if(e.key==='Enter'||e.key===' '){ e.preventDefault(); startGame(); }
+    return;
+  }
+  const k=e.key;
+  if(k==='ArrowUp'||k==='w'){ cur.r=Math.max(0,cur.r-1); e.preventDefault(); }
+  else if(k==='ArrowDown'||k==='s'){ cur.r=Math.min(ROWS-1,cur.r+1); e.preventDefault(); }
+  else if(k==='ArrowLeft'||k==='a'){ cur.c=Math.max(0,cur.c-1); e.preventDefault(); }
+  else if(k==='ArrowRight'||k==='d'){ cur.c=Math.min(COLS-1,cur.c+1); e.preventDefault(); }
+  else if(k==='Enter'||k===' '){
+    e.preventDefault();
+    if(!hold){ // 拿起
+      if(grid[cur.r][cur.c]){ hold={level:grid[cur.r][cur.c].level, sr:cur.r, sc:cur.c}; }
+    }else{ // 放下
+      resolveDrop(hold.sr,hold.sc,cur.r,cur.c); hold=null;
+    }
+  }
+  else if(k==='Escape'){ hold=null; }
+});
+
+})();
+</script>
+<script src="../../sc_config.js"></script>
+<script src="../../stats.js"></script>
+</body>
+</html>
