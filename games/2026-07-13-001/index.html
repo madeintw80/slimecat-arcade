@@ -160,6 +160,7 @@ function playCard(a){
   if(G.combo===5||G.combo===10){ flash=0.35; sReveal(); }
   lastAction=nowT; G.hint=null;
   if(G.left<=0){ levelClear(); return; }
+  checkDead(); // 點掉後若已無可點且抽牌堆用盡，立即判定卡死（避免無時限層永久凍結）
 }
 
 // 從抽牌堆換中央牌（斷連擊＝損失趨避）
