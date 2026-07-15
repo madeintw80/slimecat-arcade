@@ -324,8 +324,8 @@ function update(dt){
   updateCoverage();
 
   // 搗蛋貓：前 15 秒與第 1 波保證安全；之後隨時間加速施壓
-  if(wave>=2 || runElapsed>25){
-    agit+=0.055*(1+runElapsed/55)*dt;
+  if(wave>=2 || runElapsed>20){
+    agit+=0.070*(1+runElapsed/55)*dt;
     if(agit>=1){ agit=0; dropJunk(); }
   }
 }
