@@ -572,6 +572,16 @@
           "source": "web"
         }
       ]
+    },
+    {
+      "id": "2026-07-15-001",
+      "title": "喵色逃脫道",
+      "emoji": "🐱",
+      "genre": "益智",
+      "date": "2026-07-15",
+      "inspiration": "Color Block Jam（Rollic Games）",
+      "desc": "拖曳史萊姆貓滑出同色貓門，看穿先後順序純解謎",
+      "ai_score": 34
     }
   ]
 }
