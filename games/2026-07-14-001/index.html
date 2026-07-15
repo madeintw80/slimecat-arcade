@@ -105,7 +105,7 @@ function reset(){
   grid=[]; for(let r=0;r<ROWS;r++){ grid.push(new Array(COLS).fill(null)); }
   enemies=[]; projs=[]; parts=[]; floats=[];
   hp=5; score=0; gameT=0;
-  eSpawnT=1.2; tSpawnT=1.0; shake=0; flash=0; warnPulse=0;
+  eSpawnT=0.9; tSpawnT=1.0; shake=0; flash=0; warnPulse=0;
   deathReason=''; isRecord=false; reported=false; drag=null; hold=null;
   cur={r:3,c:2};
   // 開局先給 4 隻，讓玩家馬上有得合（早期成功）
@@ -129,10 +129,10 @@ function spawnTile(forceLv){
 // ====== 敵人 ======
 function spawnEnemy(){
   const elite = gameT>40 && ((Math.floor(gameT*11)%100)/100) < Math.min(0.35,(gameT-40)*0.004);
-  let mhp=Math.round(4+gameT*0.14);
-  let spd=22+gameT*0.16;
+  let mhp=Math.round(5+gameT*0.18);
+  let spd=28+gameT*0.22;
   if(elite){ mhp=Math.round(mhp*2.3); spd*=0.8; }
-  spd=Math.min(spd,72);
+  spd=Math.min(spd,92);
   const x=30+ (Math.floor(gameT*53)%1000)/1000*(LW-60);
   enemies.push({x:x, y:46, hp:mhp, mhp:mhp, spd:spd, elite:!!elite, r: elite?18:14, hitT:0});
 }
@@ -197,7 +197,7 @@ function step(dt){
 
   // 敵人生成（隨時間加速）
   eSpawnT-=dt;
-  if(eSpawnT<=0){ if(enemies.length<70) spawnEnemy(); eSpawnT=Math.max(0.55,2.1-gameT*0.012); }
+  if(eSpawnT<=0){ if(enemies.length<70) spawnEnemy(); eSpawnT=Math.max(0.42,1.8-gameT*0.016); }
 
   // 貓兵生成（第 3 分鐘後更快 → 塞爆壓力升級）
   tSpawnT-=dt;
