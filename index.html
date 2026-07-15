@@ -3,257 +3,386 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>SlimeCat 遊戲區 🐱🟢</title>
+<meta name="theme-color" content="#152316">
+<title>SlimeCat 遊戲區｜今天玩哪一款？</title>
 <style>
   :root{
-    --bg:#0f1a0c; --card:#1b2c14; --line:#33511f;
-    --acc:#7ce85a; --txt:#e8ffe0; --sub:#9fbf90;
+    --ink:#152316; --paper:#f4f0df; --paper-2:#e9e2c9; --card:#fffdf4;
+    --slime:#74d945; --slime-dark:#295f30; --berry:#e95758; --sun:#f3b83f;
+    --muted:#647064; --line:#c9c5ad; --shadow:0 12px 30px rgba(21,35,22,.12);
   }
   *{box-sizing:border-box}
-  body{margin:0;background:radial-gradient(1200px 600px at 50% -100px,#1d3313,var(--bg));min-height:100vh;color:var(--txt);font-family:"Microsoft JhengHei",system-ui,sans-serif}
-  header{text-align:center;padding:38px 16px 10px}
-  h1{margin:0;font-size:clamp(26px,6vw,44px);letter-spacing:2px;color:var(--acc);text-shadow:0 0 18px rgba(124,232,90,.45)}
-  .slogan{color:var(--sub);margin-top:8px;font-size:15px}
-  .stats{margin-top:14px;font-size:13px;color:var(--sub)}
-  .stats b{color:var(--acc)}
-  main{max-width:980px;margin:22px auto 60px;padding:0 16px;display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:16px}
-  a.card{position:relative;display:block;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:18px;text-decoration:none;color:var(--txt);transition:transform .12s,box-shadow .12s,border-color .12s}
-  a.card:hover{transform:translateY(-4px);border-color:var(--acc);box-shadow:0 10px 26px rgba(0,0,0,.45)}
-  .emoji{font-size:44px;line-height:1}
-  .thumb{width:100%;aspect-ratio:4/3;object-fit:cover;border-radius:10px;margin-top:10px;border:1px solid var(--line);display:block}
-  .title{font-size:19px;font-weight:700;margin:10px 0 6px;color:#fff}
-  .desc{font-size:13.5px;color:var(--sub);line-height:1.55;min-height:42px}
-  .meta{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px;font-size:11.5px;color:var(--sub)}
-  .chip{border:1px solid var(--line);border-radius:99px;padding:2px 9px;background:rgba(124,232,90,.07)}
-  .chip.genre{color:var(--acc);border-color:rgba(124,232,90,.4)}
-  .chip.rate{color:#ffd76a;border-color:rgba(255,215,106,.4)}
-  .new{position:absolute;top:-9px;right:-6px;background:#ff9b3d;color:#2b1600;font-weight:800;font-size:11px;border-radius:99px;padding:3px 10px;box-shadow:0 3px 10px rgba(0,0,0,.4);transform:rotate(6deg)}
-  .empty{grid-column:1/-1;text-align:center;color:var(--sub);padding:60px 0}
-  footer{text-align:center;color:#5f7a54;font-size:12px;padding:26px 12px 40px;line-height:1.8}
-  /* ── 評分＋留言彈窗 ── */
-  .ratebtn{cursor:pointer;font-family:inherit;font-size:11.5px;color:#ffd76a;background:rgba(255,215,106,.07);border:1px solid rgba(255,215,106,.4);border-radius:99px;padding:2px 9px}
-  .ratebtn:hover{background:rgba(255,215,106,.18)}
-  #rateov{position:fixed;inset:0;background:rgba(0,0,0,.62);display:none;align-items:center;justify-content:center;z-index:50;padding:16px}
-  #rateov.show{display:flex}
-  #ratebox{background:var(--card);border:1px solid var(--acc);border-radius:16px;padding:22px;width:min(92vw,380px);box-shadow:0 18px 50px rgba(0,0,0,.5)}
-  #ratebox h3{margin:0 0 14px;color:var(--acc);font-size:17px}
-  #stars{display:flex;gap:5px;margin-bottom:12px}
-  #stars button{flex:1;min-width:0;cursor:pointer;font-size:14px;padding:8px 0;border-radius:8px;border:1px solid var(--line);background:transparent;color:var(--sub);font-family:inherit}
-  #stars button.on{background:rgba(255,215,106,.18);border-color:#ffd76a;color:#ffd76a;font-weight:700}
-  #ratenote{width:100%;min-height:70px;background:#12210d;border:1px solid var(--line);border-radius:10px;color:var(--txt);padding:10px;font-family:inherit;font-size:14px;resize:vertical}
-  .ratebtns{display:flex;gap:10px;margin-top:14px}
-  .ratebtns button{flex:1;cursor:pointer;padding:10px 0;border-radius:10px;font-family:inherit;font-size:15px;font-weight:700;border:1px solid var(--line);background:transparent;color:var(--sub)}
-  .ratebtns .go{background:var(--acc);border-color:var(--acc);color:#10250a}
-  #ratemsg{margin-top:10px;font-size:13px;color:var(--acc);min-height:18px;text-align:center}
+  html{scroll-behavior:smooth}
+  body{margin:0;background:var(--paper);color:var(--ink);font-family:"Microsoft JhengHei",system-ui,sans-serif;min-height:100vh}
+  button,textarea{font:inherit}
+  button,a{touch-action:manipulation}
+  button:focus-visible,a:focus-visible,textarea:focus-visible{outline:3px solid var(--berry);outline-offset:3px}
+  .site-header{max-width:1180px;margin:auto;padding:24px 20px 14px;display:flex;align-items:center;justify-content:space-between;gap:20px}
+  .brand{display:flex;align-items:center;gap:12px;min-width:0}
+  .brand-mark{width:52px;height:52px;border-radius:18px 18px 24px 24px;background:var(--slime);display:grid;place-items:center;font-size:29px;box-shadow:inset 0 -5px 0 rgba(21,35,22,.12);flex:none}
+  .brand-copy{min-width:0}
+  .brand-name{margin:0;font-size:clamp(24px,4vw,38px);letter-spacing:.02em;line-height:1}
+  .brand-name span{color:var(--slime-dark)}
+  .brand-tagline{margin:6px 0 0;color:var(--muted);font-size:14px}
+  .header-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+  .btn{min-height:44px;border:1px solid var(--ink);border-radius:999px;background:transparent;color:var(--ink);padding:9px 16px;cursor:pointer;font-weight:700;white-space:nowrap}
+  .btn:hover{background:var(--paper-2)}
+  .btn.primary{background:var(--ink);color:var(--card)}
+  .btn.primary:hover{background:var(--slime-dark)}
+  .btn.small{min-height:38px;padding:7px 13px;font-size:13px}
+  .stats-line{max-width:1180px;margin:0 auto;padding:0 20px 18px;color:var(--muted);font-size:13px}
+  .stats-line b{color:var(--ink)}
+  main{max-width:1180px;margin:auto;padding:0 20px 64px}
+  .status-panel{min-height:250px;display:grid;place-items:center;text-align:center;color:var(--muted);border-block:1px solid var(--line)}
+  .status-panel[hidden]{display:none}
+  .skeleton{width:min(100%,760px);display:grid;gap:12px}
+  .skeleton span{display:block;height:22px;border-radius:999px;background:var(--paper-2)}
+  .skeleton span:first-child{height:180px;border-radius:28px}
+  .skeleton span:last-child{width:58%}
+  .hero{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(280px,.75fr);gap:18px;margin-bottom:22px}
+  .featured{background:var(--ink);color:var(--card);border-radius:32px;padding:24px;display:grid;grid-template-columns:minmax(220px,.9fr) minmax(0,1.1fr);gap:24px;box-shadow:var(--shadow);overflow:hidden;position:relative}
+  .featured::after{content:"";position:absolute;width:180px;height:180px;border-radius:50%;background:var(--slime);right:-72px;top:-86px;opacity:.18}
+  .feature-shot{display:block;min-height:330px;border-radius:22px;overflow:hidden;background:var(--slime-dark);position:relative}
+  .feature-shot img{width:100%;height:100%;object-fit:cover;position:absolute;inset:0}
+  .feature-fallback{height:100%;display:grid;place-items:center;font-size:72px;background:linear-gradient(145deg,var(--slime-dark),#203e28)}
+  .feature-copy{align-self:center;position:relative;z-index:1}
+  .kicker-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:14px}
+  .badge{display:inline-flex;align-items:center;min-height:28px;border-radius:999px;padding:4px 10px;background:var(--slime);color:var(--ink);font-weight:900;font-size:12px}
+  .badge.update{background:#56cfc0}
+  .badge.quality{background:var(--sun)}
+  .feature-copy h2{font-size:clamp(30px,5vw,54px);line-height:1.03;margin:0 0 14px;letter-spacing:-.03em}
+  .feature-copy p{margin:0 0 18px;color:#dbe5d7;line-height:1.7;font-size:16px}
+  .feature-meta{display:flex;gap:14px;flex-wrap:wrap;color:#b9c9b7;font-size:13px;margin-bottom:20px}
+  .feature-actions{display:flex;gap:10px;flex-wrap:wrap}
+  .feature-actions .btn{border-color:var(--card);color:var(--card)}
+  .feature-actions .btn.primary{background:var(--slime);border-color:var(--slime);color:var(--ink)}
+  .editors-picks{background:var(--card);border:1px solid var(--line);border-radius:32px;padding:22px;box-shadow:var(--shadow)}
+  .section-label{margin:0 0 5px;color:var(--berry);font-size:12px;font-weight:900;letter-spacing:.12em;text-transform:uppercase}
+  .editors-picks h2,.section-head h2{margin:0;font-size:24px}
+  .pick-list{display:grid;margin-top:16px}
+  .pick{display:grid;grid-template-columns:48px minmax(0,1fr) auto;gap:11px;align-items:center;padding:12px 0;border-top:1px solid var(--line)}
+  .pick-icon{width:48px;height:48px;border-radius:16px;background:var(--paper-2);display:grid;place-items:center;font-size:25px}
+  .pick strong{display:block;font-size:14px}
+  .pick span{display:block;color:var(--muted);font-size:12px;margin-top:2px}
+  .pick a{color:var(--ink);font-weight:900;text-decoration:none;padding:10px 4px}
+  .filter-bar{display:flex;align-items:center;justify-content:space-between;gap:14px;border-block:1px solid var(--line);padding:14px 0;margin:28px 0 22px}
+  .filters{display:flex;gap:8px;flex-wrap:wrap}
+  .filter{min-height:44px;border:1px solid var(--line);border-radius:999px;background:var(--card);color:var(--ink);padding:8px 15px;cursor:pointer;font-weight:700}
+  .filter[aria-pressed="true"]{background:var(--ink);border-color:var(--ink);color:var(--card)}
+  .catalog-count{color:var(--muted);font-size:13px;white-space:nowrap}
+  .section-head{display:flex;justify-content:space-between;align-items:end;gap:14px;margin-bottom:14px}
+  .section-head p{margin:5px 0 0;color:var(--muted);font-size:13px}
+  .game-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
+  .game-card{background:var(--card);border:1px solid var(--line);border-radius:24px;overflow:hidden;display:flex;flex-direction:column;min-width:0;transition:transform .15s,box-shadow .15s}
+  .game-card:hover{transform:translateY(-3px);box-shadow:var(--shadow)}
+  .card-link{display:block;text-decoration:none;color:inherit;flex:1}
+  .thumb-wrap{aspect-ratio:16/10;background:var(--paper-2);position:relative;overflow:hidden}
+  .thumb-fallback{position:absolute;inset:0;display:grid;place-items:center;font-size:54px;background:linear-gradient(135deg,var(--paper-2),#d9eacb)}
+  .thumb{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block;transition:transform .2s}
+  .card-link:hover .thumb{transform:scale(1.025)}
+  .card-body{padding:15px 16px 10px}
+  .card-topline{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-bottom:8px}
+  .genre{font-size:11px;font-weight:900;color:var(--slime-dark);letter-spacing:.05em}
+  .game-title{font-size:19px;margin:0 0 7px;line-height:1.25}
+  .game-desc{font-size:13px;color:var(--muted);line-height:1.55;margin:0;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-height:40px}
+  .card-footer{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 16px 14px;border-top:1px solid var(--line);margin-top:auto}
+  .quality{font-size:12px;color:var(--muted)}
+  .ratebtn{min-width:44px;min-height:44px;border:0;background:transparent;color:var(--ink);font-weight:900;cursor:pointer;padding:7px 6px}
+  .empty{grid-column:1/-1;text-align:center;padding:70px 18px;color:var(--muted);border-block:1px solid var(--line)}
+  .recent-section{margin-top:30px}
+  .recent-section[hidden]{display:none}
+  footer{background:var(--ink);color:#aebead;text-align:center;font-size:12px;padding:30px 16px;line-height:1.8}
+  .overlay{position:fixed;inset:0;background:rgba(21,35,22,.72);display:none;align-items:center;justify-content:center;z-index:50;padding:16px}
+  .overlay.show{display:flex}
+  .dialog{background:var(--card);border:2px solid var(--ink);border-radius:24px;padding:22px;width:min(92vw,420px);box-shadow:0 18px 50px rgba(0,0,0,.35);max-height:86vh;overflow:auto}
+  .dialog h3{margin:0 0 8px;font-size:20px}
+  .dialog-sub{color:var(--muted);font-size:13px;margin-bottom:14px;line-height:1.5}
+  #stars{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-bottom:12px}
+  #stars button{min-height:44px;cursor:pointer;border-radius:10px;border:1px solid var(--line);background:var(--paper);color:var(--ink);font-weight:700}
+  #stars button.on{background:var(--sun);border-color:var(--ink)}
+  #ratenote{width:100%;min-height:80px;background:var(--paper);border:1px solid var(--line);border-radius:12px;color:var(--ink);padding:11px;font-size:14px;resize:vertical}
+  .dialog-actions{display:flex;gap:10px;margin-top:14px}
+  .dialog-actions .btn{flex:1}
+  #ratemsg{margin-top:10px;font-size:13px;color:var(--slime-dark);min-height:18px;text-align:center;font-weight:700}
   #ratefb{margin-top:14px;max-height:180px;overflow-y:auto}
-  .fbtitle{font-size:12.5px;color:var(--sub);margin-bottom:8px}
-  .fbitem{border-top:1px solid var(--line);padding:8px 2px}
-  .fbnote{font-size:13px;color:var(--txt);line-height:1.5}
-  .fbreply{font-size:12.5px;color:var(--acc);margin-top:4px;line-height:1.5}
-  /* ── 🔧 剛更新徽章（比照 NEW!，換藍綠色好區隔）── */
-  .upd{position:absolute;top:-9px;right:-6px;background:#3dd6c4;color:#062b26;font-weight:800;font-size:11px;border-radius:99px;padding:3px 10px;box-shadow:0 3px 10px rgba(0,0,0,.4);transform:rotate(6deg)}
-  /* ── 頂部「更新日誌」入口按鈕 ── */
-  .logbtn{margin-top:14px;cursor:pointer;font-family:inherit;font-size:13px;color:var(--acc);background:rgba(124,232,90,.08);border:1px solid rgba(124,232,90,.4);border-radius:99px;padding:6px 16px}
-  .logbtn:hover{background:rgba(124,232,90,.2)}
-  /* ── 更新日誌彈窗 ── */
-  #logov{position:fixed;inset:0;background:rgba(0,0,0,.62);display:none;align-items:center;justify-content:center;z-index:50;padding:16px}
-  #logov.show{display:flex}
-  #logbox{background:var(--card);border:1px solid var(--acc);border-radius:16px;padding:22px;width:min(92vw,420px);box-shadow:0 18px 50px rgba(0,0,0,.5)}
-  #logbox h3{margin:0 0 6px;color:var(--acc);font-size:17px}
-  #logsub{color:var(--sub);font-size:12.5px;margin-bottom:12px}
-  #loglist{max-height:56vh;overflow-y:auto}
-  .logitem{border-top:1px solid var(--line);padding:10px 2px}
-  .logitem:first-child{border-top:none}
-  .logmeta{font-size:12.5px;color:var(--sub)}
-  .logmeta b{color:#fff}
-  .logsum{font-size:14px;color:var(--txt);line-height:1.5;margin-top:3px}
-  .logempty{color:var(--sub);text-align:center;padding:30px 0;font-size:13.5px}
+  .fbtitle{font-size:12.5px;color:var(--muted);margin-bottom:8px}
+  .fbitem,.logitem{border-top:1px solid var(--line);padding:10px 2px}
+  .fbnote,.logsum{font-size:13px;line-height:1.5}
+  .fbreply{font-size:12.5px;color:var(--slime-dark);margin-top:4px;line-height:1.5;font-weight:700}
+  #loglist{max-height:54vh;overflow-y:auto}
+  .logmeta{font-size:12.5px;color:var(--muted)}
+  .logempty{color:var(--muted);text-align:center;padding:30px 0}
+  @media(max-width:900px){
+    .hero{grid-template-columns:1fr}.editors-picks{display:none}.game-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  }
+  @media(max-width:620px){
+    .site-header{padding:18px 14px 12px;align-items:flex-start}.brand-mark{width:44px;height:44px;font-size:24px}.brand-tagline{display:none}
+    .header-actions .btn:first-child{display:none}.stats-line,main{padding-left:14px;padding-right:14px}
+    .hero{margin-top:2px}.featured{grid-template-columns:1fr;padding:15px;border-radius:24px;gap:16px}.feature-shot{min-height:240px}.feature-copy{padding:2px 4px 7px}
+    .feature-copy h2{font-size:34px}.feature-copy p{font-size:14px}.filter-bar{align-items:flex-start;flex-direction:column}.catalog-count{align-self:flex-end}
+    .game-grid{grid-template-columns:1fr}.game-card{display:grid;grid-template-columns:128px minmax(0,1fr);grid-template-rows:auto auto;border-radius:20px}
+    .card-link{display:contents}.thumb-wrap{grid-row:1/3;aspect-ratio:auto;min-height:176px}.card-body{padding:14px 13px 8px}.card-footer{padding:7px 13px 12px}
+    .game-desc{-webkit-line-clamp:3}.section-head h2{font-size:21px}
+  }
+  @media(max-width:380px){
+    .game-card{grid-template-columns:108px minmax(0,1fr)}.thumb-wrap{min-height:166px}.game-title{font-size:17px}.filters{gap:6px}.filter{padding-inline:12px}
+  }
+  @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}.game-card,.thumb{transition:none}}
 </style>
 </head>
 <body>
-<header>
-  <h1>🐱 SlimeCat 遊戲區 🟢</h1>
-  <div class="slogan">不斷生產新遊戲的小遊戲樂園 — 工廠每天爬排行榜、提煉玩法、自動生一款</div>
-  <div class="stats" id="stats"></div>
-  <button id="logbtn" class="logbtn">📢 更新日誌</button>
+<header class="site-header">
+  <div class="brand">
+    <div class="brand-mark" aria-hidden="true">🐱</div>
+    <div class="brand-copy">
+      <h1 class="brand-name"><span>SlimeCat</span> 遊戲區</h1>
+      <p class="brand-tagline">每天出廠一款，現在只挑最好玩的給你。</p>
+    </div>
+  </div>
+  <div class="header-actions">
+    <button class="btn" id="recent-btn" type="button">最近玩過</button>
+    <button class="btn" id="logbtn" type="button">更新日誌</button>
+  </div>
 </header>
-<main id="list"></main>
-<footer>🏭 SlimeCat 遊戲工廠自動生產 · Batnini 出品<br>致敬千禧年的網頁小遊戲樂園</footer>
-<!-- 更新日誌彈窗（工廠修過的遊戲都會列在這，玩家看得到改了什麼） -->
-<div id="logov">
-  <div id="logbox">
-    <h3>📢 更新日誌</h3>
-    <div id="logsub">工廠會持續修好玩家回報的問題，這裡看得到每款改了什麼</div>
+<div class="stats-line" id="stats" aria-live="polite"></div>
+
+<main>
+  <section class="status-panel" id="app-status" aria-live="polite" aria-busy="true">
+    <div class="skeleton" aria-label="遊戲清單載入中"><span></span><span></span><span></span></div>
+  </section>
+  <div id="app" hidden>
+    <section class="hero" aria-label="今日精選">
+      <article class="featured" id="featured"></article>
+      <aside class="editors-picks">
+        <p class="section-label">Editors' Picks</p>
+        <h2>本週口碑精選</h2>
+        <div class="pick-list" id="pick-list"></div>
+      </aside>
+    </section>
+
+    <section class="filter-bar" aria-label="遊戲分類">
+      <div class="filters" id="filters">
+        <button class="filter" type="button" data-filter="all" aria-pressed="true">全部</button>
+        <button class="filter" type="button" data-filter="puzzle" aria-pressed="false">益智</button>
+        <button class="filter" type="button" data-filter="action" aria-pressed="false">動作</button>
+        <button class="filter" type="button" data-filter="strategy" aria-pressed="false">策略</button>
+        <button class="filter" type="button" data-filter="relax" aria-pressed="false">放鬆</button>
+      </div>
+      <div class="catalog-count" id="catalog-count"></div>
+    </section>
+
+    <section aria-labelledby="catalog-title">
+      <div class="section-head">
+        <div><p class="section-label">Pick Your Mood</p><h2 id="catalog-title">依心情挑一款</h2><p>新品、玩法與品質，一眼就能決定。</p></div>
+      </div>
+      <div class="game-grid" id="game-grid"></div>
+    </section>
+
+    <section class="recent-section" id="recent-section" aria-labelledby="recent-title" hidden>
+      <div class="section-head"><div><p class="section-label">Play Again</p><h2 id="recent-title">最近玩過</h2></div></div>
+      <div class="game-grid" id="recent-grid"></div>
+    </section>
+  </div>
+</main>
+
+<footer>SlimeCat 遊戲工廠自動生產 · Batnini 出品<br>致敬千禧年的網頁小遊戲樂園</footer>
+
+<div class="overlay" id="logov" role="dialog" aria-modal="true" aria-labelledby="logtitle">
+  <div class="dialog">
+    <h3 id="logtitle">更新日誌</h3>
+    <div class="dialog-sub">工廠會持續修好玩家回報的問題，這裡看得到每款改了什麼。</div>
     <div id="loglist"></div>
-    <div class="ratebtns"><button id="logclose">關閉</button></div>
+    <div class="dialog-actions"><button class="btn" id="logclose" type="button">關閉</button></div>
   </div>
 </div>
-<!-- 評分＋留言彈窗（匿名，回饋會餵給遊戲工廠改進下一款） -->
-<div id="rateov">
-  <div id="ratebox">
-    <h3 id="ratetitle">⭐ 評分</h3>
-    <div id="stars"></div>
-    <textarea id="ratenote" maxlength="200" placeholder="留言給工廠（選填，200 字內）：哪裡好玩？哪裡卡？"></textarea>
-    <div class="ratebtns">
-      <button id="ratecancel">取消</button>
-      <button class="go" id="ratesend">送出</button>
+
+<div class="overlay" id="rateov" role="dialog" aria-modal="true" aria-labelledby="ratetitle">
+  <div class="dialog">
+    <h3 id="ratetitle">評分</h3>
+    <div class="dialog-sub">1～10 分，留言會交給工廠改進下一版。</div>
+    <div id="stars" aria-label="評分選擇"></div>
+    <textarea id="ratenote" maxlength="200" placeholder="哪裡好玩？哪裡卡？（選填，200 字內）"></textarea>
+    <div class="dialog-actions">
+      <button class="btn" id="ratecancel" type="button">取消</button>
+      <button class="btn primary" id="ratesend" type="button">送出</button>
     </div>
-    <div id="ratemsg"></div>
+    <div id="ratemsg" aria-live="polite"></div>
     <div id="ratefb"></div>
   </div>
 </div>
+
 <script src="sc_config.js"></script>
 <script src="stats.js"></script>
 <script src="games.js?v=7db084d8"></script>
 <script>
-// 讀 games.js 的 GAMES 清單，畫出遊戲卡片（新的排前面）
-const list = document.getElementById("list");
+const appStatus = document.getElementById("app-status");
+const app = document.getElementById("app");
 const stats = document.getElementById("stats");
-const games = (typeof GAMES !== "undefined" ? GAMES.slice() : [])
-  .sort((a, b) => (b.date + b.id).localeCompare(a.date + a.id));
-
-// 今天日期字串，用來標 NEW!
+const rawGames = typeof GAMES !== "undefined" && Array.isArray(GAMES) ? GAMES.slice() : null;
+const games = rawGames ? rawGames.sort((a, b) => (b.date + b.id).localeCompare(a.date + a.id)) : [];
 const today = new Date();
-const todayStr = today.getFullYear() + "-" +
-  String(today.getMonth() + 1).padStart(2, "0") + "-" +
-  String(today.getDate()).padStart(2, "0");
+const todayStr = today.getFullYear() + "-" + String(today.getMonth() + 1).padStart(2, "0") + "-" + String(today.getDate()).padStart(2, "0");
+let activeFilter = "all";
 
-stats.innerHTML = games.length
-  ? `目前共 <b>${games.length}</b> 款 · 最新出廠 <b>${games[0].date}</b>`
-  : "";
-
-if (!games.length) {
-  list.innerHTML = '<div class="empty">🏭 工廠正在準備第一款遊戲…</div>';
-}
-for (const g of games) {
-  const a = document.createElement("a");
-  a.className = "card";
-  // 遊戲連結帶「更新日」版本參數 → 修過的遊戲網址就變、瀏覽器強制載新版（防快取玩到舊版）
-  a.href = "games/" + g.id + "/index.html" + (g.updated_at ? "?v=" + g.updated_at : "");
-  const plays = getPlays(g.id);
-  a.innerHTML =
-    // 今天出廠 → NEW!；否則最近 7 天內修過 → 🔧 剛更新（兩者互斥，新遊戲優先標 NEW）
-    (g.date === todayStr
-      ? '<span class="new">NEW!</span>'
-      : (g.updated_at && daysAgo(g.updated_at) <= 7 ? '<span class="upd">🔧 剛更新</span>' : "")) +
-    `<div class="emoji">${g.emoji || "🎮"}</div>` +
-    `<img class="thumb" src="games/${g.id}/shot.png" loading="lazy" alt="" onerror="this.remove()">` +
-    `<div class="title">${esc(g.title)}</div>` +
-    `<div class="desc">${esc(g.desc || "")}</div>` +
-    `<div class="meta">` +
-      `<span class="chip genre">${esc(g.genre || "小遊戲")}</span>` +
-      `<span class="chip">${g.date}</span>` +
-      (g.user_rating ? `<span class="chip rate">👤 ${g.user_rating}/10</span>` : "") +
-      (g.ai_score ? `<span class="chip rate">🤖 ${g.ai_score}/50</span>` : "") +
-      (plays ? `<span class="chip">玩過 ${plays} 次</span>` : "") +
-      (getMyRate(g.id) ? `<span class="chip rate">⭐ 我評 ${getMyRate(g.id)}</span>` : "") +
-      `<button class="ratebtn" data-gid="${g.id}" data-gtitle="${esc(g.title)}">⭐ 評分</button>` +
-    `</div>`;
-  a.addEventListener("click", (e) => {
-    const rb = e.target.closest(".ratebtn");
-    if (rb) { e.preventDefault(); openRate(rb.dataset.gid, rb.dataset.gtitle); return; } // 點評分不開遊戲
-    addPlay(g.id); // 本機版「點擊率」：記每款開了幾次
-  });
-  list.appendChild(a);
-}
-
-// 遊玩次數存 localStorage（之後上線再換成真的分析數據）
-function getPlays(id) {
-  try { return +(localStorage.getItem("plays_" + id) || 0); } catch (e) { return 0; }
-}
-function addPlay(id) {
-  try { localStorage.setItem("plays_" + id, getPlays(id) + 1); } catch (e) {}
-}
-
-// 防 XSS 的簡單跳脫（遊戲資料是自家工廠產的，防個保險）
 function esc(s) {
-  return String(s).replace(/[&<>"']/g, c =>
-    ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+  return String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 }
-
-// ─── 玩家評分＋留言（匿名，跟遙測走同一條 GAS 管線；工廠會讀來改進下一款）───
-const rateov = document.getElementById("rateov");
-let rateGid = null, rateVal = 0;
-
+function gameUrl(g) { return "games/" + encodeURIComponent(g.id) + "/index.html" + (g.updated_at ? "?v=" + encodeURIComponent(g.updated_at) : ""); }
+function getPlays(id) { try { return +(localStorage.getItem("plays_" + id) || 0); } catch (e) { return 0; } }
+function addPlay(id) {
+  try {
+    localStorage.setItem("plays_" + id, getPlays(id) + 1);
+    const recent = JSON.parse(localStorage.getItem("sc_recent") || "[]").filter(x => x !== id);
+    recent.unshift(id);
+    localStorage.setItem("sc_recent", JSON.stringify(recent.slice(0, 6)));
+  } catch (e) {}
+}
+function getRecentIds() {
+  try { return JSON.parse(localStorage.getItem("sc_recent") || "[]"); }
+  catch (e) { return []; }
+}
 function getMyRate(id) { try { return +(localStorage.getItem("sc_myrate_" + id) || 0); } catch (e) { return 0; } }
-
-function openRate(gid, title) {
-  rateGid = gid;
-  rateVal = getMyRate(gid) || 0;   // 評過的預選舊分數，可改評
-  document.getElementById("ratetitle").textContent = "⭐ 評分《" + title + "》";
-  document.getElementById("ratenote").value = "";
-  document.getElementById("ratemsg").textContent = "";
-  // 最近回饋＋工廠回覆（工廠每天讀留言：能改的直接改款、回覆「已更新」）
-  const fb = ((games.find(x => x.id === gid) || {}).feedback || []).slice().reverse();
-  document.getElementById("ratefb").innerHTML = fb.length
-    ? '<div class="fbtitle">💬 最近回饋（工廠每天讀，改完會回覆）</div>' + fb.map(f =>
-        `<div class="fbitem"><div class="fbnote">「${esc(f.note)}」</div>` +
-        `<div class="fbreply">🏭 ${esc(f.reply)}</div></div>`).join("")
-    : "";
-  drawStars();
-  rateov.classList.add("show");
-}
-function drawStars() {
-  const box = document.getElementById("stars");
-  box.innerHTML = "";
-  for (let i = 1; i <= 10; i++) {
-    const b = document.createElement("button");
-    b.textContent = i;
-    if (i <= rateVal) b.classList.add("on");
-    b.addEventListener("click", () => { rateVal = i; drawStars(); });
-    box.appendChild(b);
-  }
-}
-document.getElementById("ratecancel").addEventListener("click", () => rateov.classList.remove("show"));
-rateov.addEventListener("click", (e) => { if (e.target === rateov) rateov.classList.remove("show"); });
-
-document.getElementById("ratesend").addEventListener("click", () => {
-  const msg = document.getElementById("ratemsg");
-  if (!rateVal) { msg.textContent = "先點一個分數（1～10）再送出"; return; }
-  const url = window.SC_ANALYTICS_URL || "";
-  if (url) {
-    let did = "anon";
-    try { did = localStorage.getItem("sc_did") || "anon"; } catch (e) {}
-    try {
-      navigator.sendBeacon(url, JSON.stringify({
-        ev: "rate", game: rateGid, val: rateVal,
-        note: document.getElementById("ratenote").value.slice(0, 200),
-        did, days: 0,
-        mob: /Mobi|Android/i.test(navigator.userAgent) ? 1 : 0,
-      }));
-    } catch (e) {}
-  }
-  try { localStorage.setItem("sc_myrate_" + rateGid, rateVal); } catch (e) {}
-  msg.textContent = "✅ 已送出，謝謝回饋！工廠會參考";
-  setTimeout(() => rateov.classList.remove("show"), 900);
-});
-
-// ─── 更新日誌：算某天距今幾天（給「🔧 剛更新」徽章判斷用）───
 function daysAgo(dateStr) {
   if (!dateStr) return Infinity;
   const d = new Date(dateStr + "T00:00:00");
   return Math.floor((today - d) / 86400000);
 }
+function broadGenre(genre) {
+  const value = String(genre || "");
+  if (/解壓|放鬆/.test(value)) return "relax";
+  if (/策略|合成|放置|防守/.test(value)) return "strategy";
+  if (/動作|街機|跑酷|反應|生存|物理|駕駛/.test(value)) return "action";
+  return "puzzle";
+}
+function qualityText(g) {
+  if (g.user_rating) return "玩家 " + esc(g.user_rating) + "/10";
+  if (g.ai_score) return "品質 " + esc(g.ai_score) + "/50";
+  const plays = getPlays(g.id);
+  return plays ? "玩過 " + plays + " 次" : "新鮮出廠";
+}
+function statusBadge(g) {
+  if (g.date === todayStr) return '<span class="badge">今日新作</span>';
+  if (g.updated_at && daysAgo(g.updated_at) <= 7) return '<span class="badge update">剛更新</span>';
+  return "";
+}
+function attachImageFallback(scope) {
+  scope.querySelectorAll("img").forEach(img => img.addEventListener("error", () => img.remove(), { once:true }));
+}
+function attachGameLinks(scope) {
+  scope.querySelectorAll("[data-game-link]").forEach(link => link.addEventListener("click", () => addPlay(link.dataset.gameLink)));
+  scope.querySelectorAll("[data-rate]").forEach(button => button.addEventListener("click", () => openRate(button.dataset.rate, button.dataset.title)));
+}
+function cardHtml(g) {
+  return `<article class="game-card" data-genre="${broadGenre(g.genre)}">
+    <a class="card-link" href="${gameUrl(g)}" data-game-link="${esc(g.id)}">
+      <div class="thumb-wrap"><div class="thumb-fallback" aria-hidden="true">${esc(g.emoji || "🎮")}</div><img class="thumb" src="games/${encodeURIComponent(g.id)}/shot.png" loading="lazy" alt="${esc(g.title)} 遊戲畫面"></div>
+      <div class="card-body"><div class="card-topline">${statusBadge(g)}<span class="genre">${esc(g.genre || "小遊戲")}</span></div><h3 class="game-title">${esc(g.title)}</h3><p class="game-desc">${esc(g.desc || "打開看看今天工廠做了什麼玩法。")}</p></div>
+    </a>
+    <div class="card-footer"><span class="quality">${qualityText(g)}</span><button class="ratebtn" type="button" data-rate="${esc(g.id)}" data-title="${esc(g.title)}">評分</button></div>
+  </article>`;
+}
+function renderFeatured(g) {
+  const box = document.getElementById("featured");
+  box.innerHTML = `<a class="feature-shot" href="${gameUrl(g)}" data-game-link="${esc(g.id)}" aria-label="開始玩 ${esc(g.title)}"><div class="feature-fallback" aria-hidden="true">${esc(g.emoji || "🎮")}</div><img src="games/${encodeURIComponent(g.id)}/shot.png" alt="${esc(g.title)} 遊戲畫面"></a>
+    <div class="feature-copy"><div class="kicker-row">${statusBadge(g)}<span class="badge quality">${qualityText(g)}</span></div><h2>${esc(g.title)}</h2><p>${esc(g.desc || "今天剛從 SlimeCat 工廠出爐的新遊戲。")}</p><div class="feature-meta"><span>${esc(g.genre || "小遊戲")}</span><span>${esc(g.date)}</span><span>約 3 分鐘一局</span></div><div class="feature-actions"><a class="btn primary" href="${gameUrl(g)}" data-game-link="${esc(g.id)}">開始玩</a><button class="btn" type="button" data-rate="${esc(g.id)}" data-title="${esc(g.title)}">玩後評分</button></div></div>`;
+  attachImageFallback(box); attachGameLinks(box);
+}
+function renderPicks(featured) {
+  const picks = games.filter(g => g.id !== featured.id).sort((a,b) => ((b.user_rating || 0) * 5 + (b.ai_score || 0)) - ((a.user_rating || 0) * 5 + (a.ai_score || 0))).slice(0,3);
+  const box = document.getElementById("pick-list");
+  box.innerHTML = picks.map(g => `<div class="pick"><span class="pick-icon" aria-hidden="true">${esc(g.emoji || "🎮")}</span><div><strong>${esc(g.title)}</strong><span>${qualityText(g)} · ${esc(g.genre || "小遊戲")}</span></div><a href="${gameUrl(g)}" data-game-link="${esc(g.id)}" aria-label="玩 ${esc(g.title)}">玩</a></div>`).join("");
+  attachGameLinks(box);
+}
+function renderCatalog() {
+  const featured = games[0];
+  const pool = games.filter(g => g.id !== featured.id && (activeFilter === "all" || broadGenre(g.genre) === activeFilter));
+  const grid = document.getElementById("game-grid");
+  grid.innerHTML = pool.length ? pool.map(cardHtml).join("") : '<div class="empty">這個分類還沒有遊戲，工廠正在準備。</div>';
+  document.getElementById("catalog-count").textContent = activeFilter === "all" ? `主打 1 款＋清單 ${pool.length} 款` : `找到 ${pool.length} 款`;
+  attachImageFallback(grid); attachGameLinks(grid);
+}
+function renderRecent() {
+  const ids = getRecentIds();
+  const recentGames = ids.map(id => games.find(g => g.id === id)).filter(Boolean).slice(0,3);
+  const section = document.getElementById("recent-section");
+  if (!recentGames.length) { section.hidden = true; return; }
+  document.getElementById("recent-grid").innerHTML = recentGames.map(cardHtml).join("");
+  section.hidden = false;
+  attachImageFallback(section); attachGameLinks(section);
+}
+function showApp() {
+  appStatus.hidden = true; appStatus.setAttribute("aria-busy", "false"); app.hidden = false;
+}
 
-// ─── 更新日誌彈窗：把所有遊戲的 changelog 攤平、依日期新到舊列出 ───
+if (!rawGames) {
+  appStatus.innerHTML = '<div><strong>遊戲清單暫時載入失敗。</strong><br><span>重新整理頁面再試一次。</span></div>';
+  appStatus.setAttribute("aria-busy", "false");
+} else if (!games.length) {
+  appStatus.innerHTML = '<div><strong>工廠正在準備第一款遊戲。</strong><br><span>晚點再回來看看。</span></div>';
+  appStatus.setAttribute("aria-busy", "false");
+} else {
+  stats.innerHTML = `目前共 <b>${games.length}</b> 款 · 最新出廠 <b>${esc(games[0].date)}</b>`;
+  renderFeatured(games[0]); renderPicks(games[0]); renderCatalog(); renderRecent(); showApp();
+}
+
+document.getElementById("filters").addEventListener("click", event => {
+  const button = event.target.closest("[data-filter]");
+  if (!button) return;
+  activeFilter = button.dataset.filter;
+  document.querySelectorAll("[data-filter]").forEach(b => b.setAttribute("aria-pressed", String(b === button)));
+  renderCatalog();
+});
+document.getElementById("recent-btn").addEventListener("click", () => {
+  const section = document.getElementById("recent-section");
+  if (section.hidden) { document.getElementById("catalog-title").scrollIntoView({block:"start"}); }
+  else { section.scrollIntoView({block:"start"}); }
+});
+
+const rateov = document.getElementById("rateov");
+let rateGid = null, rateVal = 0;
+function openRate(gid, title) {
+  rateGid = gid; rateVal = getMyRate(gid) || 0;
+  document.getElementById("ratetitle").textContent = "評分《" + title + "》";
+  document.getElementById("ratenote").value = "";
+  document.getElementById("ratemsg").textContent = "";
+  const fb = ((games.find(x => x.id === gid) || {}).feedback || []).slice().reverse();
+  document.getElementById("ratefb").innerHTML = fb.length ? '<div class="fbtitle">最近回饋與工廠回覆</div>' + fb.map(f => `<div class="fbitem"><div class="fbnote">「${esc(f.note)}」</div><div class="fbreply">工廠：${esc(f.reply)}</div></div>`).join("") : "";
+  drawStars(); rateov.classList.add("show");
+}
+function drawStars() {
+  const box = document.getElementById("stars"); box.innerHTML = "";
+  for (let i = 1; i <= 10; i++) {
+    const button = document.createElement("button"); button.type = "button"; button.textContent = i; button.setAttribute("aria-label", i + " 分");
+    if (i <= rateVal) button.classList.add("on");
+    button.addEventListener("click", () => { rateVal = i; drawStars(); }); box.appendChild(button);
+  }
+}
+document.getElementById("ratecancel").addEventListener("click", () => rateov.classList.remove("show"));
+rateov.addEventListener("click", event => { if (event.target === rateov) rateov.classList.remove("show"); });
+document.getElementById("ratesend").addEventListener("click", () => {
+  const msg = document.getElementById("ratemsg");
+  if (!rateVal) { msg.textContent = "先選 1～10 分再送出"; return; }
+  const url = window.SC_ANALYTICS_URL || "";
+  if (url) {
+    let did = "anon"; try { did = localStorage.getItem("sc_did") || "anon"; } catch (e) {}
+    try { navigator.sendBeacon(url, JSON.stringify({ev:"rate",game:rateGid,val:rateVal,note:document.getElementById("ratenote").value.slice(0,200),did,days:0,mob:/Mobi|Android/i.test(navigator.userAgent)?1:0})); } catch (e) {}
+  }
+  try { localStorage.setItem("sc_myrate_" + rateGid, rateVal); } catch (e) {}
+  msg.textContent = "已送出，謝謝回饋！";
+  setTimeout(() => rateov.classList.remove("show"), 900);
+});
+
 const logov = document.getElementById("logov");
 document.getElementById("logbtn").addEventListener("click", () => {
   const rows = [];
-  for (const g of games) {
-    for (const c of (g.changelog || [])) {
-      rows.push({ emoji: g.emoji || "🎮", title: g.title, date: c.date, summary: c.summary });
-    }
-  }
-  rows.sort((a, b) => b.date.localeCompare(a.date)); // 日期新的排前面
-  document.getElementById("loglist").innerHTML = rows.length
-    ? rows.map(r =>
-        `<div class="logitem"><div class="logmeta">${r.emoji} <b>${esc(r.title)}</b> · ${r.date}</div>` +
-        `<div class="logsum">${esc(r.summary)}</div></div>`).join("")
-    : '<div class="logempty">還沒有更新記錄，工廠會持續修好玩家回報的問題喵～</div>';
+  for (const g of games) for (const c of (g.changelog || [])) rows.push({emoji:g.emoji || "🎮",title:g.title,date:c.date,summary:c.summary});
+  rows.sort((a,b) => b.date.localeCompare(a.date));
+  document.getElementById("loglist").innerHTML = rows.length ? rows.map(r => `<div class="logitem"><div class="logmeta">${esc(r.emoji)} <b>${esc(r.title)}</b> · ${esc(r.date)}</div><div class="logsum">${esc(r.summary)}</div></div>`).join("") : '<div class="logempty">還沒有更新記錄。</div>';
   logov.classList.add("show");
 });
 document.getElementById("logclose").addEventListener("click", () => logov.classList.remove("show"));
-logov.addEventListener("click", (e) => { if (e.target === logov) logov.classList.remove("show"); });
+logov.addEventListener("click", event => { if (event.target === logov) logov.classList.remove("show"); });
+document.addEventListener("keydown", event => { if (event.key === "Escape") { rateov.classList.remove("show"); logov.classList.remove("show"); } });
 </script>
 </body>
 </html>
