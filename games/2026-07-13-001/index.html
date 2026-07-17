@@ -89,6 +89,7 @@ let floaters=[];
 let shake=0, flash=0, dim=0;
 let clearTimer=0, revealTimer=0;
 let paused=false;
+let lastError=null; // 主迴圈最後一次捕捉到的例外，供定位重現路徑（不寫 console）
 let lastAction=0, nowT=0;
 let overInfo={score:0,rec:false,diff:0};
 
@@ -125,6 +126,7 @@ function startGame(){
   audioReady();
   G={score:0, level:1, combo:0, maxCombo:0, ...newLevel(1)};
   particles=[]; floaters=[]; shake=0; flash=0; dim=0;
+  paused=false; // 開新局時清除殘留的暫停狀態，避免計時被凍結（狀態未重置導致的假凍結）
   state="play"; lastAction=nowT;
 }
 
@@ -303,12 +305,16 @@ function drawScene(g,L){
   g.restore();
 }
 
+// 罐頭的矩形：視覺（drawCan）與點擊判定（handlePoint）共用同一組座標，
+// 避免「畫在哪」與「點在哪」各寫一份公式而基準不一致造成點不到／點錯
+function cardRect(a){ return {x:a.x+2, y:a.y+2, w:cw-4, h:ch-4}; }
+
 // 畫一張貓罐頭
 function drawCan(g,a){
   const free=isFree(a), lock=!free, play=free&&matchBase(a.val);
-  let x=a.x,y=a.y,w=cw-4,h=ch-4;
+  const R=cardRect(a), w=R.w, h=R.h;
   g.save();
-  g.translate(x+2,y+2);
+  g.translate(R.x,R.y);
   const col=PAL[a.val-1];
   // 陰影
   g.fillStyle="rgba(0,0,0,.35)"; rr(g,2,4,w,h,10); g.fill();
@@ -581,10 +587,17 @@ function frame(t){
   if(!prev) prev=t;
   let dt=(t-prev)/1000; prev=t;
   if(dt>0.05) dt=0.05; // 分頁切回不暴衝
+  // 逾時解鎖：視窗其實握有焦點卻仍卡在暫停，代表 blur/focus 事件漏配（手機常見）→ 自動恢復，避免畫面像凍結
+  if(paused && !document.hidden && (!document.hasFocus || document.hasFocus())){ paused=false; }
   acc+=dt;
   // 固定 1/120 步長推進特效與計時
-  while(acc>=1/120){ update(1/120); acc-=1/120; }
-  render();
+  try{
+    while(acc>=1/120){ update(1/120); acc-=1/120; }
+    render();
+  }catch(err){
+    // 主迴圈不得因單幀例外而永久中斷（否則畫面會凍結）：記錄後吞掉，清空累積量並在下一幀繼續嘗試
+    lastError=err; acc=0;
+  }
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
@@ -608,13 +621,14 @@ function handlePoint(lx,ly){
   }
   // 中央基準牌本身當備援抽牌？ 不，避免誤觸。
 
-  // 牌陣：找點到的最上層（最大 r）罐頭
+  // 牌陣：找點到的最上層（最大 r）罐頭 — 判定矩形與 drawCan 共用 cardRect，基準一致
   let hit=null;
   for(let r=G.rows-1;r>=0 && !hit;r--)
     for(let c=0;c<cols;c++){
       const a=G.cards[r*cols+c];
       if(a.removed) continue;
-      if(lx>=a.x && lx<=a.x+cw-4 && ly>=a.y && ly<=a.y+ch-4){ hit=a; break; }
+      const R=cardRect(a);
+      if(lx>=R.x && lx<=R.x+R.w && ly>=R.y && ly<=R.y+R.h){ hit=a; break; }
     }
   if(!hit) return;
   if(!isFree(hit)){ sLocked(); shake=Math.max(shake,3); return; } // 被壓住
@@ -622,7 +636,7 @@ function handlePoint(lx,ly){
   else { sWrong(); floatText(hit.x+cw/2,hit.y,"✗","#ff9a9a"); shake=Math.max(shake,2); } // 試錯零成本
 }
 
-cv.addEventListener("pointerdown",e=>{ e.preventDefault(); const p=toLogic(e); handlePoint(p.x,p.y); },{passive:false});
+cv.addEventListener("pointerdown",e=>{ e.preventDefault(); if(paused){ paused=false; prev=0; } const p=toLogic(e); handlePoint(p.x,p.y); },{passive:false});
 // 防卡鍵/自走：離開視窗或取消都不保留輸入狀態
 cv.addEventListener("pointercancel",()=>{},{passive:true});
 window.addEventListener("blur",()=>{ paused=true; });
@@ -631,6 +645,7 @@ window.addEventListener("focus",()=>{ paused=false; prev=0; });
 
 window.addEventListener("keydown",e=>{
   audioReady();
+  if(paused){ paused=false; prev=0; } // 有輸入代表玩家在場，解除殘留暫停避免計時凍結
   if(state==="title"||state==="over"){ startGame(); e.preventDefault(); return; }
   if(state==="clear"){ if(clearTimer>0.5) nextLevel(); e.preventDefault(); return; }
   if(state!=="play") return;
