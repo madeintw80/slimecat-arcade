@@ -325,7 +325,7 @@ function update(dt){
 
   // 搗蛋貓：前 15 秒與第 1 波保證安全；之後隨時間加速施壓
   if(wave>=2 || runElapsed>20){
-    agit+=0.12*(1+runElapsed/32)*dt;
+    agit+=0.16*(1+runElapsed/28)*dt;
     if(agit>=1){ agit=0; dropJunk(); }
   }
 }
