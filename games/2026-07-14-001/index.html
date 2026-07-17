@@ -490,14 +490,15 @@ function onUp(e){
   if(!drag) return;
   const t=(e.changedTouches&&e.changedTouches[0])||e;
   const p=toLogical(t.clientX,t.clientY);
-  const cell=cellAt(p.x,p.y);
+  drag.x=p.x; drag.y=p.y;                       // 放開瞬間先把幽靈貓座標同步到指標位置
+  const cell=cellAt(drag.x,drag.y);             // 視覺(幽靈貓)與判定(落點)共用同一組座標＋cellAt，避免基準不一致
   if(cell){ resolveDrop(drag.sr,drag.sc,cell.r,cell.c); }
   drag=null;
 }
 function clearInput(){ drag=null; }
 
 // 指標事件（滑鼠＋觸控統一）
-cv.addEventListener('pointerdown',e=>{ e.preventDefault(); onDown(e); },{passive:false});
+cv.addEventListener('pointerdown',e=>{ e.preventDefault(); onDown(e); if(drag){ try{ if(e.pointerId!=null) cv.setPointerCapture(e.pointerId); }catch(_){} } },{passive:false});
 cv.addEventListener('pointermove',e=>{ onMove(e); },{passive:false});
 window.addEventListener('pointerup',e=>{ onUp(e); });
 cv.addEventListener('pointercancel',clearInput);
