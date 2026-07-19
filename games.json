@@ -731,6 +731,16 @@
       "date": "2026-07-18",
       "inspiration": "Meowdoku!",
       "desc": "看行列數字避開炸毛地雷，開格拼回史萊姆貓"
+    },
+    {
+      "id": "2026-07-19-001",
+      "title": "喵星換裝局",
+      "emoji": "👗",
+      "genre": "益智（直覺速配）",
+      "date": "2026-07-19",
+      "inspiration": "Project Makeover（Magic Tavern, Inc.）",
+      "desc": "看情境限時挑穿搭，布幕一掀看爆笑變身",
+      "ai_score": 33
     }
   ]
 }

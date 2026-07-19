@@ -1,0 +1,571 @@
+<!--GAMEMETA {"title":"喵星換裝局","emoji":"👗","genre":"益智（直覺速配）","inspiration":"Project Makeover（Magic Tavern, Inc.）","desc":"看情境限時挑穿搭，布幕一掀看爆笑變身"}-->
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>喵星換裝局</title>
+<style>
+  /* 全站零外部資源：字型全走系統字 */
+  html,body{margin:0;padding:0;height:100%;background:#1a1226;overflow:hidden;
+    font-family:"Microsoft JhengHei","PingFang TC","Noto Sans TC",system-ui,sans-serif;
+    -webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent;}
+  #wrap{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;}
+  canvas{display:block;touch-action:none;background:#241a34;border-radius:14px;
+    box-shadow:0 12px 40px rgba(0,0,0,.5);}
+  #lobby{position:fixed;top:8px;left:10px;z-index:10;color:#e9d9ff;
+    font-size:14px;text-decoration:none;background:rgba(0,0,0,.35);
+    padding:5px 10px;border-radius:20px;}
+  #lobby:active{background:rgba(0,0,0,.6);}
+</style>
+</head>
+<body>
+<a id="lobby" href="../../index.html">← 回遊戲區</a>
+<div id="wrap"><canvas id="cv"></canvas></div>
+<script>
+"use strict";
+(function(){
+// ===== 邏輯畫布固定 400x600，直式 =====
+const W=400,H=600;
+const canvas=document.getElementById("cv");
+const ctx=canvas.getContext("2d");
+const DPR=Math.min(3,window.devicePixelRatio||1);
+let scale=1;
+
+function resize(){
+  // 等比縮放填滿視窗，維持 400x600 邏輯座標
+  const sw=window.innerWidth, sh=window.innerHeight;
+  scale=Math.min(sw/W, sh/H);
+  canvas.style.width=(W*scale)+"px";
+  canvas.style.height=(H*scale)+"px";
+  canvas.width=Math.round(W*scale*DPR);
+  canvas.height=Math.round(H*scale*DPR);
+  ctx.setTransform(scale*DPR,0,0,scale*DPR,0,0); // 邏輯座標維持 400x600
+}
+window.addEventListener("resize",resize);
+resize();
+
+// ===== WebAudio 合成音效（禁外部音檔）=====
+let AC=null;
+function initAudio(){
+  if(AC) return;
+  try{ AC=new (window.AudioContext||window.webkitAudioContext)(); }catch(e){ AC=null; }
+}
+function tone(freq,dur,type,vol,delay){
+  if(!AC) return;
+  try{
+    const t=AC.currentTime+(delay||0);
+    const o=AC.createOscillator(), g=AC.createGain();
+    o.type=type||"sine"; o.frequency.setValueAtTime(freq,t);
+    g.gain.setValueAtTime(0.0001,t);
+    g.gain.exponentialRampToValueAtTime(vol||0.2,t+0.012);
+    g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
+    o.connect(g); g.connect(AC.destination);
+    o.start(t); o.stop(t+dur+0.02);
+  }catch(e){}
+}
+function sClick(){ tone(520,0.06,"square",0.14); }
+function sCorrect(combo){
+  const base=520; const n=Math.min(combo,5);
+  for(let i=0;i<n;i++) tone(base*Math.pow(1.16,i)+combo*8,0.14,"triangle",0.16,i*0.05);
+}
+function sWrong(){ tone(150,0.28,"sawtooth",0.18); tone(110,0.3,"sawtooth",0.12,0.04); }
+function sTimeout(){ tone(300,0.16,"sine",0.16); tone(180,0.22,"sine",0.15,0.1); }
+function sReveal(){ tone(700,0.12,"sine",0.12); tone(1050,0.18,"sine",0.1,0.06); }
+function sRecord(){ [660,880,1046,1318].forEach((f,i)=>tone(f,0.2,"triangle",0.18,i*0.09)); }
+
+// ===== 資料：風格 × 道具 =====
+const STYLES=[
+  {key:"power", name:"霸氣", color:"#e74c3c", items:[{e:"👑",n:"金冠"},{e:"🕶️",n:"墨鏡"},{e:"💼",n:"公事包"}]},
+  {key:"glam",  name:"華麗", color:"#a55eea", items:[{e:"💎",n:"鑽石"},{e:"✨",n:"亮片袍"},{e:"👠",n:"高跟鞋"}]},
+  {key:"cozy",  name:"舒適", color:"#f0932b", items:[{e:"🧣",n:"圍巾"},{e:"🧦",n:"毛襪"},{e:"☕",n:"熱可可"}]},
+  {key:"sporty",name:"活力", color:"#2ecc71", items:[{e:"🏀",n:"籃球"},{e:"👟",n:"跑鞋"},{e:"🎽",n:"運動衣"}]},
+  {key:"cute",  name:"甜美", color:"#ff6b9d", items:[{e:"🎀",n:"蝴蝶結"},{e:"💕",n:"愛心包"},{e:"🍭",n:"棒棒糖"}]},
+  {key:"cool",  name:"神祕", color:"#546de5", items:[{e:"🎭",n:"面具"},{e:"🦇",n:"斗篷"},{e:"🌙",n:"月牙飾"}]}
+];
+function styleOf(k){ for(let i=0;i<STYLES.length;i++) if(STYLES[i].key===k) return STYLES[i]; }
+
+// 情境提示：clear=明確關鍵字（前期），vague=間接線索（後期靠推理）
+const SITUATIONS=[
+  {s:"power", clear:"今晚去談判，要壓場氣勢！", vague:"😤💢🔥"},
+  {s:"power", clear:"上台演講，鎮住全場！",     vague:"🎤👊"},
+  {s:"glam",  clear:"紅毯派對，要全場最閃！",   vague:"🎉🌟💫"},
+  {s:"glam",  clear:"頒獎典禮，華麗登場！",     vague:"🏆✨"},
+  {s:"cozy",  clear:"下雨天在家耍廢一整天",     vague:"🌧️🛋️😌"},
+  {s:"cozy",  clear:"冬夜想窩著取暖",           vague:"❄️🥱"},
+  {s:"sporty",clear:"週末打球流一身汗！",       vague:"💪🏃"},
+  {s:"sporty",clear:"晨跑約會，活力滿點！",     vague:"🌅⚡"},
+  {s:"cute",  clear:"跟喜歡的人第一次約會",     vague:"💗😳"},
+  {s:"cute",  clear:"去甜點店拍美照打卡",       vague:"🧁📸"},
+  {s:"cool",  clear:"午夜化裝舞會登場",         vague:"🌙🎭"},
+  {s:"cool",  clear:"要當神祕嘉賓亮相",         vague:"❓🖤"}
+];
+
+const QUIP={
+  ok:["喵～這就是本喵要的氣場✨","完美！你最懂我😽","天生衣架子非我莫屬","鏡子都要被我閃瞎🙀","這品味，加薪！"],
+  bad:["呃…這是哪來的審美😾","本喵不是這個意思啦","時尚災難現場🙀","你被解僱…開玩笑的","勉強啦，下次認真點"],
+  late:["太慢啦！本喵等到長毛🙀","來不及，裸奔上場了！","時間到，零分造型…"]
+};
+function pick(a){ return a[(Math.random()*a.length)|0]; }
+
+// ===== 版面（選項卡）=====
+const CARD={w:116,h:150,gap:12,x0:14,y:382};
+function cardRect(i){ return {x:CARD.x0+i*(CARD.w+CARD.gap), y:CARD.y, w:CARD.w, h:CARD.h}; }
+
+// ===== 遊戲狀態 =====
+const S_TITLE=0,S_SEL=1,S_REVEAL=2,S_OVER=3;
+let state=S_TITLE;
+let score=0, best=0, combo=0, comboBest=0, sat=55; // 客戶滿意度 0~100
+let roundNum=0, R=null;
+let revealT=0, chosen=-1, wasOk=false, wasTimeout=false, quipTxt="", gainTxt="";
+let pendingOver=false, newRecord=false, reported=false;
+const REVEAL_DUR=1.15;
+
+// 特效
+let particles=[], shakeT=0, shakeMag=0, catBounce=0, floaters=[];
+
+try{ best=parseInt(localStorage.getItem("catmakeover_best")||"0",10)||0; }catch(e){ best=0; }
+
+function timeLimitFor(r,vip){
+  let t=Math.max(2.0, 5.3 - r*0.13);   // 隨關數縮短（難度曲線）
+  if(vip) t*=0.72;                      // 第 3 分鐘壓力源：VIP 急單更短
+  return t;
+}
+function genRound(){
+  roundNum++;
+  const sit=pick(SITUATIONS);
+  const st=styleOf(sit.s);
+  const correct=st.items[(Math.random()*st.items.length)|0];
+  // 兩個誘餌來自其他風格
+  const others=[];
+  STYLES.forEach(o=>{ if(o.key!==st.key) o.items.forEach(it=>others.push(it)); });
+  for(let i=others.length-1;i>0;i--){ const j=(Math.random()*(i+1))|0; const t=others[i];others[i]=others[j];others[j]=t; }
+  const d1=others[0], d2=others[1];
+  const opts=[{e:correct.e,n:correct.n,ok:true},{e:d1.e,n:d1.n,ok:false},{e:d2.e,n:d2.n,ok:false}];
+  for(let i=opts.length-1;i>0;i--){ const j=(Math.random()*(i+1))|0; const t=opts[i];opts[i]=opts[j];opts[j]=t; }
+  const vague=roundNum>5;                     // 前 5 關明確、之後模糊化
+  const vip=roundNum>=12 && roundNum%4===0;   // 後期 VIP 急單
+  const tl=timeLimitFor(roundNum,vip);
+  R={sit:sit, style:st, opts:opts, vague:vague, vip:vip, tl:tl, timeLeft:tl};
+}
+
+function startGame(){
+  score=0; combo=0; comboBest=0; sat=55; roundNum=0;
+  particles=[]; floaters=[]; shakeT=0; catBounce=0;
+  pendingOver=false; newRecord=false; reported=false;
+  genRound();
+  state=S_SEL;
+}
+
+// ===== 特效產生 =====
+function burst(x,y,color,n){
+  for(let i=0;i<n;i++){
+    const a=Math.random()*Math.PI*2, sp=40+Math.random()*180;
+    particles.push({x:x,y:y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp-40,
+      life:0.5+Math.random()*0.5,age:0,size:3+Math.random()*4,color:color});
+  }
+}
+function addFloat(x,y,txt,color){ floaters.push({x:x,y:y,txt:txt,color:color,age:0,life:1.0}); }
+function shake(m){ shakeT=0.3; shakeMag=m; }
+
+// ===== 結算一回合 =====
+function resolve(idx,timeout){
+  wasTimeout=!!timeout; chosen=idx; gainTxt="";
+  if(timeout){
+    wasOk=false; combo=0; sat-=20; quipTxt=pick(QUIP.late);
+    sTimeout(); burst(200,230,"#888",22); shake(7);
+  }else{
+    sClick();
+    wasOk=R.opts[idx].ok;
+    if(wasOk){
+      combo++; if(combo>comboBest) comboBest=combo;
+      const ratio=Math.max(0,R.timeLeft/R.tl);
+      const speed=Math.round(70*ratio);
+      const mult=1+Math.min(combo-1,10)*0.12;
+      const vip=R.vip?1.6:1;
+      const pts=Math.round((80+speed)*mult*vip);
+      score+=pts; gainTxt="+"+pts+(combo>1?("  連段x"+combo):"")+(R.vip?"  VIP!":"");
+      sat=Math.min(100,sat+8);
+      quipTxt=pick(QUIP.ok);
+      sCorrect(combo); sReveal();
+      burst(200,225,"#ffd24a",34); burst(200,225,"#fff",16);
+      catBounce=1; addFloat(200,150,"+"+pts,"#ffe066");
+    }else{
+      combo=0; sat-=16; quipTxt=pick(QUIP.bad);
+      sWrong(); burst(200,230,"#e05a5a",20); shake(8);
+    }
+  }
+  if(sat<=0){ sat=0; pendingOver=true; }
+  state=S_REVEAL; revealT=0;
+}
+
+function nextOrOver(){
+  if(pendingOver){ gameOver(); return; }
+  genRound(); state=S_SEL;
+}
+function gameOver(){
+  newRecord=false;
+  if(score>best){ best=score; newRecord=true;
+    try{ localStorage.setItem("catmakeover_best",String(best)); }catch(e){}
+    sRecord();
+  }
+  state=S_OVER;
+  if(!reported){ reported=true; try{ if(window.SC) SC.over(score); }catch(e){} }
+}
+
+// ===== 更新 =====
+function update(dt){
+  // 特效更新（與狀態無關）
+  for(let i=particles.length-1;i>=0;i--){
+    const p=particles[i]; p.age+=dt;
+    if(p.age>=p.life){ particles.splice(i,1); continue; }
+    p.vy+=260*dt; p.x+=p.vx*dt; p.y+=p.vy*dt;
+  }
+  for(let i=floaters.length-1;i>=0;i--){
+    const f=floaters[i]; f.age+=dt; f.y-=28*dt; if(f.age>=f.life) floaters.splice(i,1);
+  }
+  if(shakeT>0) shakeT-=dt;
+  if(catBounce>0){ catBounce-=dt*2.2; if(catBounce<0) catBounce=0; }
+
+  if(state===S_SEL){
+    R.timeLeft-=dt;
+    if(R.timeLeft<=0){ R.timeLeft=0; resolve(-1,true); }
+  }else if(state===S_REVEAL){
+    revealT+=dt;
+    if(revealT>=REVEAL_DUR) nextOrOver();
+  }
+}
+
+// ===== 繪圖工具 =====
+function rr(x,y,w,h,r){
+  ctx.beginPath();
+  ctx.moveTo(x+r,y);
+  ctx.arcTo(x+w,y,x+w,y+h,r);
+  ctx.arcTo(x+w,y+h,x,y+h,r);
+  ctx.arcTo(x,y+h,x,y,r);
+  ctx.arcTo(x,y,x+w,y,r);
+  ctx.closePath();
+}
+function wrapText(txt,x,y,maxW,lh){
+  const chars=txt.split("");
+  let line="", yy=y;
+  for(let i=0;i<chars.length;i++){
+    const test=line+chars[i];
+    if(ctx.measureText(test).width>maxW && line!==""){
+      ctx.fillText(line,x,yy); line=chars[i]; yy+=lh;
+    }else line=test;
+  }
+  ctx.fillText(line,x,yy);
+  return yy;
+}
+
+// 畫史萊姆貓（綠史萊姆＋貓耳）
+function drawCat(cx,cy,s,mood,item){
+  ctx.save();
+  ctx.translate(cx,cy);
+  // 擠壓拉伸
+  const sq=1+Math.sin(catBounce*6)*0.12*catBounce;
+  ctx.scale(s*(1/ (1+ (mood==='ok'?0:0))), s);
+  ctx.scale(1+ (1-sq)*0.4*0, 1); // 保留位
+  const bw=70, bh=64*sq, by=(64-bh)/2;
+  // 身體
+  const g=ctx.createLinearGradient(0,-bh,0,bh);
+  g.addColorStop(0,"#7bed9f"); g.addColorStop(1,"#2ed573");
+  ctx.fillStyle=g;
+  // 耳朵
+  ctx.beginPath();
+  ctx.moveTo(-40,-38+by); ctx.lineTo(-20,-64+by); ctx.lineTo(-8,-40+by); ctx.closePath();
+  ctx.moveTo(40,-38+by); ctx.lineTo(20,-64+by); ctx.lineTo(8,-40+by); ctx.closePath();
+  ctx.fill();
+  // 果凍身體
+  ctx.beginPath();
+  ctx.moveTo(-bw,20+by);
+  ctx.quadraticCurveTo(-bw,-bh, 0,-bh);
+  ctx.quadraticCurveTo(bw,-bh, bw,20+by);
+  ctx.quadraticCurveTo(bw,44+by, 30,42+by);
+  ctx.quadraticCurveTo(15,52+by, 0,42+by);
+  ctx.quadraticCurveTo(-15,52+by, -30,42+by);
+  ctx.quadraticCurveTo(-bw,44+by, -bw,20+by);
+  ctx.fill();
+  // 高光
+  ctx.fillStyle="rgba(255,255,255,.35)";
+  ctx.beginPath(); ctx.ellipse(-22,-18+by,14,10,-0.4,0,7); ctx.fill();
+  // 眼睛
+  ctx.fillStyle="#1b3a2a";
+  if(mood==="ok"){
+    // 開心 ^ ^
+    ctx.lineWidth=5; ctx.strokeStyle="#1b3a2a"; ctx.lineCap="round";
+    ctx.beginPath(); ctx.moveTo(-26,-4+by); ctx.lineTo(-16,-12+by); ctx.lineTo(-6,-4+by);
+    ctx.moveTo(6,-4+by); ctx.lineTo(16,-12+by); ctx.lineTo(26,-4+by); ctx.stroke();
+    // 腮紅
+    ctx.fillStyle="rgba(255,120,160,.6)";
+    ctx.beginPath(); ctx.ellipse(-30,8+by,8,5,0,0,7); ctx.ellipse(30,8+by,8,5,0,0,7); ctx.fill();
+  }else if(mood==="bad"){
+    // 皺眉 > <
+    ctx.lineWidth=5; ctx.strokeStyle="#1b3a2a"; ctx.lineCap="round";
+    ctx.beginPath(); ctx.moveTo(-28,-10+by); ctx.lineTo(-14,-4+by); ctx.lineTo(-28,2+by);
+    ctx.moveTo(28,-10+by); ctx.lineTo(14,-4+by); ctx.lineTo(28,2+by); ctx.stroke();
+  }else{
+    ctx.beginPath(); ctx.arc(-18,-4+by,6,0,7); ctx.arc(18,-4+by,6,0,7); ctx.fill();
+    ctx.fillStyle="#fff";
+    ctx.beginPath(); ctx.arc(-16,-6+by,2,0,7); ctx.arc(20,-6+by,2,0,7); ctx.fill();
+  }
+  // 嘴巴
+  ctx.strokeStyle="#1b3a2a"; ctx.lineWidth=3; ctx.lineCap="round";
+  ctx.beginPath();
+  if(mood==="bad"){ ctx.moveTo(-8,20+by); ctx.quadraticCurveTo(0,12+by,8,20+by); }
+  else{ ctx.moveTo(-8,14+by); ctx.quadraticCurveTo(0,22+by,8,14+by); }
+  ctx.stroke();
+  ctx.restore();
+  // 揭曉的道具戴在頭上
+  if(item){
+    ctx.save();
+    ctx.font="46px serif";
+    ctx.textAlign="center"; ctx.textBaseline="middle";
+    ctx.fillText(item, cx, cy-58*s);
+    ctx.restore();
+  }
+}
+
+// ===== 主繪圖 =====
+function render(){
+  ctx.clearRect(0,0,W,H);
+  ctx.save();
+  if(shakeT>0){ const m=shakeMag*(shakeT/0.3); ctx.translate((Math.random()-0.5)*m,(Math.random()-0.5)*m); }
+
+  // 背景
+  const bg=ctx.createLinearGradient(0,0,0,H);
+  bg.addColorStop(0,"#2b2140"); bg.addColorStop(1,"#181026");
+  ctx.fillStyle=bg; ctx.fillRect(0,0,W,H);
+
+  if(state===S_TITLE){ drawTitle(); }
+  else{ drawHUD(); drawStage(); if(state===S_SEL||state===S_REVEAL) drawCards(); }
+
+  // 粒子
+  for(const p of particles){
+    const a=1-p.age/p.life;
+    ctx.globalAlpha=Math.max(0,a);
+    ctx.fillStyle=p.color;
+    ctx.beginPath(); ctx.arc(p.x,p.y,p.size,0,7); ctx.fill();
+  }
+  ctx.globalAlpha=1;
+  for(const f of floaters){
+    ctx.globalAlpha=Math.max(0,1-f.age/f.life);
+    ctx.fillStyle=f.color; ctx.font="bold 26px sans-serif";
+    ctx.textAlign="center"; ctx.textBaseline="middle";
+    ctx.fillText(f.txt,f.x,f.y);
+  }
+  ctx.globalAlpha=1;
+
+  if(state===S_OVER) drawOver();
+  ctx.restore();
+}
+
+function drawHUD(){
+  ctx.textAlign="left"; ctx.textBaseline="middle";
+  ctx.fillStyle="#ffe066"; ctx.font="bold 22px sans-serif";
+  ctx.fillText("分數 "+score,14,24);
+  ctx.textAlign="right"; ctx.fillStyle="#b9a6e0"; ctx.font="15px sans-serif";
+  ctx.fillText("最高 "+best,W-14,24);
+  // 客戶滿意度條
+  ctx.textAlign="left";
+  const bx=14,by=44,bw=W-28,bh=16;
+  ctx.fillStyle="rgba(255,255,255,.12)"; rr(bx,by,bw,bh,8); ctx.fill();
+  const sc=sat<30?"#e74c3c":(sat<60?"#f0932b":"#2ed573");
+  ctx.fillStyle=sc; rr(bx,by,bw*(sat/100),bh,8); ctx.fill();
+  ctx.fillStyle="#fff"; ctx.font="11px sans-serif"; ctx.textBaseline="middle";
+  ctx.fillText("客戶滿意度",bx+8,by+bh/2+1);
+  ctx.textAlign="right"; ctx.fillText((sat|0)+"%",bx+bw-8,by+bh/2+1);
+  ctx.textAlign="left";
+}
+
+function drawStage(){
+  // 情境對話泡泡
+  const showQuip=(state===S_REVEAL);
+  const txt = showQuip ? quipTxt : (R.vague ? R.sit.vague : R.sit.clear);
+  const bx=24,by=76,bw=W-48;
+  ctx.fillStyle=R.vip && state===S_SEL ? "rgba(255,215,0,.14)" : "rgba(255,255,255,.08)";
+  ctx.strokeStyle=showQuip?(wasOk?"#2ed573":(wasTimeout?"#888":"#e05a5a")):(R.vip?"#ffd24a":"rgba(255,255,255,.25)");
+  ctx.lineWidth=2;
+  rr(bx,by,bw,66,14); ctx.fill(); ctx.stroke();
+  // 泡泡尖角
+  ctx.beginPath(); ctx.moveTo(W/2-10,by+66); ctx.lineTo(W/2+10,by+66); ctx.lineTo(W/2,by+80); ctx.closePath();
+  ctx.fillStyle="rgba(255,255,255,.08)"; ctx.fill();
+
+  ctx.textAlign="center"; ctx.textBaseline="middle";
+  if(!showQuip && R.vip){ ctx.fillStyle="#ffd24a"; ctx.font="bold 13px sans-serif"; ctx.fillText("⚡ VIP 急單！雙倍分數 ⚡",W/2,by-2); }
+  ctx.fillStyle="#fff";
+  ctx.font = (R.vague && !showQuip) ? "30px serif" : "bold 18px sans-serif";
+  const lh = (R.vague && !showQuip)?30:23;
+  ctx.save();
+  // 讓多行置中
+  const lines = estimateLines(txt,bw-28,ctx.font);
+  let sy=by+33-(lines-1)*lh/2;
+  wrapText(txt,W/2,sy,bw-28,lh);
+  ctx.restore();
+
+  // 客戶貓
+  const mood = state===S_REVEAL ? (wasOk?"ok":"bad") : "normal";
+  const item = state===S_REVEAL ? R.opts[chosen>=0?chosen:0].e : null;
+  const showItem = state===S_REVEAL && chosen>=0;
+  drawCat(W/2,240,1.0,mood, showItem?item:null);
+
+  // 揭曉光掃
+  if(state===S_REVEAL){
+    const p=Math.min(1,revealT/0.5);
+    const sweepX=-60+ (W+120)*p;
+    ctx.save();
+    const lg=ctx.createLinearGradient(sweepX-50,0,sweepX+50,0);
+    lg.addColorStop(0,"rgba(255,255,255,0)");
+    lg.addColorStop(0.5,"rgba(255,255,255,"+(0.5*(1-p))+")");
+    lg.addColorStop(1,"rgba(255,255,255,0)");
+    ctx.fillStyle=lg; ctx.fillRect(0,150,W,180);
+    ctx.restore();
+  }
+
+  if(state===S_SEL){
+    // 計時條
+    const tx=40,ty=340,tw=W-80,th=12;
+    ctx.fillStyle="rgba(255,255,255,.12)"; rr(tx,ty,tw,th,6); ctx.fill();
+    const r=R.timeLeft/R.tl;
+    ctx.fillStyle = r<0.3?"#e74c3c":(r<0.6?"#f0932b":"#4bd6ff");
+    rr(tx,ty,tw*r,th,6); ctx.fill();
+    ctx.fillStyle="#cbb8ef"; ctx.font="12px sans-serif"; ctx.textAlign="center";
+    ctx.fillText("直覺選一套最搭的造型！",W/2,364);
+    // 連段顯示
+    if(combo>1){ ctx.fillStyle="#ffd24a"; ctx.font="bold 15px sans-serif"; ctx.fillText("🔥 連段 x"+combo,W/2,330); }
+  }
+  if(state===S_REVEAL && gainTxt){
+    ctx.fillStyle=wasOk?"#ffe066":"#bbb"; ctx.font="bold 16px sans-serif"; ctx.textAlign="center";
+    ctx.fillText(gainTxt,W/2,360);
+  }
+}
+function estimateLines(txt,maxW,font){
+  ctx.save(); ctx.font=font;
+  const chars=txt.split(""); let line="",lines=1;
+  for(let i=0;i<chars.length;i++){ const t=line+chars[i];
+    if(ctx.measureText(t).width>maxW && line!==""){ lines++; line=chars[i]; } else line=t; }
+  ctx.restore(); return lines;
+}
+
+function drawCards(){
+  for(let i=0;i<3;i++){
+    const c=cardRect(i);
+    const opt=R.opts[i];
+    let border="rgba(255,255,255,.2)", bgc="rgba(255,255,255,.06)";
+    if(state===S_REVEAL){
+      if(i===chosen){ if(wasOk){border="#2ed573";bgc="rgba(46,213,115,.2)";} else {border="#e05a5a";bgc="rgba(224,90,90,.2)";} }
+      else if(opt.ok && !wasOk){ border="#2ed573"; bgc="rgba(46,213,115,.12)"; } // 提示正解
+    }
+    ctx.fillStyle=bgc; ctx.strokeStyle=border; ctx.lineWidth=3;
+    rr(c.x,c.y,c.w,c.h,14); ctx.fill(); ctx.stroke();
+    ctx.textAlign="center"; ctx.textBaseline="middle";
+    ctx.font="52px serif"; ctx.fillText(opt.e,c.x+c.w/2,c.y+58);
+    ctx.font="bold 17px sans-serif"; ctx.fillStyle="#f0e9ff";
+    ctx.fillText(opt.n,c.x+c.w/2,c.y+108);
+    ctx.font="12px sans-serif"; ctx.fillStyle="#9c8bc4";
+    ctx.fillText("按 "+(i+1),c.x+c.w/2,c.y+134);
+  }
+}
+
+function drawTitle(){
+  ctx.textAlign="center"; ctx.textBaseline="middle";
+  // logo 貓
+  catBounce=0.4; drawCat(W/2,160,1.2,"ok",null);
+  ctx.fillStyle="#ffe066"; ctx.font="bold 40px sans-serif";
+  ctx.fillText("喵星換裝局",W/2,270);
+  ctx.font="30px serif"; ctx.fillText("👗✨",W/2,314);
+  ctx.fillStyle="#e9d9ff"; ctx.font="16px sans-serif";
+  ctx.fillText("史萊姆貓當造型顧問！",W/2,352);
+  // 規則框
+  ctx.fillStyle="rgba(255,255,255,.06)"; rr(34,378,W-68,150,14); ctx.fill();
+  ctx.fillStyle="#d8c8ff"; ctx.font="15px sans-serif"; ctx.textAlign="left";
+  const lx=52; let ly=406;
+  ["看情境提示，限時挑一套最搭的造型","點卡片或按 1 / 2 / 3 選擇","選對連段加分、選錯滿意度下降","滿意度歸零就下班囉！","（越快選對分數越高）"].forEach(t=>{
+    ctx.fillText("• "+t,lx,ly); ly+=27;
+  });
+  ctx.textAlign="center";
+  const pulse=0.5+0.5*Math.sin(Date.now?0:0); // 避免依賴時間
+  ctx.fillStyle="#2ed573"; ctx.font="bold 22px sans-serif";
+  ctx.fillText("👉 點畫面開始",W/2,558);
+  if(best>0){ ctx.fillStyle="#b9a6e0"; ctx.font="14px sans-serif"; ctx.fillText("最高分 "+best,W/2,584); }
+}
+
+function drawOver(){
+  ctx.fillStyle="rgba(10,6,20,.82)"; ctx.fillRect(0,0,W,H);
+  ctx.textAlign="center"; ctx.textBaseline="middle";
+  drawCat(W/2,150,1.0,newRecord?"ok":"bad",null);
+  ctx.fillStyle=newRecord?"#ffe066":"#fff"; ctx.font="bold 34px sans-serif";
+  ctx.fillText(newRecord?"🎉 新紀錄！":"下班囉～",W/2,262);
+  ctx.fillStyle="#e9d9ff"; ctx.font="22px sans-serif";
+  ctx.fillText("本局分數  "+score,W/2,308);
+  ctx.font="16px sans-serif"; ctx.fillStyle="#b9a6e0";
+  ctx.fillText("最高連段  x"+comboBest+"　完成 "+roundNum+" 位客戶",W/2,338);
+  // near-miss
+  ctx.font="bold 18px sans-serif";
+  if(newRecord){ ctx.fillStyle="#2ed573"; ctx.fillText("打破自己的最佳造型紀錄！",W/2,378); }
+  else{ const diff=best-score; ctx.fillStyle="#ffb84a";
+    ctx.fillText(diff>0?("再 "+diff+" 分就破紀錄！差一點！"):("追平紀錄！再拚一次破它！"),W/2,378); }
+  ctx.fillStyle="#b9a6e0"; ctx.font="14px sans-serif";
+  ctx.fillText("最高 "+best,W/2,410);
+
+  ctx.fillStyle="#2ed573"; rr(W/2-90,452,180,54,16); ctx.fill();
+  ctx.fillStyle="#0d2a17"; ctx.font="bold 22px sans-serif";
+  ctx.fillText("↻ 再來一局",W/2,479);
+  ctx.fillStyle="#8a7bb0"; ctx.font="13px sans-serif";
+  ctx.fillText("點畫面或按空白鍵重來",W/2,528);
+}
+
+// ===== 輸入 =====
+function logicalPos(ev){
+  const rect=canvas.getBoundingClientRect();
+  const cx=(ev.clientX-rect.left)/rect.width*W;
+  const cy=(ev.clientY-rect.top)/rect.height*H;
+  return {x:cx,y:cy};
+}
+function onDown(ev){
+  ev.preventDefault();
+  initAudio(); if(AC && AC.state==="suspended"){ try{AC.resume();}catch(e){} }
+  const p=logicalPos(ev);
+  if(state===S_TITLE){ startGame(); return; }
+  if(state===S_OVER){ startGame(); return; }
+  if(state===S_SEL){
+    for(let i=0;i<3;i++){ const c=cardRect(i);
+      if(p.x>=c.x&&p.x<=c.x+c.w&&p.y>=c.y&&p.y<=c.y+c.h){ resolve(i,false); return; } }
+  }
+}
+canvas.addEventListener("pointerdown",onDown,{passive:false});
+
+window.addEventListener("keydown",function(e){
+  initAudio(); if(AC && AC.state==="suspended"){ try{AC.resume();}catch(e2){} }
+  if(state===S_TITLE || state===S_OVER){
+    if(e.key===" "||e.key==="Enter"||/^[1-3]$/.test(e.key)){ e.preventDefault(); startGame(); }
+    return;
+  }
+  if(state===S_SEL){
+    if(e.key==="1"||e.key==="2"||e.key==="3"){ e.preventDefault(); resolve(parseInt(e.key,10)-1,false); }
+  }
+},{passive:false});
+
+// 防卡鍵／自走：失焦或指標取消時不保留輸入狀態（本遊戲為離散點選，清空特效即可）
+function clearInputState(){ /* 無持續按壓狀態，安全留空 */ }
+window.addEventListener("blur",clearInputState);
+canvas.addEventListener("pointercancel",clearInputState);
+
+// ===== 主迴圈：用 deltaTime，不假設 60fps =====
+let last=0;
+function frame(t){
+  if(!last) last=t;
+  let dt=(t-last)/1000; last=t;
+  if(dt>0.05) dt=0.05;   // 分頁切回時避免大跳
+  if(dt<0) dt=0;
+  try{ update(dt); render(); }catch(err){ /* 保底：不讓例外中斷迴圈 */ }
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+})();
+</script>
+<script src="../../sc_config.js"></script>
+<script src="../../stats.js"></script>
+</body>
+</html>
