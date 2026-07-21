@@ -1,0 +1,441 @@
+<!--GAMEMETA {"title":"喵岔路人生","emoji":"🐱","genre":"選擇模擬","inspiration":"家族物語 - 治癒系世代模擬","desc":"每個抉擇決定小貓一生，養大看得見的喵家族樹！"}-->
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>喵岔路人生</title>
+<style>
+  /* 治癒系版面：置中、薄荷色背景 */
+  html,body{margin:0;padding:0;height:100%;background:#cfeede;overflow:hidden;
+    font-family:"Segoe UI","PingFang TC","Microsoft JhengHei",sans-serif;-webkit-tap-highlight-color:transparent;}
+  #top{position:fixed;top:6px;left:8px;z-index:10;}
+  #top a{color:#2f6b4f;background:rgba(255,255,255,.75);padding:4px 10px;border-radius:10px;
+    font-size:13px;text-decoration:none;font-weight:bold;}
+  #wrap{width:100%;height:100%;display:flex;align-items:center;justify-content:center;}
+  canvas{touch-action:none;display:block;border-radius:14px;box-shadow:0 8px 30px rgba(0,0,0,.18);background:#eafaf0;}
+</style>
+</head>
+<body>
+<div id="top"><a href="../../index.html">← 回遊戲區</a></div>
+<div id="wrap"><canvas id="c"></canvas></div>
+<script>
+(function(){
+"use strict";
+const W=400,H=600,LIFE=7;                 // 邏輯尺寸；一生 7 張抉擇卡
+const cvs=document.getElementById("c"), ctx=cvs.getContext("2d");
+
+/* ───── 音效（WebAudio 合成，禁外部資源）───── */
+let AC=null;
+function ac(){ try{ if(!AC) AC=new (window.AudioContext||window.webkitAudioContext)(); if(AC.state==="suspended") AC.resume(); }catch(e){} return AC; }
+function tone(f,dur,type,vol,delay,slideTo){
+  try{ const a=ac(); if(!a) return; const t0=a.currentTime+(delay||0);
+    const o=a.createOscillator(), g=a.createGain();
+    o.type=type||"sine"; o.frequency.setValueAtTime(f,t0);
+    if(slideTo) o.frequency.exponentialRampToValueAtTime(slideTo,t0+dur);
+    g.gain.setValueAtTime(0.0001,t0);
+    g.gain.exponentialRampToValueAtTime(vol||0.2,t0+0.012);
+    g.gain.exponentialRampToValueAtTime(0.0001,t0+dur);
+    o.connect(g); g.connect(a.destination); o.start(t0); o.stop(t0+dur+0.02);
+  }catch(e){}
+}
+const sfx={
+  tap:()=>tone(300,0.07,"square",0.14,0,240),
+  good:()=>{tone(523,0.12,"sine",0.2);tone(784,0.16,"sine",0.18,0.09);},
+  bad:()=>tone(200,0.22,"sawtooth",0.16,0,90),
+  bloom:()=>{[523,659,784,1046].forEach((f,i)=>tone(f,0.22,"sine",0.2,i*0.09));},
+  death:()=>{tone(180,0.5,"sine",0.22,0,70);tone(90,0.5,"triangle",0.14,0.05);},
+  life:()=>{tone(440,0.14,"sine",0.16);tone(660,0.18,"sine",0.16,0.1);},
+  record:()=>{[523,659,784,1046,1318].forEach((f,i)=>tone(f,0.28,"triangle",0.2,i*0.1));},
+  over:()=>tone(260,0.5,"sine",0.18,0,150)
+};
+
+/* ───── 抉擇卡池：d=[溫飽🐟,健康❤,幸福😻] ───── */
+const CARDS=[
+ {q:"發現一罐沒關好的魚罐頭！",o:[{t:"整罐嗑光光",d:[18,-6,8],fb:"肚子圓滾滾，有點吃太撐了。"},{t:"只吃一半留著",d:[9,2,2],fb:"懂得節制的乖貓咪。"}]},
+ {q:"窗外飛來一隻挑釁的麻雀",o:[{t:"衝出去追！",d:[-6,10,12],fb:"運動了一場，超暢快！"},{t:"隔窗喵喵叫",d:[0,-2,4],fb:"嘴上贏了就好。"}]},
+ {q:"主人買了新貓抓板",o:[{t:"瘋狂磨爪",d:[-4,6,14],fb:"爪子舒服，心情飛起來！"},{t:"先睡個回籠覺",d:[2,8,-4],fb:"睡飽最實在。"}]},
+ {q:"深夜突然想開派對狂奔",o:[{t:"全屋暴衝！",d:[-8,4,16],fb:"半夜運動會，爽！"},{t:"乖乖窩著睡",d:[2,10,-6],fb:"養生貓的選擇。"}]},
+ {q:"鄰居橘貓來串門子",o:[{t:"熱情招待分食物",d:[-10,2,16],fb:"交到好朋友，值得！"},{t:"守住自己地盤",d:[4,-2,-2],fb:"這是我的家！"}]},
+ {q:"下雨天，好無聊喔",o:[{t:"追自己的尾巴",d:[-4,4,10],fb:"轉圈圈也能很開心。"},{t:"趴窗台發呆",d:[0,2,-2],fb:"看雨也是一種療癒。"}]},
+ {q:"一年一度體檢時間到",o:[{t:"乖乖給醫生看",d:[-2,16,-8],fb:"健康檢查一切正常！"},{t:"躲進櫃子不出來",d:[0,-8,8],fb:"逃過一劫…？"}]},
+ {q:"看到桌上主人的貓草",o:[{t:"嗨到不行",d:[-2,-4,18],fb:"喵生巔峰體驗！"},{t:"冷靜聞一聞",d:[0,4,4],fb:"淺嚐即止的優雅。"}]},
+ {q:"主人今天加班晚歸",o:[{t:"在門口癡癡等",d:[-6,-4,6],fb:"忠貓的等待。"},{t:"自己找樂子玩",d:[-2,6,8],fb:"獨立自主好貓咪。"}]},
+ {q:"發現一個溫暖的紙箱",o:[{t:"整天窩在裡面",d:[2,12,-2],fb:"紙箱就是安全感。"},{t:"只小睡片刻",d:[0,6,2],fb:"適度充電。"}]},
+ {q:"半夜聽到奇怪的聲音",o:[{t:"英勇去查看",d:[-4,-6,14],fb:"守護家園的勇氣！"},{t:"鑽進棉被發抖",d:[0,6,-4],fb:"安全第一。"}]},
+ {q:"該減肥還是放縱一下？",o:[{t:"再多吃兩口",d:[16,-10,6],fb:"快樂肥宅貓。"},{t:"努力克制食慾",d:[-4,12,-4],fb:"身材管理達人。"}]}
+];
+/* 命運卡：第 3 代起登場的高風險壓力源（第 3 分鐘新壓力）*/
+const FATE=[
+ {q:"⚠ 突如其來的暴風雨夜",o:[{t:"冒雨找回走失幼貓",d:[-12,-14,20],fb:"英雄總得付出代價。"},{t:"顧好自己躲起來",d:[-4,-2,-12],fb:"活了下來，卻有點愧疚。"}]},
+ {q:"⚠ 兇惡的大狗闖進院子",o:[{t:"弓背嘶吼正面對峙",d:[-6,-16,18],fb:"氣勢絕不能輸！"},{t:"逃到高處發抖",d:[-8,2,-12],fb:"保命最要緊。"}]},
+ {q:"⚠ 一場大病突然找上門",o:[{t:"硬撐不看醫生",d:[6,-20,4],fb:"賭一把，風險極大。"},{t:"乖乖住院治療",d:[-18,18,-8],fb:"花光積蓄換回健康。"}]},
+ {q:"⚠ 食物短缺的寒冬",o:[{t:"外出覓食冒險",d:[16,-14,-4],fb:"填飽肚子，卻凍壞了。"},{t:"節食保存體力",d:[-14,4,-6],fb:"熬過去就是勝利。"}]}
+];
+const SAFE=[0,2,5,7,9];                    // 第一代前兩張卡只抽溫和卡，確保前 15 秒不死
+const RC=["#ffb454","#ff7a9c","#b07cff"];  // 三資源顏色
+const RI=["🐟","❤","😻"], RN=["溫飽","健康","幸福"];
+
+/* ───── 狀態 ───── */
+let best=0,bestChain=0;
+try{ best=parseInt(localStorage.getItem("catlife_best")||"0")||0;
+     bestChain=parseInt(localStorage.getItem("catlife_chain")||"0")||0; }catch(e){}
+let state="title";
+let gen=1,blood=3,score=0,bars=[50,50,50],barsDisp=[50,50,50];
+let cardsThisLife=0,current=null,lastQ="",agingF=3,agingH=0;
+let buttons=[],busy=false,pending="",advanceAt=0,feedbackText="";
+let treeNodes=[],bestAtRunStart=0,newRec=false;
+let particles=[],floats=[],shake=0,catSquash=0,catMood=0.5,pulse=0;
+let banner=null,t=0;
+
+/* ───── 流程 ───── */
+function startRun(){
+  gen=1;blood=3;score=0;treeNodes=[];bestAtRunStart=best;newRec=false;
+  banner=null;particles=[];floats=[];state="play";startLife();
+}
+function startLife(){
+  bars=[50,50,50];barsDisp=[50,50,50];cardsThisLife=0;busy=false;feedbackText="";nextCard();
+}
+function pickCard(){
+  let src,idx;
+  if(gen===1&&cardsThisLife<2){ src=CARDS; idx=SAFE[Math.floor(Math.random()*SAFE.length)]; }
+  else if(gen>=3&&Math.random()<Math.min(0.15+gen*0.05,0.5)){ src=FATE; idx=Math.floor(Math.random()*FATE.length); }
+  else { src=CARDS; idx=Math.floor(Math.random()*CARDS.length); }
+  let card=src[idx],tries=0;
+  while(card.q===lastQ&&tries<8){ idx=Math.floor(Math.random()*src.length); card=src[idx]; tries++; }
+  lastQ=card.q; return card;
+}
+function nextCard(){
+  current=pickCard();
+  agingF=3+Math.floor((gen-1)*0.9);            // 溫飽開銷隨世代遞增
+  agingH=gen>=3?Math.floor((gen-2)*0.7):0;     // 健康磨損第 3 代起出現
+  feedbackText="";busy=false;
+  buildButtons();
+}
+function buildButtons(){
+  buttons=[];
+  const bx=30,bw=340,bh=54;
+  current.o.forEach((o,i)=>{
+    buttons.push({x:bx,y:470+i*60,w:bw,h:bh,opt:i,
+      onClick:()=>resolveChoice(i)});
+  });
+}
+function resolveChoice(i){
+  if(busy||state!=="play"||!current)return;
+  const o=current.o[i];
+  bars[0]-=agingF;bars[1]-=agingH;
+  bars[0]+=o.d[0];bars[1]+=o.d[1];bars[2]+=o.d[2];
+  const dead=(bars[0]<=0||bars[1]<=0||bars[2]<=0);
+  for(let k=0;k<3;k++) bars[k]=Math.max(0,Math.min(100,bars[k]));
+  const net=(o.d[0]+o.d[1]+o.d[2]-agingF-agingH)>=0;
+  feedbackText=o.fb;catSquash=1;
+  burst(200,262,net?"#7ed957":"#ff7a9c",14);
+  if(!dead){
+    const s=8+gen*2;score+=s;addFloat("+"+s,"#2f6b4f",200,238,false);
+    net?sfx.good():sfx.bad();updateBest();cardsThisLife++;
+    pending=(cardsThisLife>=LIFE)?"bloom":"next";
+  }else{ pending="death"; }
+  busy=true;advanceAt=t+0.9;
+}
+function fireAdvance(){
+  advanceAt=1e12;
+  if(pending==="death") doDeath();
+  else if(pending==="bloom") doBloom();
+  else nextCard();
+}
+function doDeath(){
+  treeNodes.push({o:"wither"});blood--;sfx.death();shake=14;
+  setBanner("💔 這一代提早謝幕…");addFloat("血脈 -1","#ff4d6d",200,240,true);
+  updateBest();chainUpdate();
+  if(blood<=0){ gameOver(); }
+  else{ gen++; sfx.life(); startLife(); }
+}
+function doBloom(){
+  treeNodes.push({o:"bloom"});
+  const minb=Math.min(bars[0],bars[1],bars[2]);
+  const bonus=25+gen*8+Math.round(minb/2);
+  score+=bonus;sfx.bloom();shake=6;
+  addFloat("🌸 天年 +"+bonus,"#e08a2f",200,236,true);
+  setBanner("🌸 第 "+gen+" 代 圓滿天年！");
+  updateBest();chainUpdate();gen++;
+  for(let k=0;k<18;k++) burst(200,262,["#ffd166","#7ed957","#ff7a9c"][k%3],1);
+  startLife();
+}
+function updateBest(){ if(score>best){ best=score; try{localStorage.setItem("catlife_best",""+best);}catch(e){} } }
+function chainUpdate(){ if(treeNodes.length>bestChain){ bestChain=treeNodes.length; try{localStorage.setItem("catlife_chain",""+bestChain);}catch(e){} } }
+function gameOver(){
+  state="over";
+  newRec=score>bestAtRunStart;
+  if(window.SC){ try{ SC.over(score); }catch(e){} }   // 匿名數據回報
+  newRec?sfx.record():sfx.over();
+  buttons=[{x:70,y:512,w:260,h:56,onClick:startRun}];
+  if(newRec){ for(let k=0;k<26;k++) burst(200,200,["#ffd166","#ff7a9c","#7ed957","#b07cff"][k%4],1); }
+}
+
+/* ───── 特效 ───── */
+function burst(x,y,c,n){ for(let k=0;k<n;k++){ const a=Math.random()*6.28,s=40+Math.random()*120;
+  particles.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s-40,life:0.6+Math.random()*0.4,c,r:2+Math.random()*3}); } }
+function addFloat(txt,c,x,y,big){ floats.push({x,y,txt,c,life:1.1,big}); }
+function setBanner(txt){ banner={txt,until:t+1.4}; }
+
+/* ───── 更新 ───── */
+function update(dt){
+  t+=dt;pulse+=dt;
+  for(let k=0;k<3;k++) barsDisp[k]+=(bars[k]-barsDisp[k])*Math.min(1,dt*10);
+  catSquash+=(0-catSquash)*Math.min(1,dt*7);
+  catMood+=(( (bars[0]+bars[1]+bars[2])/300 )-catMood)*Math.min(1,dt*6);
+  shake=Math.max(0,shake-dt*40);
+  for(let i=particles.length-1;i>=0;i--){ const p=particles[i];
+    p.life-=dt;p.x+=p.vx*dt;p.y+=p.vy*dt;p.vy+=300*dt; if(p.life<=0) particles.splice(i,1); }
+  for(let i=floats.length-1;i>=0;i--){ const f=floats[i]; f.life-=dt;f.y-=34*dt; if(f.life<=0) floats.splice(i,1); }
+  if(busy&&t>=advanceAt) fireAdvance();
+}
+
+/* ───── 繪圖 ───── */
+function rr(x,y,w,h,r){ ctx.beginPath();ctx.moveTo(x+r,y);ctx.arcTo(x+w,y,x+w,y+h,r);
+  ctx.arcTo(x+w,y+h,x,y+h,r);ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);ctx.closePath(); }
+function wrap(txt,maxw){ const lines=[];let cur="";
+  for(const ch of txt){ if(ctx.measureText(cur+ch).width>maxw){ lines.push(cur);cur=ch; } else cur+=ch; }
+  if(cur) lines.push(cur); return lines; }
+
+function drawSlime(cx,cy,r){
+  const wx=1+catSquash*0.3, hy=1-catSquash*0.4;
+  ctx.save();ctx.translate(cx,cy);ctx.scale(wx,hy);
+  // 耳朵
+  ctx.fillStyle="#5fc23f";
+  ctx.beginPath();ctx.moveTo(-r*0.6,-r*0.55);ctx.lineTo(-r*0.25,-r*1.05);ctx.lineTo(-r*0.02,-r*0.5);ctx.closePath();ctx.fill();
+  ctx.beginPath();ctx.moveTo(r*0.6,-r*0.55);ctx.lineTo(r*0.25,-r*1.05);ctx.lineTo(r*0.02,-r*0.5);ctx.closePath();ctx.fill();
+  // 身體（史萊姆綠 + 底部軟軟）
+  const g=ctx.createLinearGradient(0,-r,0,r); g.addColorStop(0,"#a6ef78");g.addColorStop(1,"#6fce49");
+  ctx.fillStyle=g;
+  ctx.beginPath();ctx.ellipse(0,0,r,r*0.92,0,0,6.2832);ctx.fill();
+  ctx.beginPath();ctx.ellipse(-r*0.5,r*0.75,r*0.28,r*0.2,0,0,6.2832);ctx.fill();
+  ctx.beginPath();ctx.ellipse(r*0.5,r*0.75,r*0.28,r*0.2,0,0,6.2832);ctx.fill();
+  ctx.strokeStyle="#4fae35";ctx.lineWidth=2.5;
+  ctx.beginPath();ctx.ellipse(0,0,r,r*0.92,0,0,6.2832);ctx.stroke();
+  // 臉
+  const m=catMood, worried=Math.min(bars[0],bars[1],bars[2])<22;
+  ctx.fillStyle="#20361f";
+  const ex=r*0.34,ey=-r*0.05;
+  if(worried){
+    ctx.beginPath();ctx.arc(-ex,ey,r*0.13,0,6.2832);ctx.arc(ex,ey,r*0.13,0,6.2832);ctx.fill();
+    ctx.fillStyle="#fff";ctx.beginPath();ctx.arc(-ex,ey-1,r*0.05,0,6.2832);ctx.arc(ex,ey-1,r*0.05,0,6.2832);ctx.fill();
+    ctx.strokeStyle="#20361f";ctx.lineWidth=2.5;ctx.beginPath();
+    ctx.arc(0,r*0.42,r*0.16,3.34,6.08);ctx.stroke();
+  }else if(m>0.6){
+    ctx.strokeStyle="#20361f";ctx.lineWidth=3;ctx.lineCap="round";
+    ctx.beginPath();ctx.arc(-ex,ey+r*0.05,r*0.15,3.6,5.8);ctx.stroke();
+    ctx.beginPath();ctx.arc(ex,ey+r*0.05,r*0.15,3.6,5.8);ctx.stroke();
+    ctx.fillStyle="#ff9ab0";ctx.globalAlpha=0.6;
+    ctx.beginPath();ctx.arc(-r*0.55,r*0.2,r*0.13,0,6.2832);ctx.arc(r*0.55,r*0.2,r*0.13,0,6.2832);ctx.fill();ctx.globalAlpha=1;
+    ctx.strokeStyle="#20361f";ctx.beginPath();ctx.moveTo(-r*0.12,r*0.3);ctx.quadraticCurveTo(0,r*0.45,r*0.12,r*0.3);ctx.stroke();
+  }else{
+    ctx.beginPath();ctx.arc(-ex,ey,r*0.1,0,6.2832);ctx.arc(ex,ey,r*0.1,0,6.2832);ctx.fill();
+    ctx.strokeStyle="#20361f";ctx.lineWidth=2.5;ctx.beginPath();ctx.moveTo(-r*0.12,r*0.34);ctx.lineTo(r*0.12,r*0.34);ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawTree(){
+  ctx.textAlign="center";
+  ctx.fillStyle="#2f6b4f";ctx.font="bold 15px sans-serif";
+  ctx.fillText("🐾 喵家族樹　第 "+gen+" 代",200,74);
+  const nodesAll=treeNodes.slice();
+  const show=nodesAll.slice(-11);
+  const cur=(state==="play")?1:0;
+  const n=show.length+cur;
+  const y=136;
+  const gap=Math.min(38,300/Math.max(1,n));
+  const startX=200-(n-1)*gap/2;
+  // 藤蔓連線
+  if(n>1){ ctx.strokeStyle="#8bd39a";ctx.lineWidth=3;ctx.beginPath();
+    ctx.moveTo(startX,y);ctx.lineTo(startX+(n-1)*gap,y);ctx.stroke(); }
+  let ix=0;
+  show.forEach(nd=>{ const x=startX+ix*gap; treeNode(x,y,nd.o==="bloom"); ix++; });
+  if(cur){ const x=startX+(show.length)*gap; const pu=0.5+0.5*Math.sin(pulse*4);
+    ctx.fillStyle="rgba(255,209,102,"+(0.4+pu*0.4)+")";
+    ctx.beginPath();ctx.arc(x,y,9+pu*3,0,6.2832);ctx.fill();
+    ctx.fillStyle="#e0a020";ctx.font="11px sans-serif";ctx.fillText("🌱",x,y+4); }
+  if(nodesAll.length>show.length){ ctx.fillStyle="#8bd39a";ctx.font="12px sans-serif";
+    ctx.fillText("…",startX-gap*0.6,y+4); }
+}
+function treeNode(x,y,bloom){
+  ctx.beginPath();ctx.arc(x,y,9,0,6.2832);
+  ctx.fillStyle=bloom?"#6fce49":"#b9b9b9";ctx.fill();
+  ctx.strokeStyle=bloom?"#4fae35":"#9a9a9a";ctx.lineWidth=1.5;ctx.stroke();
+  // 小耳朵
+  ctx.fillStyle=bloom?"#5fc23f":"#a9a9a9";
+  ctx.beginPath();ctx.moveTo(x-6,y-6);ctx.lineTo(x-3,y-12);ctx.lineTo(x-1,y-6);ctx.closePath();ctx.fill();
+  ctx.beginPath();ctx.moveTo(x+6,y-6);ctx.lineTo(x+3,y-12);ctx.lineTo(x+1,y-6);ctx.closePath();ctx.fill();
+  if(bloom){ ctx.fillStyle="#ff9ab0";ctx.font="9px sans-serif";ctx.textAlign="center";ctx.fillText("🌸",x+7,y-7); }
+}
+
+function drawHUD(){
+  ctx.textAlign="left";ctx.fillStyle="#2f6b4f";ctx.font="bold 22px sans-serif";
+  ctx.fillText("傳承 "+score,14,34);
+  ctx.font="12px sans-serif";ctx.fillStyle="#6a8f78";
+  ctx.fillText("最佳 "+best,14,50);
+  // 血脈愛心（右上）
+  ctx.textAlign="right";ctx.font="18px sans-serif";
+  let s="";for(let i=0;i<3;i++) s+=(i<blood?"❤":"🤍");
+  ctx.fillStyle="#ff4d6d";ctx.fillText(s,392,32);
+  ctx.fillStyle="#6a8f78";ctx.font="11px sans-serif";ctx.fillText("血脈",392,48);
+}
+
+const STAGE=["幼貓","幼貓","少貓","少貓","成貓","壯貓","老貓"];
+function drawGame(){
+  drawHUD();
+  drawTree();
+  // 年齡階段
+  ctx.textAlign="center";ctx.fillStyle="#6a8f78";ctx.font="13px sans-serif";
+  ctx.fillText("第 "+gen+" 代 · "+(STAGE[Math.min(cardsThisLife,6)])+"（"+(cardsThisLife+1)+"/"+LIFE+"）",200,180);
+  drawSlime(200,238,42);
+  // 三條資源
+  for(let i=0;i<3;i++){
+    const y=306+i*24;
+    ctx.textAlign="left";ctx.font="14px sans-serif";ctx.fillStyle="#3a5a44";
+    ctx.fillText(RI[i],34,y+4);
+    rr(64,y-9,268,15,7);ctx.fillStyle="#e3f0e8";ctx.fill();
+    const v=Math.max(0,barsDisp[i]);
+    ctx.save();rr(64,y-9,268,15,7);ctx.clip();
+    ctx.fillStyle=RC[i];ctx.fillRect(64,y-9,268*(v/100),15);ctx.restore();
+    ctx.textAlign="right";ctx.fillStyle="#3a5a44";ctx.font="bold 12px sans-serif";
+    ctx.fillText(Math.round(bars[i]),330,y+3);
+  }
+  // 卡片問題（含歲月消耗預告 → 歸因於己）
+  ctx.textAlign="center";
+  ctx.fillStyle="#b07a3a";ctx.font="12px sans-serif";
+  ctx.fillText("🕰 歲月消耗　🐟-"+agingF+(agingH?"　❤-"+agingH:""),200,388);
+  const fate=current&&current.q[0]==="⚠";
+  ctx.fillStyle=fate?"#c0392b":"#2f4a38";ctx.font="bold 17px sans-serif";
+  if(current){ const lines=wrap(current.q,340); let qy=414-(lines.length-1)*10;
+    lines.forEach(l=>{ ctx.fillText(l,200,qy);qy+=22; }); }
+  if(feedbackText){ ctx.fillStyle="#7a9a86";ctx.font="italic 13px sans-serif";ctx.fillText(feedbackText,200,452); }
+  // 選項按鈕
+  buttons.forEach((b,bi)=>{
+    const o=current.o[b.opt];
+    rr(b.x,b.y,b.w,b.h,14);ctx.fillStyle="#ffffff";ctx.fill();
+    ctx.strokeStyle=busy?"#d8e6dd":"#7ed957";ctx.lineWidth=2.5;ctx.stroke();
+    ctx.fillStyle="#7ed957";rr(b.x,b.y,7,b.h,3);ctx.fill();
+    ctx.textAlign="left";ctx.fillStyle=busy?"#a9bdb0":"#2f4a38";ctx.font="bold 16px sans-serif";
+    ctx.fillText((b.opt+1)+"　"+o.t,b.x+18,b.y+23);
+    ctx.font="12px sans-serif";ctx.fillStyle=busy?"#c3d3c9":"#7d9a89";
+    ctx.fillText(dstr(o.d),b.x+18,b.y+42);
+  });
+  if(banner&&t<banner.until){ ctx.save();ctx.globalAlpha=Math.min(1,(banner.until-t)*2);
+    ctx.textAlign="center";ctx.font="bold 20px sans-serif";ctx.fillStyle="#2f6b4f";
+    ctx.fillText(banner.txt,200,240);ctx.restore(); }
+}
+function dstr(d){ function p(ic,v){return ic+(v>0?"+":"")+v;} return p("🐟",d[0])+"   "+p("❤",d[1])+"   "+p("😻",d[2]); }
+
+function drawTitle(){
+  ctx.textAlign="center";
+  drawSlime(200,180,52);
+  ctx.fillStyle="#2f6b4f";ctx.font="bold 38px sans-serif";ctx.fillText("喵岔路人生",200,300);
+  ctx.font="16px sans-serif";ctx.fillStyle="#4d7a60";
+  ctx.fillText("🐱 每個抉擇，決定小貓的一生",200,336);
+  ctx.font="14px sans-serif";ctx.fillStyle="#6a8f78";
+  ["點選項替史萊姆貓做決定，","平衡 🐟溫飽 ❤健康 😻幸福 三種資源，","活到天年就替家族樹開一朵花！",
+   "（電腦按 1・2 鍵選擇）"].forEach((l,i)=>ctx.fillText(l,200,372+i*24));
+  const pu=0.6+0.4*Math.sin(pulse*3);
+  ctx.fillStyle="rgba(126,217,87,"+pu+")";rr(110,486,180,52,16);ctx.fill();
+  ctx.fillStyle="#fff";ctx.font="bold 20px sans-serif";ctx.fillText("點擊開始",200,519);
+  ctx.fillStyle="#6a8f78";ctx.font="12px sans-serif";
+  ctx.fillText("最佳傳承 "+best+"　最長血脈 "+bestChain+" 代",200,566);
+}
+
+function drawOver(){
+  ctx.textAlign="center";
+  drawTree();
+  ctx.fillStyle="#2f6b4f";ctx.font="bold 30px sans-serif";
+  ctx.fillText(newRec?"🎉 新紀錄！":"家族傳承落幕",200,220);
+  drawSlime(200,290,34);
+  ctx.font="bold 24px sans-serif";ctx.fillStyle="#3a5a44";
+  ctx.fillText("傳承分數　"+score,200,356);
+  ctx.font="15px sans-serif";ctx.fillStyle="#6a8f78";
+  ctx.fillText("血脈延續了 "+treeNodes.length+" 代",200,384);
+  // near-miss 再利用
+  if(newRec){ ctx.fillStyle="#e08a2f";ctx.font="bold 16px sans-serif";
+    ctx.fillText("超越舊紀錄 "+(score-bestAtRunStart)+" 分！",200,412); }
+  else{ ctx.fillStyle="#c0392b";ctx.font="bold 16px sans-serif";
+    ctx.fillText("只差 "+(bestAtRunStart-score)+" 分就破紀錄！",200,412); }
+  ctx.fillStyle="#7d9a89";ctx.font="13px sans-serif";
+  ctx.fillText("最長血脈紀錄 "+bestChain+" 代　再拚一次？",200,442);
+  const b=buttons[0]; const pu=0.6+0.4*Math.sin(pulse*3);
+  ctx.fillStyle="rgba(126,217,87,"+pu+")";rr(b.x,b.y,b.w,b.h,16);ctx.fill();
+  ctx.fillStyle="#fff";ctx.font="bold 20px sans-serif";ctx.fillText("再玩一次",200,b.y+36);
+}
+
+function render(){
+  ctx.setTransform(view.s*view.dpr,0,0,view.s*view.dpr,0,0);
+  const sx=(Math.random()*2-1)*shake, sy=(Math.random()*2-1)*shake;
+  ctx.save();ctx.translate(sx,sy);
+  const g=ctx.createLinearGradient(0,0,0,H);g.addColorStop(0,"#eafaf0");g.addColorStop(1,"#cfeede");
+  ctx.fillStyle=g;ctx.fillRect(-20,-20,W+40,H+40);
+  if(state==="title") drawTitle();
+  else if(state==="play") drawGame();
+  else drawOver();
+  // 粒子與浮字
+  particles.forEach(p=>{ ctx.globalAlpha=Math.max(0,p.life);ctx.fillStyle=p.c;
+    ctx.beginPath();ctx.arc(p.x,p.y,p.r,0,6.2832);ctx.fill(); });
+  ctx.globalAlpha=1;
+  floats.forEach(f=>{ ctx.globalAlpha=Math.max(0,f.life);ctx.textAlign="center";
+    ctx.fillStyle=f.c;ctx.font="bold "+(f.big?20:16)+"px sans-serif";ctx.fillText(f.txt,f.x,f.y); });
+  ctx.globalAlpha=1;
+  ctx.restore();
+}
+
+/* ───── 主迴圈：dt 制、clamp 防高刷雙倍速 ───── */
+let last=0;
+function loop(now){
+  try{
+    if(!last) last=now;
+    let dt=(now-last)/1000; last=now;
+    if(dt>0.05) dt=0.05;
+    update(dt);render();
+  }catch(e){}
+  requestAnimationFrame(loop);
+}
+
+/* ───── 輸入 ───── */
+function toLogical(e){ const r=cvs.getBoundingClientRect();
+  return { x:(e.clientX-r.left)/r.width*W, y:(e.clientY-r.top)/r.height*H }; }
+function hitButtons(x,y){ for(const b of buttons){ if(x>=b.x&&x<=b.x+b.w&&y>=b.y&&y<=b.y+b.h){ b.onClick();return true; } } return false; }
+cvs.addEventListener("pointerdown",e=>{
+  e.preventDefault();ac();sfx.tap?null:null;
+  const p=toLogical(e);
+  if(state==="title"){ startRun(); }
+  else if(state==="over"){ if(!hitButtons(p.x,p.y)) startRun(); }
+  else { if(!busy) hitButtons(p.x,p.y); }
+},{passive:false});
+window.addEventListener("keydown",e=>{
+  if(state==="title"||state==="over"){ if(e.key===" "||e.key==="Enter"){ ac();startRun(); } return; }
+  if(state==="play"&&!busy){
+    if(e.key==="1"||e.key==="ArrowLeft"||e.key==="ArrowUp"){ ac();resolveChoice(0); }
+    else if(e.key==="2"||e.key==="ArrowRight"||e.key==="ArrowDown"){ ac();if(current&&current.o[1])resolveChoice(1); }
+  }
+});
+// 失焦／取消：本遊戲無持續輸入，僅確保不殘留 busy 卡死以外狀態
+window.addEventListener("blur",()=>{});
+cvs.addEventListener("pointercancel",()=>{});
+
+/* ───── 高解析度縮放 ───── */
+const view={s:1,dpr:1};
+function resize(){
+  const topH=44;
+  const s=Math.min(window.innerWidth/W,(window.innerHeight-topH)/H);
+  const dpr=Math.min(window.devicePixelRatio||1,3);
+  view.s=s;view.dpr=dpr;
+  cvs.style.width=(W*s)+"px";cvs.style.height=(H*s)+"px";
+  cvs.width=Math.round(W*s*dpr);cvs.height=Math.round(H*s*dpr);
+  ctx.setTransform(s*dpr,0,0,s*dpr,0,0);
+}
+window.addEventListener("resize",resize);
+resize();
+requestAnimationFrame(loop);
+})();
+</script>
+<script src="../../sc_config.js"></script>
+<script src="../../stats.js"></script>
+</body>
+</html>
