@@ -86,11 +86,12 @@ let cardsThisLife=0,current=null,lastQ="",agingF=3,agingH=0;
 let buttons=[],busy=false,pending="",advanceAt=0,feedbackText="";
 let treeNodes=[],bestAtRunStart=0,newRec=false;
 let particles=[],floats=[],shake=0,catSquash=0,catMood=0.5,pulse=0;
-let banner=null,t=0;
+let banner=null,t=0,firstHint=false;
 
 /* ───── 流程 ───── */
 function startRun(){
   gen=1;blood=3;score=0;treeNodes=[];bestAtRunStart=best;newRec=false;
+  firstHint=true;
   banner=null;particles=[];floats=[];state="play";startLife();
 }
 function startLife(){
@@ -122,6 +123,7 @@ function buildButtons(){
 }
 function resolveChoice(i){
   if(busy||state!=="play"||!current)return;
+  firstHint=false;
   const o=current.o[i];
   bars[0]-=agingF;bars[1]-=agingH;
   bars[0]+=o.d[0];bars[1]+=o.d[1];bars[2]+=o.d[2];
@@ -280,6 +282,9 @@ function drawHUD(){
   let s="";for(let i=0;i<3;i++) s+=(i<blood?"❤":"🤍");
   ctx.fillStyle="#ff4d6d";ctx.fillText(s,392,32);
   ctx.fillStyle="#6a8f78";ctx.font="11px sans-serif";ctx.fillText("血脈",392,48);
+  // 常駐目標列（頂端置中，讓玩家隨時知道要做什麼）
+  ctx.textAlign="center";ctx.fillStyle="#6a8f78";ctx.font="11px sans-serif";
+  ctx.fillText("🎯 目標：撐過 7 抉擇 · 圓滿天年開花",200,16);
 }
 
 const STAGE=["幼貓","幼貓","少貓","少貓","成貓","壯貓","老貓"];
@@ -311,6 +316,10 @@ function drawGame(){
   if(current){ const lines=wrap(current.q,340); let qy=414-(lines.length-1)*10;
     lines.forEach(l=>{ ctx.fillText(l,200,qy);qy+=22; }); }
   if(feedbackText){ ctx.fillStyle="#7a9a86";ctx.font="italic 13px sans-serif";ctx.fillText(feedbackText,200,452); }
+  // 首個岔路引導提示（僅開局第一張卡、尚未做選擇時顯示）
+  else if(firstHint&&gen===1&&cardsThisLife===0){ ctx.textAlign="center";
+    ctx.fillStyle="#e08a2f";ctx.font="italic 13px sans-serif";
+    ctx.fillText("💡 點下方選項替貓做決定，別讓任一資源歸零",200,452); }
   // 選項按鈕
   buttons.forEach((b,bi)=>{
     const o=current.o[b.opt];
@@ -334,9 +343,11 @@ function drawTitle(){
   ctx.fillStyle="#2f6b4f";ctx.font="bold 38px sans-serif";ctx.fillText("喵岔路人生",200,300);
   ctx.font="16px sans-serif";ctx.fillStyle="#4d7a60";
   ctx.fillText("🐱 每個抉擇，決定小貓的一生",200,336);
+  ctx.font="bold 14px sans-serif";ctx.fillStyle="#e08a2f";
+  ctx.fillText("🎯 目標：撐過 7 抉擇、圓滿天年、延續血脈",200,356);
   ctx.font="14px sans-serif";ctx.fillStyle="#6a8f78";
   ["點選項替史萊姆貓做決定，","平衡 🐟溫飽 ❤健康 😻幸福 三種資源，","活到天年就替家族樹開一朵花！",
-   "（電腦按 1・2 鍵選擇）"].forEach((l,i)=>ctx.fillText(l,200,372+i*24));
+   "（電腦按 1・2 鍵選擇）"].forEach((l,i)=>ctx.fillText(l,200,376+i*24));
   const pu=0.6+0.4*Math.sin(pulse*3);
   ctx.fillStyle="rgba(126,217,87,"+pu+")";rr(110,486,180,52,16);ctx.fill();
   ctx.fillStyle="#fff";ctx.font="bold 20px sans-serif";ctx.fillText("點擊開始",200,519);
