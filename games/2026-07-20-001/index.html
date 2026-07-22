@@ -121,7 +121,7 @@ const PLAYX0=36,PLAYX1=364,PLAYY0=134,PLAYY1=566; // 遊戲區範圍（HUD 下�
 let state='title';   // title / playing / over
 let T=0;             // 全域時間累加（動畫用）
 let level=1, score=0, best=0, combo=0, lastFind=-99;
-let timeLeft=22, hintT=0, clearing=0, elapsed=0;
+let timeLeft=18, hintT=0, clearing=0, elapsed=0;
 let theme=THEMES[0];
 let cats=[], decoys=[];
 let particles=[], floats=[];
@@ -139,11 +139,12 @@ function newScene(lv){
   const breather=(lv%5===0);                     // 每 5 關給一個「反差喘息關」
   const catN=breather?Math.max(2,Math.min(2+Math.floor((lv-1)/2),7)-1)
                       :Math.min(2+Math.floor((lv-1)/2),7);
-  const camo=breather?0.08:Math.min(0.18+(lv-1)*0.05,0.7);
+  const camo=breather?0.08:Math.min(0.2+(lv-1)*0.06,0.72);
   const catR=breather?30:rnd(20,24);
   const jitter=lv>=4?Math.min((lv-3)*0.7,4.5):0;  // 第3分鐘後的新壓力：雜物微微抖動
-  const decoN=Math.min(10+lv*5,66);
-  const pillowN=lv>=3?Math.min(lv-2,5):0;         // 近失誘餌：無耳無眼的史萊姆團
+  const moveSpd=(!breather&&lv>=6)?Math.min((lv-5)*7,40):0; // 後段關卡：會移動的目標貓（速度隨關卡遞增）
+  const decoN=Math.min(14+lv*6,80);
+  const pillowN=lv>=2?Math.min(lv-1,8):0;         // 近失誘餌：無耳無眼的史萊姆團
 
   cats=[]; decoys=[];
   const camoCol=lerpRGB(CAT_BASE,theme.bg1,camo);
@@ -154,7 +155,7 @@ function newScene(lv){
     const x=rnd(PLAYX0+catR,PLAYX1-catR), y=rnd(PLAYY0+catR,PLAYY1-catR);
     let ok=true;
     for(const c of cats){ if(Math.hypot(c.x-x,c.y-y)<catR*2.6){ok=false;break;} }
-    if(ok) cats.push({x,y,r:catR*rnd(0.92,1.1),col:camoCol,phase:rnd(0,6.28),found:false,pop:0});
+    if(ok){ const ang=rnd(0,6.28); cats.push({x,y,r:catR*rnd(0.92,1.1),col:camoCol,phase:rnd(0,6.28),found:false,pop:0,vx:Math.cos(ang)*moveSpd,vy:Math.sin(ang)*moveSpd}); }
   }
   // 放雜物（含近失誘餌 pillow）
   const types=['yarn','can','fish','paw','star','bone','plant'];
@@ -172,7 +173,7 @@ function newScene(lv){
 }
 
 function startGame(){
-  level=1;score=0;combo=0;lastFind=-99;timeLeft=22;clearing=0;elapsed=0;lastRecord=false;
+  level=1;score=0;combo=0;lastFind=-99;timeLeft=18;clearing=0;elapsed=0;lastRecord=false;
   particles=[];floats=[];shake=0;
   newScene(1);
   state='playing';
@@ -197,7 +198,7 @@ function findCat(c){
   const mult=1+Math.min(combo-1,9)*0.5;
   const gain=Math.round(12*mult);
   score+=gain;
-  const bonus=Math.max(1.3,4.2-level*0.18);      // 越後面每隻補的時間越少
+  const bonus=Math.max(1.1,4.0-level*0.2);       // 越後面每隻補的時間越少（難度遞增）
   timeLeft+=bonus;
   burst(c.x,c.y,[255,240,140],22);
   burst(c.x,c.y,c.col,10);
@@ -289,7 +290,17 @@ function update(dt){
       keyCur.x=clamp(keyCur.x,PLAYX0,PLAYX1);
       keyCur.y=clamp(keyCur.y,PLAYY0,PLAYY1);
     }
-    for(const c of cats){ if(c.pop>0) c.pop=Math.max(0,c.pop-dt); }
+    for(const c of cats){
+      if(c.pop>0) c.pop=Math.max(0,c.pop-dt);
+      // 會移動的目標貓：整合位置後在遊戲區內反彈（視覺與判定共用 c.x/c.y，基準一致）
+      if(!c.found && (c.vx||c.vy)){
+        c.x+=c.vx*dt; c.y+=c.vy*dt;
+        if(c.x<PLAYX0+c.r){ c.x=PLAYX0+c.r; c.vx=Math.abs(c.vx); }
+        else if(c.x>PLAYX1-c.r){ c.x=PLAYX1-c.r; c.vx=-Math.abs(c.vx); }
+        if(c.y<PLAYY0+c.r){ c.y=PLAYY0+c.r; c.vy=Math.abs(c.vy); }
+        else if(c.y>PLAYY1-c.r){ c.y=PLAYY1-c.r; c.vy=-Math.abs(c.vy); }
+      }
+    }
 
     if(clearing>0){
       clearing-=dt;
@@ -438,7 +449,7 @@ function drawHUD(){
   // 時間條
   const barY=92, bw=W-28;
   ctx.fillStyle='rgba(255,255,255,0.18)'; rr(14,barY,bw,16,8); ctx.fill();
-  const frac=clamp(timeLeft/22,0,1);
+  const frac=clamp(timeLeft/18,0,1);
   const low=timeLeft<=5;
   const barCol=low?(Math.sin(T*14)>0?[255,90,90]:[255,150,90]):(frac<0.5?[255,190,80]:[120,230,140]);
   ctx.fillStyle=css(barCol); rr(14,barY,Math.max(0,bw*frac),16,8); ctx.fill();
