@@ -1,0 +1,654 @@
+<!--GAMEMETA {"title":"喵骰連鎖陣","emoji":"🎲","genre":"策略","inspiration":"點點英雄：骰子傳說","desc":"擲貓掌骰放進喵陣，同數肉球連鎖合體暴衝"}-->
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>喵骰連鎖陣</title>
+<style>
+  /* 全站基礎樣式：滿版深色底、置中畫布 */
+  html,body{margin:0;padding:0;height:100%;background:#0d1420;overflow:hidden;
+    font-family:"Microsoft JhengHei","PingFang TC",sans-serif;
+    -webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent;}
+  #wrap{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;}
+  canvas{touch-action:none;display:block;background:#14203a;border-radius:14px;
+    box-shadow:0 10px 40px rgba(0,0,0,.6);}
+  /* 回大廳連結：固定左上角 */
+  #lobby{position:fixed;top:8px;left:10px;z-index:10;color:#8fe3c0;
+    font-size:13px;text-decoration:none;background:rgba(0,0,0,.35);
+    padding:4px 10px;border-radius:12px;}
+  #lobby:active{color:#fff;}
+</style>
+</head>
+<body>
+<a id="lobby" href="../../index.html">← 回遊戲區</a>
+<div id="wrap"><canvas id="c"></canvas></div>
+<script>
+"use strict";
+(function(){
+  // ====== 邏輯畫布尺寸（固定 400x600 直式）======
+  const W = 400, H = 600;
+  const canvas = document.getElementById("c");
+  const ctx = canvas.getContext("2d");
+  let DPR = 1, scaleFit = 1;
+
+  // 高解析度輸出：實體緩衝 = 顯示尺寸 × devicePixelRatio(cap 3)
+  function resize(){
+    DPR = Math.min(window.devicePixelRatio || 1, 3);
+    scaleFit = Math.min(window.innerWidth / W, window.innerHeight / H);
+    const dispW = Math.round(W * scaleFit), dispH = Math.round(H * scaleFit);
+    canvas.style.width = dispW + "px";
+    canvas.style.height = dispH + "px";
+    canvas.width = Math.round(dispW * DPR);
+    canvas.height = Math.round(dispH * DPR);
+    // 讓邏輯座標維持 400×600
+    ctx.setTransform(scaleFit * DPR, 0, 0, scaleFit * DPR, 0, 0);
+  }
+  window.addEventListener("resize", resize);
+  resize();
+
+  // ====== 音效（WebAudio 合成，禁外部資源）======
+  let AC = null;
+  function initAudio(){
+    if(AC) return;
+    try { AC = new (window.AudioContext || window.webkitAudioContext)(); }
+    catch(e){ AC = null; }
+  }
+  function tone(freq, dur, type, vol, delay){
+    if(!AC) return;
+    try{
+      const t0 = AC.currentTime + (delay||0);
+      const o = AC.createOscillator(), g = AC.createGain();
+      o.type = type || "sine";
+      o.frequency.setValueAtTime(freq, t0);
+      g.gain.setValueAtTime(0.0001, t0);
+      g.gain.exponentialRampToValueAtTime(vol||0.2, t0+0.012);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0+dur);
+      o.connect(g); g.connect(AC.destination);
+      o.start(t0); o.stop(t0+dur+0.02);
+    }catch(e){}
+  }
+  function sPlace(){ tone(320, 0.09, "triangle", 0.18); }
+  function sMerge(chain, val){
+    // 連鎖越高音越高，越爽
+    const base = 380 + Math.min(chain,8)*70 + Math.min(val,12)*18;
+    tone(base, 0.12, "square", 0.16);
+    tone(base*1.5, 0.10, "sine", 0.10, 0.02);
+  }
+  function sOver(){
+    tone(300,0.2,"sawtooth",0.18,0);
+    tone(220,0.25,"sawtooth",0.18,0.12);
+    tone(150,0.35,"sawtooth",0.18,0.26);
+  }
+  function sRecord(){
+    [523,659,784,1046].forEach((f,i)=>tone(f,0.18,"square",0.16,i*0.09));
+  }
+
+  // ====== 遊戲設定 ======
+  const COLS = 5, ROWS = 6, CELL = 72;
+  const BX = 20, BY = 108;                 // 棋盤左上
+  const N = COLS * ROWS;
+  let grid = new Array(N).fill(null);      // 每格 null 或 {value,pop}
+  let state = "title";                     // title / playing / over
+  let score = 0, best = 0, turns = 0;
+  let currentDie = 1, nextDie = 1;
+  let cursor = Math.floor(N/2);            // 鍵盤游標
+  let newRecord = false, missGap = 0;
+
+  // 讀取本機最高分
+  try { best = parseInt(localStorage.getItem("miao_dice_best")||"0",10) || 0; }
+  catch(e){ best = 0; }
+
+  // 特效容器
+  let particles = [], floats = [];
+  let shakeT = 0, shakeMag = 0;
+  let scorePulse = 0;
+  let comboText = "", comboTimer = 0, comboScale = 0;
+
+  // ====== 骰值產生 ======
+  function maxDie(){
+    // 第 3 分鐘的壓力源：隨回合擴大骰值範圍，高值難合併→棋盤變滿
+    if(turns >= 36) return 6;
+    if(turns >= 20) return 5;
+    if(turns >= 8)  return 4;
+    return 3;
+  }
+  function rollDie(){
+    const m = maxDie();
+    // 加權：低值較常出（幫助合併，仍留 near-miss 空間）
+    let total = 0; const ws = [];
+    for(let v=1; v<=m; v++){ const w = m - v + 1; ws.push(w); total += w; }
+    let r = Math.random() * total;
+    for(let v=1; v<=m; v++){ r -= ws[v-1]; if(r <= 0) return v; }
+    return 1;
+  }
+
+  // ====== 幾何工具 ======
+  function idxToRC(i){ return { c: i % COLS, r: Math.floor(i / COLS) }; }
+  function cellCX(i){ return BX + (i % COLS) * CELL + CELL/2; }
+  function cellCY(i){ return BY + Math.floor(i / COLS) * CELL + CELL/2; }
+  function neighbors(i){
+    const {c,r} = idxToRC(i); const out = [];
+    if(c > 0)       out.push(i-1);
+    if(c < COLS-1)  out.push(i+1);
+    if(r > 0)       out.push(i-COLS);
+    if(r < ROWS-1)  out.push(i+COLS);
+    return out;
+  }
+
+  // ====== 顏色（自製色系，非抄襲）======
+  function colorFor(v){
+    const hues = [150,100,52,28,4,322,272,214,190,166];
+    const h = hues[(Math.max(1,v)-1) % hues.length];
+    const light = Math.max(30, 54 - Math.min(v,12) * 1.4);
+    return "hsl(" + h + " 68% " + light + "%)";
+  }
+
+  // ====== 特效產生 ======
+  function burst(x, y, color, n){
+    for(let k=0; k<n; k++){
+      const a = Math.random() * Math.PI * 2;
+      const sp = 40 + Math.random() * 160;
+      particles.push({ x:x, y:y, vx:Math.cos(a)*sp, vy:Math.sin(a)*sp - 40,
+        life:0.5 + Math.random()*0.35, max:0.85, color:color,
+        size:2 + Math.random()*4 });
+    }
+    if(particles.length > 400) particles.splice(0, particles.length-400);
+  }
+  function floatText(x, y, txt, color, size){
+    floats.push({ x:x, y:y, txt:txt, color:color, size:size||20, life:0.9, max:0.9 });
+    if(floats.length > 40) floats.splice(0, floats.length-40);
+  }
+  function addShake(m){ shakeMag = Math.max(shakeMag, m); shakeT = 1; }
+
+  // ====== 放置與合併 ======
+  function place(index){
+    if(state !== "playing") return;
+    if(index < 0 || index >= N) return;
+    if(grid[index]) return;                 // 已被占用不能放
+    grid[index] = { value: currentDie, pop: 1 };
+    sPlace();
+    burst(cellCX(index), cellCY(index), colorFor(currentDie), 8);
+    turns++;
+    resolveMerges(index);
+    // 換下一顆骰（零等待）
+    currentDie = nextDie;
+    nextDie = rollDie();
+    cursor = index;
+    // 棋盤全滿 → Game Over
+    let full = true;
+    for(let i=0;i<N;i++){ if(grid[i] === null){ full = false; break; } }
+    if(full) gameOver();
+  }
+
+  function resolveMerges(startIdx){
+    let chain = 0, gained = 0, cur = startIdx, guard = 0;
+    while(guard++ < 64){
+      const cell = grid[cur];
+      if(!cell) break;
+      const v = cell.value;
+      // 找正交相鄰同值
+      const matches = neighbors(cur).filter(function(n){
+        return grid[n] && grid[n].value === v;
+      });
+      if(matches.length === 0) break;
+      chain++;
+      // 移除相鄰同值、噴粒子
+      for(let m=0; m<matches.length; m++){
+        const ni = matches[m];
+        burst(cellCX(ni), cellCY(ni), colorFor(v), 14);
+        grid[ni] = null;
+      }
+      // 目標格升階
+      cell.value = v + 1;
+      cell.pop = 1;
+      const add = (v + 1) * 5 * chain;      // 指數式＋連鎖倍率獎勵
+      gained += add;
+      sMerge(chain, v+1);
+      addShake(Math.min(3 + chain*2, 14));
+      floatText(cellCX(cur), cellCY(cur) - 10, "+" + add,
+        chain >= 2 ? "#ffd54a" : "#ffffff", 16 + Math.min(chain,6)*2);
+      // 從目標格繼續往上連鎖
+    }
+    if(gained > 0){
+      score += gained;
+      scorePulse = 1;
+    }
+    if(chain >= 2){
+      comboText = "連鎖 ×" + chain + "！";
+      comboTimer = 1.1; comboScale = 0;
+      floatText(W/2, BY - 6, comboText, "#ffe28a", 26);
+    }
+  }
+
+  // ====== 開始 / 結束 / 重來 ======
+  function startGame(){
+    grid = new Array(N).fill(null);
+    score = 0; turns = 0;
+    particles = []; floats = [];
+    newRecord = false; missGap = 0;
+    currentDie = rollDie();
+    nextDie = rollDie();
+    cursor = Math.floor(N/2);
+    state = "playing";
+  }
+  function gameOver(){
+    if(state !== "playing") return;
+    state = "over";
+    const prevBest = best;
+    if(score > prevBest){
+      newRecord = true; best = score;
+      try{ localStorage.setItem("miao_dice_best", String(best)); }catch(e){}
+      sRecord();
+    } else {
+      newRecord = false;
+      missGap = (prevBest - score) + 1;      // 差 X 分破紀錄
+      sOver();
+    }
+    addShake(14);
+    if(window.SC) SC.over(score);            // 匿名數據回報
+  }
+
+  // ====== 輸入 ======
+  function toLogical(clientX, clientY){
+    // 用 getBoundingClientRect 比例換算（不可拿 canvas.width 算）
+    const rect = canvas.getBoundingClientRect();
+    return {
+      x: (clientX - rect.left) / rect.width * W,
+      y: (clientY - rect.top) / rect.height * H
+    };
+  }
+  function handleTap(clientX, clientY){
+    initAudio();
+    if(AC && AC.state === "suspended"){ try{ AC.resume(); }catch(e){} }
+    if(state === "title"){ startGame(); return; }
+    if(state === "over"){ startGame(); return; }
+    // playing：點格子放骰
+    const p = toLogical(clientX, clientY);
+    if(p.x >= BX && p.x < BX + COLS*CELL && p.y >= BY && p.y < BY + ROWS*CELL){
+      const c = Math.floor((p.x - BX) / CELL);
+      const r = Math.floor((p.y - BY) / CELL);
+      if(c >= 0 && c < COLS && r >= 0 && r < ROWS){
+        place(r * COLS + c);
+      }
+    }
+  }
+  canvas.addEventListener("pointerdown", function(e){
+    e.preventDefault();
+    handleTap(e.clientX, e.clientY);
+  }, {passive:false});
+  // 防卡鍵/自走：指標取消或失焦時不留輸入狀態（本遊戲無拖曳，僅保險）
+  window.addEventListener("pointercancel", function(){});
+  window.addEventListener("blur", function(){});
+
+  window.addEventListener("keydown", function(e){
+    if(state === "title" || state === "over"){
+      if(e.key === "Enter" || e.key === " "){ initAudio(); startGame(); e.preventDefault(); }
+      return;
+    }
+    // 遊戲中：方向鍵移動游標、Enter/空白放骰
+    const {c,r} = idxToRC(cursor);
+    let nc = c, nr = r;
+    if(e.key === "ArrowLeft"){ nc = Math.max(0, c-1); }
+    else if(e.key === "ArrowRight"){ nc = Math.min(COLS-1, c+1); }
+    else if(e.key === "ArrowUp"){ nr = Math.max(0, r-1); }
+    else if(e.key === "ArrowDown"){ nr = Math.min(ROWS-1, r+1); }
+    else if(e.key === "Enter" || e.key === " "){
+      initAudio();
+      if(AC && AC.state === "suspended"){ try{ AC.resume(); }catch(e2){} }
+      place(cursor); e.preventDefault(); return;
+    } else { return; }
+    cursor = nr * COLS + nc;
+    e.preventDefault();
+  });
+
+  // ====== 繪圖工具 ======
+  function roundRect(x, y, w, h, rad){
+    ctx.beginPath();
+    ctx.moveTo(x+rad, y);
+    ctx.arcTo(x+w, y, x+w, y+h, rad);
+    ctx.arcTo(x+w, y+h, x, y+h, rad);
+    ctx.arcTo(x, y+h, x, y, rad);
+    ctx.arcTo(x, y, x+w, y, rad);
+    ctx.closePath();
+  }
+  // 畫肉球（史萊姆貓宇宙的圖騰）
+  function drawPaw(cx, cy, s, color, alpha){
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.ellipse(cx, cy + s*0.18, s*0.55, s*0.45, 0, 0, Math.PI*2);
+    ctx.fill();
+    for(let i=-1;i<=1;i++){
+      ctx.beginPath();
+      ctx.arc(cx + i*s*0.42, cy - s*0.42, s*0.2, 0, Math.PI*2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+  // 畫史萊姆貓（標題吉祥物）
+  function drawSlimeCat(cx, cy, s){
+    ctx.save();
+    // 耳朵
+    ctx.fillStyle = "#3fbf7a";
+    ctx.beginPath();
+    ctx.moveTo(cx - s*0.55, cy - s*0.3);
+    ctx.lineTo(cx - s*0.3, cy - s*0.95);
+    ctx.lineTo(cx - s*0.05, cy - s*0.4);
+    ctx.closePath(); ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(cx + s*0.55, cy - s*0.3);
+    ctx.lineTo(cx + s*0.3, cy - s*0.95);
+    ctx.lineTo(cx + s*0.05, cy - s*0.4);
+    ctx.closePath(); ctx.fill();
+    // 身體（史萊姆綠）
+    const g = ctx.createLinearGradient(cx, cy - s, cx, cy + s);
+    g.addColorStop(0, "#63e39a"); g.addColorStop(1, "#2ea36a");
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.moveTo(cx - s*0.75, cy + s*0.7);
+    ctx.quadraticCurveTo(cx - s*0.9, cy - s*0.6, cx, cy - s*0.55);
+    ctx.quadraticCurveTo(cx + s*0.9, cy - s*0.6, cx + s*0.75, cy + s*0.7);
+    ctx.quadraticCurveTo(cx, cy + s*0.95, cx - s*0.75, cy + s*0.7);
+    ctx.closePath(); ctx.fill();
+    // 眼睛與微笑
+    ctx.fillStyle = "#12331f";
+    ctx.beginPath(); ctx.arc(cx - s*0.28, cy, s*0.1, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(cx + s*0.28, cy, s*0.1, 0, Math.PI*2); ctx.fill();
+    ctx.strokeStyle = "#12331f"; ctx.lineWidth = s*0.06; ctx.lineCap="round";
+    ctx.beginPath(); ctx.arc(cx, cy + s*0.18, s*0.2, 0.15*Math.PI, 0.85*Math.PI); ctx.stroke();
+    ctx.restore();
+  }
+
+  // 畫一顆棋子（肉球磚）
+  function drawTile(i){
+    const cell = grid[i];
+    if(!cell) return;
+    const cx = cellCX(i), cy = cellCY(i);
+    const pop = cell.pop || 0;
+    const sc = 1 + pop * 0.22;               // 放置/合併彈跳
+    const size = CELL - 10;
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.scale(sc, sc);
+    const col = colorFor(cell.value);
+    ctx.fillStyle = col;
+    roundRect(-size/2, -size/2, size, size, 12);
+    ctx.fill();
+    // 內層高光
+    ctx.fillStyle = "rgba(255,255,255,0.14)";
+    roundRect(-size/2, -size/2, size, size*0.42, 12);
+    ctx.fill();
+    // 背景肉球
+    drawPaw(0, -size*0.05, size*0.4, "rgba(255,255,255,0.18)", 1);
+    // 數字
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "bold 30px 'Microsoft JhengHei',sans-serif";
+    ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillText(String(cell.value), 0, size*0.16);
+    ctx.restore();
+  }
+
+  // 畫小骰子（顯示當前/下一顆）
+  function drawDie(cx, cy, val, size, label){
+    const col = colorFor(val);
+    ctx.save();
+    ctx.fillStyle = col;
+    roundRect(cx - size/2, cy - size/2, size, size, 10); ctx.fill();
+    ctx.fillStyle = "rgba(255,255,255,0.16)";
+    roundRect(cx - size/2, cy - size/2, size, size*0.42, 10); ctx.fill();
+    drawPaw(cx, cy - size*0.04, size*0.38, "rgba(255,255,255,0.2)", 1);
+    ctx.fillStyle = "#fff";
+    ctx.font = "bold " + Math.round(size*0.42) + "px 'Microsoft JhengHei',sans-serif";
+    ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillText(String(val), cx, cy + size*0.14);
+    if(label){
+      ctx.fillStyle = "#8fb8e0";
+      ctx.font = "12px 'Microsoft JhengHei',sans-serif";
+      ctx.fillText(label, cx, cy + size*0.62);
+    }
+    ctx.restore();
+  }
+
+  // ====== 更新 ======
+  function update(dt){
+    // 棋子彈跳衰減
+    for(let i=0;i<N;i++){
+      const cell = grid[i];
+      if(cell && cell.pop > 0) cell.pop = Math.max(0, cell.pop - dt*4);
+    }
+    // 粒子
+    for(let i=particles.length-1;i>=0;i--){
+      const p = particles[i];
+      p.life -= dt;
+      if(p.life <= 0){ particles.splice(i,1); continue; }
+      p.vy += 260 * dt;
+      p.x += p.vx * dt; p.y += p.vy * dt;
+    }
+    // 浮字
+    for(let i=floats.length-1;i>=0;i--){
+      const f = floats[i];
+      f.life -= dt; f.y -= 30 * dt;
+      if(f.life <= 0) floats.splice(i,1);
+    }
+    // 特效衰減
+    if(shakeT > 0) shakeT = Math.max(0, shakeT - dt*2.4);
+    if(scorePulse > 0) scorePulse = Math.max(0, scorePulse - dt*3);
+    if(comboTimer > 0){ comboTimer -= dt; comboScale = Math.min(1, comboScale + dt*6); }
+  }
+
+  // ====== 畫面 ======
+  function drawBoard(){
+    // 棋盤底
+    ctx.fillStyle = "#0f1830";
+    roundRect(BX-6, BY-6, COLS*CELL+12, ROWS*CELL+12, 16); ctx.fill();
+    // 空格
+    for(let i=0;i<N;i++){
+      if(grid[i]) continue;
+      const x = BX + (i%COLS)*CELL, y = BY + Math.floor(i/COLS)*CELL;
+      ctx.fillStyle = "rgba(255,255,255,0.04)";
+      roundRect(x+5, y+5, CELL-10, CELL-10, 12); ctx.fill();
+    }
+    // 棋子
+    for(let i=0;i<N;i++) drawTile(i);
+    // 鍵盤游標高亮
+    if(state === "playing"){
+      const x = BX + (cursor%COLS)*CELL, y = BY + Math.floor(cursor/COLS)*CELL;
+      ctx.strokeStyle = grid[cursor] ? "rgba(255,120,120,0.7)" : "rgba(143,227,192,0.9)";
+      ctx.lineWidth = 3;
+      roundRect(x+3, y+3, CELL-6, CELL-6, 12); ctx.stroke();
+    }
+  }
+  function drawHUD(){
+    // 分數
+    ctx.textAlign = "left"; ctx.textBaseline = "top";
+    ctx.fillStyle = "#8fb8e0";
+    ctx.font = "13px 'Microsoft JhengHei',sans-serif";
+    ctx.fillText("分數", BX, 14);
+    ctx.fillStyle = "#fff";
+    const spSc = 1 + scorePulse * 0.25;
+    ctx.save();
+    ctx.translate(BX, 30); ctx.scale(spSc, spSc);
+    ctx.font = "bold 30px 'Microsoft JhengHei',sans-serif";
+    ctx.fillText(String(score), 0, 0);
+    ctx.restore();
+    // 最高分
+    ctx.textAlign = "right";
+    ctx.fillStyle = "#8fb8e0";
+    ctx.font = "13px 'Microsoft JhengHei',sans-serif";
+    ctx.fillText("最高", BX + COLS*CELL, 14);
+    ctx.fillStyle = "#ffd54a";
+    ctx.font = "bold 26px 'Microsoft JhengHei',sans-serif";
+    ctx.fillText(String(best), BX + COLS*CELL, 32);
+    // 骰值範圍提示（讓玩家看見壓力升高）
+    ctx.textAlign = "center";
+    ctx.fillStyle = "#6f8fb5";
+    ctx.font = "12px 'Microsoft JhengHei',sans-serif";
+    ctx.fillText("骰值 1～" + maxDie(), W/2, 20);
+  }
+  function drawDieTray(){
+    // 底部：當前骰 + 下一顆
+    drawDie(W*0.34, 572, currentDie, 48, "當前");
+    drawDie(W*0.62, 572, nextDie, 34, "下一顆");
+    ctx.fillStyle = "#5f7ba0";
+    ctx.textAlign = "left"; ctx.textBaseline = "middle";
+    ctx.font = "12px 'Microsoft JhengHei',sans-serif";
+    ctx.fillText("點格子放骰", W*0.74, 566);
+    ctx.fillText("同數合體", W*0.74, 582);
+  }
+  function drawEffects(){
+    for(let i=0;i<particles.length;i++){
+      const p = particles[i];
+      ctx.globalAlpha = Math.max(0, p.life / p.max);
+      ctx.fillStyle = p.color;
+      ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, Math.PI*2); ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+    for(let i=0;i<floats.length;i++){
+      const f = floats[i];
+      ctx.globalAlpha = Math.max(0, f.life / f.max);
+      ctx.fillStyle = f.color;
+      ctx.font = "bold " + f.size + "px 'Microsoft JhengHei',sans-serif";
+      ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.fillText(f.txt, f.x, f.y);
+    }
+    ctx.globalAlpha = 1;
+    // 連鎖字樣
+    if(comboTimer > 0){
+      const s = 0.6 + comboScale * 0.6;
+      ctx.save();
+      ctx.globalAlpha = Math.min(1, comboTimer*2);
+      ctx.translate(W/2, 90); ctx.scale(s, s);
+      ctx.fillStyle = "#ffe28a";
+      ctx.font = "bold 26px 'Microsoft JhengHei',sans-serif";
+      ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.fillText(comboText, 0, 0);
+      ctx.restore();
+    }
+  }
+
+  function drawTitle(){
+    ctx.textAlign = "center";
+    drawSlimeCat(W/2, 150, 60);
+    ctx.fillStyle = "#8fe3c0";
+    ctx.font = "bold 40px 'Microsoft JhengHei',sans-serif";
+    ctx.textBaseline = "middle";
+    ctx.fillText("喵骰連鎖陣", W/2, 250);
+    ctx.fillStyle = "#dfe9f5";
+    ctx.font = "16px 'Microsoft JhengHei',sans-serif";
+    ctx.fillText("擲貓掌骰，同數肉球碰在一起就合體升階！", W/2, 300);
+    // 操作說明
+    ctx.fillStyle = "#a9c4e0";
+    ctx.font = "14px 'Microsoft JhengHei',sans-serif";
+    ctx.fillText("① 看當前骰值 → 點空格放進去", W/2, 340);
+    ctx.fillText("② 相鄰同數字自動合體，連鎖爆分", W/2, 366);
+    ctx.fillText("③ 棋盤放滿就結束，撐越久分越高", W/2, 392);
+    ctx.fillStyle = "#7f9bc0";
+    ctx.font = "13px 'Microsoft JhengHei',sans-serif";
+    ctx.fillText("電腦：方向鍵移動、Enter 放骰　手機：直接點", W/2, 424);
+    // 回訪鉤子：最高分挑釁
+    if(best > 0){
+      ctx.fillStyle = "#ffd54a";
+      ctx.font = "bold 16px 'Microsoft JhengHei',sans-serif";
+      ctx.fillText("本機最高分 " + best + " 分，破得了嗎？", W/2, 462);
+    }
+    // 開始提示（呼吸）
+    const a = 0.55 + 0.45 * Math.sin(tSec * 3);
+    ctx.globalAlpha = a;
+    ctx.fillStyle = "#8fe3c0";
+    ctx.font = "bold 22px 'Microsoft JhengHei',sans-serif";
+    ctx.fillText("點擊 / 按 Enter 開始", W/2, 520);
+    ctx.globalAlpha = 1;
+  }
+
+  function drawOver(){
+    ctx.fillStyle = "rgba(6,10,20,0.78)";
+    ctx.fillRect(0,0,W,H);
+    ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    if(newRecord){
+      const a = 0.7 + 0.3*Math.sin(tSec*6);
+      ctx.globalAlpha = a;
+      ctx.fillStyle = "#ffd54a";
+      ctx.font = "bold 40px 'Microsoft JhengHei',sans-serif";
+      ctx.fillText("★ 新紀錄！★", W/2, 210);
+      ctx.globalAlpha = 1;
+    } else {
+      ctx.fillStyle = "#ff8a8a";
+      ctx.font = "bold 38px 'Microsoft JhengHei',sans-serif";
+      ctx.fillText("棋盤爆滿啦", W/2, 210);
+    }
+    ctx.fillStyle = "#dfe9f5";
+    ctx.font = "18px 'Microsoft JhengHei',sans-serif";
+    ctx.fillText("本局分數", W/2, 275);
+    ctx.fillStyle = "#fff";
+    ctx.font = "bold 56px 'Microsoft JhengHei',sans-serif";
+    ctx.fillText(String(score), W/2, 320);
+    // near-miss 再利用
+    if(newRecord){
+      ctx.fillStyle = "#8fe3c0";
+      ctx.font = "18px 'Microsoft JhengHei',sans-serif";
+      ctx.fillText("你刷新了本機最高分！", W/2, 372);
+    } else {
+      ctx.fillStyle = "#ffd54a";
+      ctx.font = "bold 20px 'Microsoft JhengHei',sans-serif";
+      ctx.fillText("差 " + missGap + " 分就破紀錄！", W/2, 372);
+      ctx.fillStyle = "#9fb6d0";
+      ctx.font = "15px 'Microsoft JhengHei',sans-serif";
+      ctx.fillText("最高 " + best + " 分", W/2, 400);
+    }
+    // 一鍵重來
+    const a = 0.55 + 0.45*Math.sin(tSec*3);
+    ctx.globalAlpha = a;
+    ctx.fillStyle = "#8fe3c0";
+    ctx.font = "bold 24px 'Microsoft JhengHei',sans-serif";
+    ctx.fillText("點擊 / 按 Enter 再來一局", W/2, 470);
+    ctx.globalAlpha = 1;
+  }
+
+  // ====== 主迴圈（用 deltaTime，不假設 60fps）======
+  let last = 0, tSec = 0;
+  function frame(now){
+    if(!last) last = now;
+    let dt = (now - last) / 1000;
+    last = now;
+    if(dt > 0.05) dt = 0.05;                 // 夾住大跳（分頁切換/低幀）
+    tSec += dt;
+
+    update(dt);
+
+    // 清底
+    ctx.setTransform(scaleFit*DPR, 0, 0, scaleFit*DPR, 0, 0);
+    ctx.clearRect(0, 0, W, H);
+    ctx.fillStyle = "#14203a";
+    ctx.fillRect(0, 0, W, H);
+
+    // 螢幕震動
+    let ox = 0, oy = 0;
+    if(shakeT > 0){
+      const m = shakeMag * shakeT;
+      ox = (Math.random()-0.5) * m; oy = (Math.random()-0.5) * m;
+    }
+    ctx.save();
+    ctx.translate(ox, oy);
+
+    if(state === "title"){
+      drawTitle();
+    } else {
+      drawHUD();
+      drawBoard();
+      drawDieTray();
+      drawEffects();
+      if(state === "over") drawOver();
+    }
+    ctx.restore();
+
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+})();
+</script>
+<script src="../../sc_config.js"></script>
+<script src="../../stats.js"></script>
+</body>
+</html>

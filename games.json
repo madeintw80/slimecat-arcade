@@ -817,6 +817,15 @@
       "inspiration": "Search It - Hidden Objects",
       "desc": "史萊姆貓雜貨鋪，照進貨清單在雜物堆裡揪出真貨",
       "ai_score": 37
+    },
+    {
+      "id": "2026-07-23-001",
+      "title": "喵骰連鎖陣",
+      "emoji": "🎲",
+      "genre": "策略",
+      "date": "2026-07-23",
+      "inspiration": "點點英雄：骰子傳說",
+      "desc": "擲貓掌骰放進喵陣，同數肉球連鎖合體暴衝"
     }
   ]
 }
