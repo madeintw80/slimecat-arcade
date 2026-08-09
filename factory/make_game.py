@@ -15,7 +15,9 @@
   4. 【品管】Playwright 煙霧測試（噴錯不上架，重生一次）
   5. 【自評】claude 評審按五維量表打分（上手/juice/目標/難度/再一局，滿分 50），
      分數與改進點記進 learnings，餵給下一款
-  6. 上架 games.json + games.js，Telegram 推新品（含自評分）
+  6. 【打磨】自評低於 POLISH_BAR 的作品：評審改進點餵回開發者修一版，
+     重跑品管＋評分、分數有變高才換版（2026-08-09 三天一產改制新增）
+  7. 上架 games.json + games.js，Telegram 推新品（含自評分）
 
 玩家回饋入口：python rate_game.py <遊戲名> <1-10> [評語] —— 玩家評分 > AI 自評 > 理論。
 """
@@ -62,19 +64,20 @@ CLAUDE = shutil.which("claude") or r"C:\Users\User\.local\bin\claude.exe"
 # 註：只搬 claude -p 子程序的 cwd，工廠腳本本身照常在專案目錄跑（配方同 XianxiaSaga/llm.py）。
 LLM_CWD = Path("C:/Users/Public/slimecat_llm_cwd")
 LLM_CWD.mkdir(parents=True, exist_ok=True)
-# 模型策略（2026-07-06 改混合模型：保品質、砍 opus 額度約 2/3）：
-# 三個階段吃的模型分開挑——「寫遊戲」才需要旗艦，前後的讀寫小任務用小模型就夠。
-#   解構＝sonnet：讀榜單寫解構筆記，中模型夠用
-#   實作＝opus（別名=最新版 Opus，目前 4.8）：品質關鍵，唯一保 opus 的環節
-#   自評＝haiku：按固定五維量表打分出一行 JSON，小模型夠用
-# run_claude 的 model 參數預設 MODEL_BUILD(opus) → fix_game / daily_feedback /
-# weekly_review / original_mode 這些沒指定 model 的呼叫端行為不變（零回歸）。
-MODEL_DECON = "sonnet"    # 解構熱門遊戲
-MODEL_BUILD = "opus"      # 設計＋實作遊戲（品質關鍵）
-MODEL_CRITIC = "haiku"    # 出廠五維自評
-GEN_TIMEOUT = 2700        # 實作一整款遊戲的時間上限（sonnet 曾 30 分鐘超時，放寬到 45 分鐘）
+# 模型策略（2026-08-09 全鏈升一級：改三天一產後，省下的額度換每款品質；前配置 sonnet/opus/haiku）：
+# 三個階段吃的模型分開挑——各自升到「該任務值得的最高一階」。
+#   解構＝opus：企劃拆得更深，實作才有好料
+#   實作＝fable（Mythos 級最前沿旗艦，CLI 別名 fable 已實測可用）：品質關鍵
+#   自評＝sonnet：評得更準、改進點更有料——它同時是打磨迴圈的觸發依據
+# run_claude 的 model 參數預設 MODEL_BUILD(fable) → fix_game / daily_feedback /
+# weekly_review / original_mode 這些沒指定 model 的呼叫端同步升級（全鏈一致）。
+MODEL_DECON = "opus"      # 解構熱門遊戲
+MODEL_BUILD = "fable"     # 設計＋實作遊戲（品質關鍵）
+MODEL_CRITIC = "sonnet"   # 出廠五維自評
+GEN_TIMEOUT = 3600        # 實作一整款遊戲的時間上限（fable 思考較久，放寬到 60 分鐘）
 SMALL_TIMEOUT = 900       # 解構 / 評審這類小任務的上限
 MAX_ATTEMPTS = 2          # 實作 + 驗證最多試幾次
+POLISH_BAR = 40           # 自評低於這分數就觸發「打磨一輪」（0=關閉打磨、50=每款必磨）
 
 
 def log(msg: str) -> None:
@@ -284,6 +287,41 @@ def stage_critic(html: str, meta: dict):
         return None
 
 
+# ---------------------------------------------------------------- 打磨（低分才觸發）
+def stage_polish(html: str, meta: dict, crit: dict) -> str:
+    """把評審的改進點餵回開發者，針對「這一款」修一版。回傳修訂後的完整 HTML。
+
+    2026-08-09 三天一產改制：以前評審的 fixes 只餵給下一款，這一款照樣原樣上架；
+    現在自評低於 POLISH_BAR 的作品出廠前多吃一輪修訂（產量砍 2/3 省下的額度換品質）。
+    修訂版要重跑品管＋評分、分數有變高才採用——最差就是用原版上架，不會更差。
+    """
+    fixes = "\n".join(f"- {f}" for f in crit.get("fixes", []))
+    prompt = f"""你是「SlimeCat 遊戲工作室」的資深遊戲開發者。你剛完成的小遊戲《{meta['title']}》
+出廠評審給了 {crit['total']}/50，還不夠好。請針對評審意見修訂一版，把它變得更好玩。
+
+═══ 評審意見（逐條處理，這是這次修訂的唯一目標）═══
+總評：{crit.get('verdict', '')}
+各維分數（1-10）：{json.dumps(crit.get('scores', {}), ensure_ascii=False)}
+改進點：
+{fixes if fixes else "（評審沒列，針對分數最低的維度自行強化）"}
+
+═══ 目前的完整原始碼 ═══
+{html}
+
+修訂規則：
+- 只做「讓它更好玩」的修訂：加強 juice／難度曲線／目標感／near-miss，不可重寫成另一款遊戲
+- 原本能玩的功能不可弄壞；維持原有硬性規格（單檔零外部資源／canvas 400×600／
+  fixed timestep 不可假設 60fps／DPR 高解析／繁中介面／SC.over 回報／localStorage 最高分）
+- 遊戲名與第一行 GAMEMETA 註解保持原樣
+
+🔴 交付方式：你唯一的交付物是「印出的文字」。不要使用任何工具（你也沒有寫檔權限）。
+輸出格式：不要 code fence、不要任何解說文字；第一行是原本的 GAMEMETA 註解，第二行起是完整 HTML。
+"""
+    out = run_claude(prompt, GEN_TIMEOUT, model=MODEL_BUILD)
+    _, html2 = extract(out)   # meta 一律沿用原版（防模型偷改名），只取修訂後的 HTML
+    return html2
+
+
 # ---------------------------------------------------------------- 工具
 def next_id(date_str: str, games: list) -> str:
     n = sum(1 for g in games if g["id"].startswith(date_str)) + 1
@@ -397,14 +435,41 @@ def produce_from_decon(decon: dict) -> int:
             shutil.rmtree(gdir, ignore_errors=True)
             continue
 
-        # 品管截圖複製進遊戲資料夾當大廳縮圖
+        # ── 出廠自評 ──
+        log("🧐 評審自評中…")
+        crit = stage_critic(html, meta)
+
+        # ── 打磨迴圈（低分才觸發，見 stage_polish 說明）──
+        if crit and crit["total"] < POLISH_BAR:
+            log(f"🪄 自評 {crit['total']}/50 低於 {POLISH_BAR}，打磨一輪（針對評審改進點修訂）…")
+            polished = False
+            try:
+                html2 = stage_polish(html, meta, crit)
+                (gdir / "index.html").write_text(inject_stats(html2), encoding="utf-8")
+                ok2, _ = validate(gdir / "index.html", shot_name=gid)
+                crit2 = stage_critic(html2, meta) if ok2 else None
+                if ok2 and crit2 and crit2["total"] > crit["total"]:
+                    log(f"  ✨ 打磨成功 {crit['total']} → {crit2['total']}/50，採用修訂版")
+                    append_learning(f"- {today} 打磨《{meta['title']}》"
+                                    f"{crit['total']}→{crit2['total']}/50：評審意見修訂有效")
+                    html, crit, polished = html2, crit2, True
+                else:
+                    log("  ↩️ 修訂版沒有更好（品管沒過或分數沒變高），改回原版上架")
+            except Exception as e:
+                log(f"  ⚠️ 打磨過程出錯（不擋出貨，用原版上架）：{e}")
+            if not polished:
+                # 修訂版可能已蓋掉檔案與截圖 → 還原原版、重測一次換回原版縮圖
+                try:
+                    (gdir / "index.html").write_text(inject_stats(html), encoding="utf-8")
+                    validate(gdir / "index.html", shot_name=gid)
+                except Exception as e:
+                    log(f"  ⚠️ 原版還原重測失敗（檔案已還原、縮圖可能沿用修訂版畫面）：{e}")
+
+        # 品管截圖複製進遊戲資料夾當大廳縮圖（打磨後才複製＝拿到最終版畫面）
         shot_src = HERE / "shots" / f"{gid}.png"
         if shot_src.exists():
             shutil.copy(shot_src, gdir / "shot.png")
 
-        # ── 出廠自評 ──
-        log("🧐 評審自評中…")
-        crit = stage_critic(html, meta)
         entry = {"id": gid, "title": meta["title"], "emoji": meta["emoji"],
                  "genre": meta["genre"], "date": today,
                  "inspiration": meta["inspiration"], "desc": meta["desc"]}

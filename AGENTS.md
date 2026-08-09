@@ -2,7 +2,7 @@
 
 ## Project mode
 
-- `SlimeCatArcade` 是公開網站加每日自動生產排程的生產專案，採保護模式。
+- `SlimeCatArcade` 是公開網站加自動生產排程（每三天一款）的生產專案，採保護模式。
 - 任一 agent 修改前先讀 `PROJECT.md → CHECKPOINT.md → TASKS.md → DECISIONS.md`，再跑 `git status` 與 `git log -5`。
 - 同一時間只有一位 Task Lead 可寫；發現不明 working tree 變更或另一位 agent 標記 `in_progress` 時停手回報 PM。
 - Echo 預設唯讀；只有 PM 對該次具體工作明確授權時可修改。push、deploy、排程、對外通知仍需 PM 明確授權。

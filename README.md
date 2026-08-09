@@ -8,8 +8,9 @@
 
 ## 工作室怎麼運作（v2：會學習的生產線）
 
-目標不是「生很多遊戲」，是**一款比一款好玩**。每天 12:00 排程
-`SlimeCat Factory Daily` 跑 `factory/make_game.py` 的完整學習迴圈：
+目標不是「生很多遊戲」，是**一款比一款好玩**。每三天 12:00 排程
+`SlimeCat Factory Daily` 跑 `factory/make_game.py` 的完整學習迴圈
+（2026-08-09 起由每日改為三天一款：產量換品質，模型全鏈升級＋低分打磨）：
 
 1. **抓趨勢**：`fetch_trends.py` 抓 App Store 台灣免費遊戲排行榜 Top 100
 2. **解構**（策劃課）：claude 挑一款熱門遊戲，拆解「為什麼好玩、為什麼上癮」
@@ -20,7 +21,9 @@
 4. **品管**：`validate_game.py` 用 Playwright 實測（噴錯不上架，自動重生一次）
 5. **出廠自評**（評審課）：claude 評審按五維量表打分（上手/juice/目標/難度/再一局，
    滿分 50），分數上卡片、改進點記進 learnings 餵下一款
-6. **上架＋通知**：登記名錄、Telegram 推新品（含自評分）＋截圖
+6. **打磨**（低分才觸發）：自評低於 40/50 → 評審改進點餵回開發者修一版，
+   重跑品管＋評分、有變好才換版（`make_game.py` 的 `POLISH_BAR` 可調）
+7. **上架＋通知**：登記名錄、Telegram 推新品（含自評分）＋截圖
 
 ### 回饋迴圈（讓它越來越強的關鍵）
 
@@ -50,7 +53,7 @@ python C:/Users/User/projects/SlimeCatArcade/factory/validate_game.py games/<id>
 # 改過 games.json 之後重建大廳名錄
 python C:/Users/User/projects/SlimeCatArcade/factory/rebuild.py
 
-# 重建排程（改時間就編輯 setup_schedule.py 的 RUN_AT 再跑一次）
+# 重建排程（改時間編輯 setup_schedule.py 的 RUN_AT、改頻率編輯 EVERY_DAYS，再跑一次）
 python C:/Users/User/projects/SlimeCatArcade/factory/setup_schedule.py
 ```
 
