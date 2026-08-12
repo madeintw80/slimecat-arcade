@@ -1,0 +1,534 @@
+<!--GAMEMETA {"title":"貓客滿樓","emoji":"🏬","genre":"經營","inspiration":"時尚百貨城","desc":"點鋪位開喵店，貓客排隊付小魚乾，100秒塞滿整棟喵百貨！"}-->
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<title>貓客滿樓</title>
+<style>
+html,body{margin:0;padding:0;background:#15102a;height:100%;overflow:hidden}
+#wrap{position:fixed;inset:0;display:flex;align-items:center;justify-content:center}
+canvas{touch-action:none;display:block;border-radius:8px;box-shadow:0 0 30px rgba(0,0,0,.5)}
+#back{position:fixed;top:8px;left:10px;z-index:9;color:#9be08e;font:14px system-ui;text-decoration:none;background:rgba(0,0,0,.45);padding:4px 10px;border-radius:8px}
+</style>
+</head>
+<body>
+<a id="back" href="../../index.html">← 回遊戲區</a>
+<div id="wrap"><canvas id="cv"></canvas></div>
+<script>
+'use strict';
+(function(){
+// ===== 基本常數 =====
+var W=400,H=600,TOTAL=100;           // 邏輯畫布 400x600、一局 100 秒
+var FLOORS=5,COLS=3,N=15;
+var PRICES=[0,12,18,26,38,54,75,100,135,180,235,300,380,470,575]; // 各鋪位開店價（near-affordable 階梯）
+var EMO=['🐟','🧶','🍪','🎈','🧀','🎩','🪅','🍰','🌂','🎁','🛁','🎨','📚','🎧','👑'];
+var CATCOLS=['#7ee06e','#5fd89a','#a5e06e','#6edccf'];
+var AWN=['#ff8a80','#80d8ff','#ffd180'];
+var RUSH=[[20,27],[45,52],[70,77],[87,95]];  // 尖峰時刻時段
+var SLOT_W=104,SLOT_H=64,SLOT_X=[58,172,286];
+
+var cv=document.getElementById('cv'),ctx=cv.getContext('2d');
+
+// ===== 高解析度縮放：實體緩衝 = 顯示尺寸 x DPR(cap 3)，邏輯座標維持 400x600 =====
+function resize(){
+  var dpr=Math.min(3,window.devicePixelRatio||1);
+  var s=Math.min(window.innerWidth/W,window.innerHeight/H);
+  cv.style.width=(W*s)+'px';cv.style.height=(H*s)+'px';
+  cv.width=Math.round(W*s*dpr);cv.height=Math.round(H*s*dpr);
+  ctx.setTransform(s*dpr,0,0,s*dpr,0,0);
+}
+window.addEventListener('resize',resize);resize();
+
+// 輸入座標一律用 getBoundingClientRect 比例換算回邏輯座標
+function toXY(e){var r=cv.getBoundingClientRect();return{x:(e.clientX-r.left)/r.width*W,y:(e.clientY-r.top)/r.height*H};}
+
+// ===== WebAudio 合成音效（零外部資源）=====
+var AC=null;
+function ac(){
+  if(!AC){try{AC=new (window.AudioContext||window.webkitAudioContext)();}catch(e){AC=null;}}
+  if(AC&&AC.state==='suspended'){AC.resume();}
+  return AC;
+}
+function tone(f,d,type,vol,when,slide){
+  var a=ac();if(!a)return;
+  try{
+    when=when||0;
+    var o=a.createOscillator(),g=a.createGain(),t0=a.currentTime+when;
+    o.type=type;o.frequency.setValueAtTime(f,t0);
+    if(slide){o.frequency.exponentialRampToValueAtTime(Math.max(30,f+slide),t0+d);}
+    g.gain.setValueAtTime(vol,t0);
+    g.gain.exponentialRampToValueAtTime(0.001,t0+d);
+    o.connect(g);g.connect(a.destination);
+    o.start(t0);o.stop(t0+d+0.02);
+  }catch(e){}
+}
+function sCoin(){tone(900,0.06,'square',0.08);tone(1350,0.09,'square',0.07,0.05);}
+function sBuy(){tone(523,0.09,'triangle',0.12);tone(659,0.09,'triangle',0.12,0.08);tone(784,0.14,'triangle',0.12,0.16);}
+function sUp(){tone(659,0.08,'triangle',0.1);tone(988,0.12,'triangle',0.1,0.07);}
+function sDeny(){tone(150,0.15,'square',0.05,0,-40);}
+function sAngry(){tone(220,0.2,'sawtooth',0.08,0,-120);}
+function sRush(){tone(880,0.1,'square',0.09);tone(880,0.1,'square',0.09,0.15);tone(1175,0.2,'square',0.09,0.3);}
+function sTick(){tone(1200,0.04,'square',0.06);}
+function sEnd(){tone(392,0.2,'triangle',0.12);tone(330,0.35,'triangle',0.12,0.2);}
+function sRecord(){var fs=[523,659,784,1047];for(var i=0;i<fs.length;i++)tone(fs[i],0.16,'triangle',0.12,i*0.11);}
+
+// ===== 佈局 =====
+function floorY(f){return 556-f*88;}   // 各樓層地板線
+function slotRect(i){var f=Math.floor(i/3),c=i%3;return{x:SLOT_X[c],y:floorY(f)-SLOT_H,w:SLOT_W,h:SLOT_H,f:f,c:c};}
+var STARS=[];for(var si=0;si<40;si++)STARS.push([(si*89)%W,(si*53)%96+4]);
+
+// ===== 遊戲狀態 =====
+var state='title',gt=0,elapsed=0;
+var cash,score,tLeft,combo,maxCombo,catsServed,openCount,shops,cats,floats,parts;
+var spawnT,rushOn,fullDone,selIdx,kbMode=false,comboPop,cashPop,tickT,overT,newRec,prevHi;
+var hi=0;try{hi=parseInt(localStorage.getItem('sc_maoke_hi'),10)||0;}catch(e){hi=0;}
+
+function reset(){
+  cash=0;score=0;tLeft=TOTAL;elapsed=0;combo=0;maxCombo=0;catsServed=0;openCount=0;
+  shops=[];for(var i=0;i<N;i++)shops.push({open:false,lvl:1,cats:[],shakeT:0,bornT:0});
+  cats=[];floats=[];parts=[];
+  spawnT=0.6;rushOn=false;fullDone=false;selIdx=0;comboPop=0;cashPop=0;tickT=1;overT=0;
+  newRec=false;prevHi=hi;
+}
+reset();
+
+function start(){ac();reset();state='playing';}
+
+function upCost(l){return Math.round(25*Math.pow(1.7,l-1));}
+function shopValue(i){return 3+Math.floor(i*0.8)+2*(shops[i].lvl-1);}
+function patience(){return elapsed<15?999:Math.max(4.5,8-elapsed*0.035);}
+
+// 挑一間排隊最短的開張店（含走路中的預約），全滿回傳 -1
+function pickShop(){
+  var best=[],bq=9;
+  for(var i=0;i<N;i++){
+    var s=shops[i];if(!s.open)continue;
+    var q=s.cats.length;if(q>=3)continue;
+    if(q<bq){bq=q;best=[i];}else if(q===bq){best.push(i);}
+  }
+  if(!best.length)return -1;
+  return best[(Math.random()*best.length)|0];
+}
+function queueX(c){
+  var s=shops[c.shop],r=slotRect(c.shop);
+  var idx=s.cats.indexOf(c);if(idx<0)idx=0;
+  return r.x+r.w/2-idx*20;
+}
+function spawnCat(){
+  var t=pickShop();
+  var c={x:412,y:562,r:11,col:CATCOLS[(Math.random()*CATCOLS.length)|0],ph:Math.random()*6.3,
+         st:'walkG',shop:t,wait:0,serve:0,a:1,rp:0.5,eo:Math.random()*34};
+  if(t<0){c.st='waitEnt';}else{shops[t].cats.push(c);}
+  cats.push(c);
+}
+function payBurst(x,y){
+  for(var i=0;i<6;i++)parts.push({x:x,y:y,vx:(Math.random()-0.5)*140,vy:-Math.random()*120-40,
+    rot:Math.random()*6.3,vr:(Math.random()-0.5)*8,col:'#ffd766',t:0,life:0.5});
+}
+function confetti(n,x,y){
+  var cols=['#ffd54f','#ff8a80','#80d8ff','#a5d6a7','#ce93d8'];
+  for(var i=0;i<n;i++)parts.push({x:x+(Math.random()-0.5)*100,y:y,vx:(Math.random()-0.5)*240,vy:-Math.random()*280-60,
+    rot:Math.random()*6.3,vr:(Math.random()-0.5)*10,col:cols[i%5],t:0,life:1.8+Math.random()});
+}
+
+// 付錢：可見因果的核心一擊
+function payCat(c){
+  var i=c.shop,s=shops[i];
+  var mult=1+Math.min(combo,40)*0.05;
+  var gain=Math.round(shopValue(i)*mult*(rushOn?2:1));
+  cash+=gain;score+=gain;combo++;if(combo>maxCombo)maxCombo=combo;
+  catsServed++;comboPop=0.25;cashPop=0.2;
+  s.cats.shift();c.st='out';
+  floats.push({x:c.x,y:c.y-34,txt:'+'+gain,col:'#ffd766',t:0,life:0.8});
+  payBurst(c.x,c.y-20);sCoin();
+}
+// 氣走：連擊歸零（前 15 秒保護期不罰）
+function leaveAngry(c){
+  var s=shops[c.shop];
+  if(s){var ix=s.cats.indexOf(c);if(ix>=0)s.cats.splice(ix,1);}
+  c.st='angryOut';
+  floats.push({x:c.x,y:c.y-36,txt:'💢',col:'#ef5350',t:0,life:0.8});
+  if(elapsed>=15&&combo>0){
+    if(combo>=5)floats.push({x:200,y:110,txt:'連擊中斷！',col:'#ef5350',t:0,life:1});
+    combo=0;sAngry();
+  }
+}
+
+// 點鋪位：鎖住=開店、開了=升級
+function tryBuy(i){
+  if(state!=='playing')return;
+  var s=shops[i],r=slotRect(i);
+  if(!s.open){
+    var p=PRICES[i];
+    if(cash>=p){
+      cash-=p;s.open=true;s.lvl=1;s.bornT=0.45;openCount++;sBuy();
+      floats.push({x:r.x+r.w/2,y:r.y+8,txt:'開張！',col:'#7ee06e',t:0,life:0.9});
+      payBurst(r.x+r.w/2,r.y+30);
+      var f=r.f;
+      if(shops[f*3].open&&shops[f*3+1].open&&shops[f*3+2].open){
+        var b=30*(f+1);cash+=b;score+=b;sUp();
+        floats.push({x:200,y:300,txt:(f+1)+'F 全面開張！獎勵 +'+b,col:'#ffd766',t:0,life:1.6,big:true});
+      }
+      if(openCount===N&&!fullDone){
+        fullDone=true;cash+=500;score+=500;
+        floats.push({x:200,y:260,txt:'🏬 滿樓達成 +500！',col:'#ff8a80',t:0,life:2,big:true});
+        confetti(60,200,300);sRecord();
+      }
+    }else{
+      s.shakeT=0.3;sDeny();
+      floats.push({x:r.x+r.w/2,y:r.y+8,txt:'🐟不足',col:'#ef5350',t:0,life:0.7});
+    }
+  }else{
+    if(s.lvl>=5){floats.push({x:r.x+r.w/2,y:r.y+8,txt:'已滿級 MAX',col:'#b7aede',t:0,life:0.7});return;}
+    var c2=upCost(s.lvl);
+    if(cash>=c2){
+      cash-=c2;s.lvl++;s.bornT=0.35;sUp();
+      floats.push({x:r.x+r.w/2,y:r.y+8,txt:'升級！收入UP',col:'#80d8ff',t:0,life:0.9});
+    }else{
+      s.shakeT=0.3;sDeny();
+      floats.push({x:r.x+r.w/2,y:r.y+8,txt:'升級需🐟'+c2,col:'#ef5350',t:0,life:0.8});
+    }
+  }
+}
+
+function endGame(){
+  state='over';overT=0;
+  prevHi=hi;newRec=score>hi;
+  if(newRec){hi=score;try{localStorage.setItem('sc_maoke_hi',''+hi);}catch(e){}confetti(70,200,180);sRecord();}
+  else{sEnd();}
+  if (window.SC) SC.over(score);   // 匿名分數回報
+}
+
+// ===== 固定時間步長主迴圈（不假設 60fps）=====
+function update(dt){
+  gt+=dt;
+  for(var i=0;i<N;i++){var s=shops[i];if(s.shakeT>0)s.shakeT-=dt;if(s.bornT>0)s.bornT-=dt;}
+  if(comboPop>0)comboPop-=dt;
+  if(cashPop>0)cashPop-=dt;
+  var k;
+  for(k=floats.length-1;k>=0;k--){floats[k].t+=dt;if(floats[k].t>=floats[k].life)floats.splice(k,1);}
+  for(k=parts.length-1;k>=0;k--){var p=parts[k];p.t+=dt;p.x+=p.vx*dt;p.y+=p.vy*dt;p.vy+=260*dt;p.rot+=p.vr*dt;if(p.t>=p.life)parts.splice(k,1);}
+  if(state==='over'){overT+=dt;return;}
+  if(state!=='playing')return;
+
+  elapsed=TOTAL-tLeft;
+
+  // 尖峰時刻
+  var on=false;
+  for(k=0;k<RUSH.length;k++){if(elapsed>=RUSH[k][0]&&elapsed<RUSH[k][1]){on=true;break;}}
+  if(on&&!rushOn){sRush();floats.push({x:200,y:250,txt:'🚨 尖峰時刻！收入 ×2',col:'#ff8a80',t:0,life:1.8,big:true});}
+  rushOn=on;
+
+  // 生成貓客：隨開店數與時間加速
+  spawnT-=dt;
+  var iv=Math.max(0.5,(2.2-0.12*openCount-0.004*elapsed))*(rushOn?0.5:1);
+  if(spawnT<=0&&openCount>0&&cats.length<45){spawnT=iv*(0.7+Math.random()*0.6);spawnCat();}
+
+  // 貓客狀態機
+  var sp=78*(rushOn?1.3:1);
+  for(k=cats.length-1;k>=0;k--){
+    var c=cats[k];
+    if(c.st==='walkG'){
+      if(slotRect(c.shop).f===0){c.st='walk';}
+      else if(c.x>30){c.x-=sp*dt;}
+      else{c.x=26;c.st='lift';}
+    }else if(c.st==='lift'){
+      var ty=floorY(slotRect(c.shop).f)+6;
+      if(c.y>ty){c.y-=130*dt;}else{c.y=ty;c.st='walk';}
+    }else if(c.st==='walk'){
+      var qx=queueX(c);
+      if(Math.abs(c.x-qx)<3){c.x=qx;c.st='queue';c.wait=0;}
+      else{c.x+=(qx>c.x?1:-1)*sp*dt;}
+    }else if(c.st==='queue'){
+      var qx2=queueX(c);
+      if(Math.abs(c.x-qx2)>3){c.st='walk';continue;}   // 隊伍前進
+      c.wait+=dt;
+      var sh=shops[c.shop];
+      if(sh.cats[0]===c){c.serve+=dt;if(c.serve>=0.7){payCat(c);}}
+      else if(c.wait>patience()){leaveAngry(c);}
+    }else if(c.st==='waitEnt'){
+      c.wait+=dt;
+      if(c.x>386-c.eo)c.x-=sp*dt;
+      c.rp-=dt;
+      if(c.rp<=0){c.rp=0.6;var s2=pickShop();if(s2>=0){c.shop=s2;shops[s2].cats.push(c);c.st='walkG';}}
+      if(c.wait>(elapsed<15?12:6))leaveAngry(c);
+    }else if(c.st==='out'){
+      c.a-=dt*1.6;c.y-=20*dt;if(c.a<=0)cats.splice(k,1);
+    }else if(c.st==='angryOut'){
+      c.a-=dt*1.4;c.x+=50*dt;if(c.a<=0)cats.splice(k,1);
+    }
+  }
+
+  // 最後 10 秒讀秒
+  if(tLeft<10){tickT-=dt;if(tickT<=0){tickT=1;sTick();}}else{tickT=0.2;}
+
+  tLeft-=dt;
+  if(tLeft<=0){tLeft=0;endGame();}
+}
+
+// ===== 繪圖 =====
+function rr(x,y,w,h,r){
+  ctx.beginPath();ctx.moveTo(x+r,y);
+  ctx.arcTo(x+w,y,x+w,y+h,r);ctx.arcTo(x+w,y+h,x,y+h,r);
+  ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);ctx.closePath();
+}
+// 史萊姆貓
+function drawSlime(x,y,r,col,angry,alpha){
+  ctx.save();ctx.globalAlpha=alpha;
+  var cy=y-r*0.85;
+  ctx.fillStyle=col;
+  ctx.beginPath();ctx.ellipse(x,cy,r,r*0.88,0,0,7);ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(x-r*0.75,cy-r*0.45);ctx.lineTo(x-r*0.85,cy-r*1.35);ctx.lineTo(x-r*0.15,cy-r*0.8);
+  ctx.moveTo(x+r*0.75,cy-r*0.45);ctx.lineTo(x+r*0.85,cy-r*1.35);ctx.lineTo(x+r*0.15,cy-r*0.8);
+  ctx.closePath();ctx.fill();
+  ctx.fillStyle='rgba(255,255,255,.35)';
+  ctx.beginPath();ctx.ellipse(x-r*0.35,cy-r*0.35,r*0.22,r*0.14,-0.5,0,7);ctx.fill();
+  ctx.strokeStyle='#1d3320';ctx.fillStyle='#1d3320';ctx.lineWidth=Math.max(1.2,r*0.12);
+  if(angry){
+    ctx.beginPath();
+    ctx.moveTo(x-r*0.48,cy-r*0.18);ctx.lineTo(x-r*0.2,cy+r*0.08);
+    ctx.moveTo(x-r*0.2,cy-r*0.18);ctx.lineTo(x-r*0.48,cy+r*0.08);
+    ctx.moveTo(x+r*0.2,cy-r*0.18);ctx.lineTo(x+r*0.48,cy+r*0.08);
+    ctx.moveTo(x+r*0.48,cy-r*0.18);ctx.lineTo(x+r*0.2,cy+r*0.08);
+    ctx.stroke();
+    ctx.beginPath();ctx.arc(x,cy+r*0.4,r*0.15,Math.PI,0);ctx.stroke();
+  }else{
+    ctx.beginPath();ctx.arc(x-r*0.35,cy-r*0.05,r*0.13,0,7);ctx.arc(x+r*0.35,cy-r*0.05,r*0.13,0,7);ctx.fill();
+    ctx.beginPath();ctx.arc(x-r*0.12,cy+r*0.22,r*0.12,0,Math.PI);ctx.stroke();
+    ctx.beginPath();ctx.arc(x+r*0.12,cy+r*0.22,r*0.12,0,Math.PI);ctx.stroke();
+  }
+  ctx.fillStyle='rgba(255,150,170,.5)';
+  ctx.beginPath();ctx.ellipse(x-r*0.6,cy+r*0.15,r*0.16,r*0.1,0,0,7);ctx.fill();
+  ctx.beginPath();ctx.ellipse(x+r*0.6,cy+r*0.15,r*0.16,r*0.1,0,0,7);ctx.fill();
+  ctx.restore();
+}
+function drawCat(c){
+  var walk=(c.st==='walkG'||c.st==='walk');
+  var bob=walk?Math.abs(Math.sin(gt*11+c.ph))*3:(c.st==='lift'?Math.sin(gt*8+c.ph)*2:0);
+  var angry=c.st==='angryOut'||((c.st==='queue'||c.st==='waitEnt')&&c.wait>3.5);
+  drawSlime(c.x,c.y-bob,c.r,c.col,angry,c.a);
+  var s=shops[c.shop];
+  if(s&&c.st==='queue'&&s.cats[0]===c&&c.serve>0.05){
+    ctx.globalAlpha=c.a;ctx.font='13px serif';ctx.textAlign='center';
+    ctx.fillText('🐟',c.x,c.y-c.r*2.5);ctx.globalAlpha=1;
+  }
+}
+function drawSlot(i){
+  var r=slotRect(i),s=shops[i];
+  var ox=0;if(s.shakeT>0)ox=Math.sin(gt*60)*3*(s.shakeT/0.3);
+  var x=r.x+ox,y=r.y;
+  ctx.textAlign='center';
+  if(!s.open){
+    ctx.fillStyle='#241f33';rr(x,y,r.w,r.h,6);ctx.fill();
+    var p=PRICES[i],can=cash>=p;
+    ctx.setLineDash([5,4]);ctx.lineWidth=2;
+    ctx.strokeStyle=can?'#ffd54f':'#4a4460';
+    if(can)ctx.globalAlpha=0.6+0.4*Math.sin(gt*6);
+    rr(x,y,r.w,r.h,6);ctx.stroke();
+    ctx.globalAlpha=1;ctx.setLineDash([]);
+    ctx.font='15px serif';ctx.fillStyle=can?'#ffd766':'#655e7d';
+    ctx.fillText(i===0&&openCount===0?'👉 免費開店':'🔒',x+r.w/2,y+27);
+    ctx.font='bold 13px system-ui';
+    if(p>0)ctx.fillText('🐟'+p,x+r.w/2,y+48);
+  }else{
+    ctx.fillStyle='#453a68';rr(x,y,r.w,r.h,6);ctx.fill();
+    ctx.fillStyle='#5a4c85';ctx.fillRect(x+12,y+18,r.w-24,28);
+    ctx.font='24px serif';ctx.fillText(EMO[i],x+r.w/2,y+42);
+    var awc=AWN[r.c];
+    ctx.fillStyle=awc;ctx.fillRect(x,y,r.w,9);
+    for(var j=0;j<4;j++){ctx.beginPath();ctx.arc(x+r.w/8+j*r.w/4,y+9,r.w/8,0,Math.PI);ctx.fill();}
+    ctx.textAlign='left';ctx.fillStyle='#ffd766';ctx.font='10px system-ui';
+    var st='';for(var jj=0;jj<s.lvl;jj++)st+='★';
+    ctx.fillText(st,x+5,y+r.h-5);
+    ctx.textAlign='right';ctx.fillStyle='#bdb3e0';
+    ctx.fillText('🐟'+shopValue(i)+'/客',x+r.w-5,y+r.h-5);
+    ctx.font='bold 10px system-ui';
+    if(s.lvl<5){
+      var uc=upCost(s.lvl),cu=cash>=uc;
+      ctx.fillStyle=cu?'#7ee06e':'#5a5378';
+      if(cu)ctx.globalAlpha=0.7+0.3*Math.sin(gt*7);
+      ctx.fillText('▲'+uc,x+r.w-5,y+17);ctx.globalAlpha=1;
+    }else{
+      ctx.fillStyle='#ffd766';ctx.fillText('MAX',x+r.w-5,y+17);
+    }
+    if(s.bornT>0){ctx.globalAlpha=Math.max(0,s.bornT*2);ctx.fillStyle='#fff';rr(x,y,r.w,r.h,6);ctx.fill();ctx.globalAlpha=1;}
+  }
+}
+function render(){
+  // 夜空
+  var g=ctx.createLinearGradient(0,0,0,H);
+  g.addColorStop(0,'#191331');g.addColorStop(1,'#2a1f45');
+  ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
+  ctx.fillStyle='rgba(255,255,255,.5)';
+  for(var i=0;i<STARS.length;i++)ctx.fillRect(STARS[i][0],STARS[i][1],2,2);
+  // 大樓
+  ctx.fillStyle='#332a4f';rr(0,136,W,430,10);ctx.fill();
+  ctx.fillStyle='#241d3c';rr(120,104,160,32,8);ctx.fill();
+  ctx.fillStyle='#ffd766';ctx.font='bold 16px system-ui';ctx.textAlign='center';
+  ctx.fillText('🏬 喵喵百貨',200,126);
+  // 電梯井
+  ctx.fillStyle='#221b38';ctx.fillRect(6,140,40,424);
+  ctx.strokeStyle='#3d3360';ctx.lineWidth=2;ctx.setLineDash([6,6]);
+  ctx.beginPath();ctx.moveTo(26,146);ctx.lineTo(26,560);ctx.stroke();ctx.setLineDash([]);
+  ctx.fillStyle='#7a6fa5';ctx.font='12px system-ui';ctx.fillText('⇅',26,158);
+  // 樓層與鋪位
+  var f;
+  for(f=0;f<FLOORS;f++){
+    var fy=floorY(f);
+    ctx.fillStyle='#262040';ctx.fillRect(2,fy,W-4,8);
+    ctx.fillStyle='#7a6fa5';ctx.font='10px system-ui';ctx.textAlign='center';
+    ctx.fillText((f+1)+'F',26,fy-3);
+  }
+  for(i=0;i<N;i++)drawSlot(i);
+  // 人行道
+  ctx.fillStyle='#141021';ctx.fillRect(0,564,W,36);
+  // 貓客
+  for(i=0;i<cats.length;i++)drawCat(cats[i]);
+  // 新手指引：第一間店
+  if(state==='playing'&&openCount===0){
+    var r0=slotRect(0),by=Math.sin(gt*6)*6;
+    ctx.font='26px serif';ctx.textAlign='center';
+    ctx.fillText('👇',r0.x+r0.w/2,r0.y-8+by);
+  }
+  // HUD
+  ctx.fillStyle='rgba(16,12,30,.92)';ctx.fillRect(0,0,W,58);
+  ctx.save();ctx.translate(10,34);ctx.scale(1+cashPop,1+cashPop);
+  ctx.textAlign='left';ctx.font='bold 22px system-ui';ctx.fillStyle='#ffd766';
+  ctx.fillText('🐟 '+cash,0,0);ctx.restore();
+  ctx.textAlign='right';ctx.font='12px system-ui';ctx.fillStyle='#b7aede';
+  ctx.fillText('分數 '+score,W-10,20);
+  ctx.fillText('🏆 '+hi,W-10,38);
+  ctx.textAlign='center';
+  var tcol=(tLeft<10&&Math.floor(gt*4)%2===0)?'#ff5252':'#fff';
+  ctx.font='bold 16px system-ui';ctx.fillStyle=tcol;
+  ctx.fillText('⏱ '+Math.ceil(tLeft)+'s'+(rushOn?' 🚨×2':''),200,26);
+  ctx.font='11px system-ui';ctx.fillStyle='#9c92c9';
+  ctx.fillText('🏪 '+openCount+'/15',200,44);
+  var frac=Math.max(0,tLeft/TOTAL);
+  ctx.fillStyle=frac>0.3?'#66bb6a':'#ef5350';
+  ctx.fillRect(0,53,W*frac,5);
+  // 連擊
+  if(state==='playing'&&combo>=3){
+    var m=(1+Math.min(combo,40)*0.05).toFixed(1);
+    var sc2=1+(comboPop>0?comboPop*0.8:0);
+    ctx.save();ctx.translate(200,78);ctx.scale(sc2,sc2);
+    ctx.font='bold 15px system-ui';ctx.fillStyle='#ffab40';ctx.textAlign='center';
+    ctx.fillText('🔥 連擊 '+combo+'　×'+m,0,0);ctx.restore();
+  }
+  // 浮動文字
+  for(i=0;i<floats.length;i++){
+    var ft=floats[i],a=Math.max(0,1-ft.t/ft.life);
+    ctx.globalAlpha=a;ctx.font=(ft.big?'bold 22px':'bold 14px')+' system-ui';
+    ctx.fillStyle=ft.col;ctx.textAlign='center';
+    ctx.fillText(ft.txt,ft.x,ft.y-ft.t*34);ctx.globalAlpha=1;
+  }
+  // 粒子
+  for(i=0;i<parts.length;i++){
+    var p=parts[i];
+    ctx.save();ctx.globalAlpha=Math.max(0,1-p.t/p.life);
+    ctx.translate(p.x,p.y);ctx.rotate(p.rot);
+    ctx.fillStyle=p.col;ctx.fillRect(-3,-3,6,6);ctx.restore();
+  }
+  // 鍵盤游標
+  if(kbMode&&state==='playing'){
+    var rc=slotRect(selIdx);
+    ctx.strokeStyle='#fff176';ctx.lineWidth=3;ctx.setLineDash([6,4]);
+    rr(rc.x-4,rc.y-4,rc.w+8,rc.h+8,8);ctx.stroke();ctx.setLineDash([]);
+  }
+  if(state==='title')drawTitle();
+  if(state==='over')drawOver();
+}
+function drawTitle(){
+  ctx.fillStyle='rgba(12,9,24,.88)';ctx.fillRect(0,0,W,H);
+  ctx.textAlign='center';
+  ctx.fillStyle='#ffd766';ctx.font='bold 44px system-ui';ctx.fillText('貓客滿樓',200,140);
+  ctx.fillStyle='#b7aede';ctx.font='13px system-ui';ctx.fillText('— 史萊姆貓百貨經營記 —',200,168);
+  drawSlime(200,320+Math.sin(gt*3)*4,44,'#7ee06e',false,1);
+  ctx.font='22px serif';
+  ctx.fillText('🐟',140+Math.sin(gt*2)*5,270);
+  ctx.fillText('🐟',260-Math.sin(gt*2)*5,250);
+  ctx.fillStyle='#eae4ff';ctx.font='15px system-ui';
+  ctx.fillText('點亮鋪位開喵店，貓客立刻上門付小魚乾',200,378);
+  ctx.fillText('錢再開下一間，100 秒塞滿整棟百貨！',200,402);
+  ctx.fillStyle='#9c92c9';ctx.font='13px system-ui';
+  ctx.fillText('📱 點鋪位＝開店／升級　⌨️ 方向鍵＋Enter',200,436);
+  ctx.fillText('排不到隊的貓客會氣走、連擊歸零！',200,458);
+  ctx.fillStyle='#ffd766';ctx.font='bold 14px system-ui';
+  ctx.fillText(hi>0?('🏆 最高分 '+hi+'，今天破得了嗎？'):'首次營業，寫下第一筆紀錄吧！',200,494);
+  if(Math.floor(gt*2)%2===0){
+    ctx.fillStyle='#7ee06e';ctx.font='bold 18px system-ui';
+    ctx.fillText('▶ 點擊畫面開始營業',200,540);
+  }
+}
+function drawOver(){
+  ctx.fillStyle='rgba(10,8,20,.8)';ctx.fillRect(0,0,W,H);
+  ctx.fillStyle='#241d3c';rr(36,130,328,340,14);ctx.fill();
+  ctx.strokeStyle='#ffd766';ctx.lineWidth=2;rr(36,130,328,340,14);ctx.stroke();
+  ctx.textAlign='center';
+  ctx.fillStyle='#fff';ctx.font='bold 24px system-ui';ctx.fillText('⏰ 營業結束！',200,172);
+  ctx.fillStyle='#9c92c9';ctx.font='13px system-ui';ctx.fillText('本局分數',200,202);
+  ctx.fillStyle='#ffd766';ctx.font='bold 40px system-ui';ctx.fillText(''+score,200,244);
+  ctx.font='bold 16px system-ui';
+  if(newRec){ctx.fillStyle='#ff8a80';ctx.fillText('🎉 新紀錄！稱霸喵百貨！',200,278);}
+  else{ctx.fillStyle='#80d8ff';ctx.fillText('差 '+(prevHi-score+1)+' 分破紀錄，再拚一局！',200,278);}
+  ctx.fillStyle='#eae4ff';ctx.font='14px system-ui';
+  ctx.fillText('🏪 開店 '+openCount+'/15'+(fullDone?'（滿樓達成！）':''),200,312);
+  ctx.fillText('😺 服務貓客 '+catsServed+' 位',200,336);
+  ctx.fillText('🔥 最大連擊 '+maxCombo,200,360);
+  ctx.fillStyle='#9c92c9';ctx.font='13px system-ui';ctx.fillText('🏆 最高分 '+hi,200,392);
+  if(overT>0.6&&Math.floor(gt*2)%2===0){
+    ctx.fillStyle='#7ee06e';ctx.font='bold 16px system-ui';
+    ctx.fillText('▶ 點擊畫面馬上再開一局（R）',200,440);
+  }
+}
+
+// ===== 主迴圈：fixed timestep accumulator =====
+var lastT=performance.now(),accum=0,STEP=1/60;
+function frame(now){
+  var dt=(now-lastT)/1000;lastT=now;
+  if(dt>0.25)dt=0.25;
+  accum+=dt;
+  while(accum>=STEP){update(STEP);accum-=STEP;}
+  render();
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+// ===== 輸入 =====
+cv.addEventListener('pointerdown',function(e){
+  e.preventDefault();ac();
+  if(state==='title'){start();return;}
+  if(state==='over'){if(overT>0.6)start();return;}
+  kbMode=false;
+  var p=toXY(e);
+  for(var i=0;i<N;i++){
+    var r=slotRect(i);
+    if(p.x>=r.x-4&&p.x<=r.x+r.w+4&&p.y>=r.y-6&&p.y<=r.y+r.h+8){selIdx=i;tryBuy(i);break;}
+  }
+},{passive:false});
+cv.addEventListener('pointermove',function(e){e.preventDefault();},{passive:false});
+// 防卡輸入：pointercancel / blur 清除狀態（本作無持續輸入，仍保險清空）
+cv.addEventListener('pointercancel',function(){kbMode=kbMode;});
+window.addEventListener('blur',function(){kbMode=kbMode;});
+cv.addEventListener('contextmenu',function(e){e.preventDefault();});
+window.addEventListener('keydown',function(e){
+  var k=e.key;
+  if(k==='ArrowUp'||k==='ArrowDown'||k==='ArrowLeft'||k==='ArrowRight'||k===' '||k==='Enter')e.preventDefault();
+  if(state==='title'){if(k==='Enter'||k===' ')start();return;}
+  if(state==='over'){if(overT>0.6&&(k==='Enter'||k===' '||k==='r'||k==='R'))start();return;}
+  kbMode=true;
+  var f=Math.floor(selIdx/3),c=selIdx%3;
+  if(k==='ArrowUp')selIdx=((f+1)%5)*3+c;
+  else if(k==='ArrowDown')selIdx=((f+4)%5)*3+c;
+  else if(k==='ArrowLeft')selIdx=f*3+((c+2)%3);
+  else if(k==='ArrowRight')selIdx=f*3+((c+1)%3);
+  else if(k==='Enter'||k===' ')tryBuy(selIdx);
+});
+})();
+</script>
+<script src="../../sc_config.js"></script>
+<script src="../../stats.js"></script>
+</body>
+</html>
