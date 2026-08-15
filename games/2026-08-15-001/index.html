@@ -1,0 +1,665 @@
+<!--GAMEMETA {"title":"喵融奇種錄","emoji":"🧪","genre":"配方合成","inspiration":"美食之星:合併與烹飪","desc":"拖曳兩隻史萊姆貓融合出新品種，限時集滿20種奇貓圖鑑！"}-->
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>喵融奇種錄</title>
+<style>
+html,body{margin:0;padding:0;background:#10142a;height:100%;overflow:hidden}
+body{display:flex;align-items:center;justify-content:center}
+#cv{touch-action:none;display:block;border-radius:8px}
+#back{position:fixed;top:8px;left:10px;z-index:10;color:#8fa3d8;font:14px sans-serif;text-decoration:none;background:rgba(10,14,30,.6);padding:4px 10px;border-radius:8px}
+#back:hover{color:#cfe0ff}
+</style>
+</head>
+<body>
+<a id="back" href="../../index.html">← 回遊戲區</a>
+<canvas id="cv"></canvas>
+<script>
+'use strict';
+// ===== 基本設定：邏輯座標固定 400x600，等比縮放 + 高DPI =====
+const W=400,H=600;
+const cv=document.getElementById('cv');
+const ctx=cv.getContext('2d');
+let dpr=1,vscale=1;
+function resize(){
+  const vw=window.innerWidth,vh=window.innerHeight;
+  vscale=Math.min(vw/W,vh/H);
+  dpr=Math.min(window.devicePixelRatio||1,3);
+  cv.style.width=(W*vscale)+'px';
+  cv.style.height=(H*vscale)+'px';
+  cv.width=Math.round(W*vscale*dpr);
+  cv.height=Math.round(H*vscale*dpr);
+}
+window.addEventListener('resize',resize);
+resize();
+
+// ===== 貓種資料（20 種、4 階；配方走語意可推理路線）=====
+const SP=[
+ {n:'火喵',e:'🔥',c:'#ff6a55',t:1},
+ {n:'水喵',e:'💧',c:'#55a8ff',t:1},
+ {n:'草喵',e:'🌿',c:'#5ecf6e',t:1},
+ {n:'光喵',e:'✨',c:'#ffd84e',t:1},
+ {n:'蒸氣喵',e:'♨️',c:'#c9d6e8',t:2},
+ {n:'焙茶喵',e:'🍵',c:'#9aa64f',t:2},
+ {n:'熔陽喵',e:'🌞',c:'#ff9430',t:2},
+ {n:'露草喵',e:'🪷',c:'#4fc9ae',t:2},
+ {n:'虹光喵',e:'🌈',c:'#b78cff',t:2},
+ {n:'花光喵',e:'🌸',c:'#ff9ad2',t:2},
+ {n:'彩雲喵',e:'🌥️',c:'#e3d2ff',t:3},
+ {n:'奶茶喵',e:'🧋',c:'#c99a6b',t:3},
+ {n:'葵陽喵',e:'🌻',c:'#f0b400',t:3},
+ {n:'螢夜喵',e:'💫',c:'#78f0c3',t:3},
+ {n:'極光喵',e:'🌌',c:'#6fd3f2',t:3},
+ {n:'果果喵',e:'🍑',c:'#ffb09e',t:3},
+ {n:'雨林喵',e:'🌴',c:'#2fa066',t:3},
+ {n:'蜜糖喵',e:'🍯',c:'#f0a03c',t:3},
+ {n:'星空喵',e:'🌠',c:'#5a63d8',t:4},
+ {n:'布丁喵',e:'🍮',c:'#ffd9a0',t:4}
+];
+// 配方表 [材料A,材料B,產物]
+const RTAB=[
+ [0,1,4],[0,2,5],[0,3,6],[1,2,7],[1,3,8],[2,3,9],
+ [3,4,10],[1,5,11],[2,6,12],[3,7,13],[0,8,14],[1,9,15],[2,4,16],[3,5,17],
+ [10,14,18],[11,17,19]
+];
+function rk(a,b){return a<b?a+'_'+b:b+'_'+a;}
+const RECIPES={};
+RTAB.forEach(r=>{RECIPES[rk(r[0],r[1])]=r[2];});
+const HINTS=RTAB.slice().sort((a,b)=>SP[a[2]].t-SP[b[2]].t); // 提示優先給低階目標
+
+// ===== 本機儲存（最高分 + 永久圖鑑＝明日再來鉤子）=====
+function lsGet(k,d){try{const v=localStorage.getItem(k);return v==null?d:v;}catch(e){return d;}}
+function lsSet(k,v){try{localStorage.setItem(k,v);}catch(e){}}
+let best=parseInt(lsGet('mfqz_best','0'),10)||0;
+let everDex=new Set();
+try{JSON.parse(lsGet('mfqz_dex','[]')).forEach(i=>{if(typeof i==='number')everDex.add(i);});}catch(e){}
+[0,1,2,3].forEach(i=>everDex.add(i));
+function saveDex(){lsSet('mfqz_dex',JSON.stringify(Array.from(everDex)));}
+
+// ===== 遊戲狀態 =====
+let state='title';
+let cats=[],score=0,timeLeft=90,combo=0,runNew=0;
+let discovered=new Set();
+let particles=[],floats=[],banner=null,unlockFlash={};
+let spawnCd=0,autoT=0,tickLast=-1,hint=null,hintT=0,shake=0;
+let dragCat=null,dragOff={x:0,y:0},activePtr=null;
+let selCat=null,kbGrab=null,kbMode=false;
+let overData=null,overT=0;
+const MAXCATS=12;
+const PB={x0:22,y0:72,x1:378,y1:452};   // 貓咪活動範圍
+const BTN={x:20,y:546,w:360,h:44};      // 召喚按鈕
+const DEX={x:20,y:466};                 // 圖鑑列
+
+function catR(t){return 21+t*3;}
+function clampCat(c){
+  c.x=Math.max(PB.x0+c.r,Math.min(PB.x1-c.r,c.x));
+  c.y=Math.max(PB.y0+c.r,Math.min(PB.y1-c.r,c.y));
+}
+function spawnCat(id,x,y,pop){
+  const c={id:id,x:x,y:y,vx:(Math.random()*2-1)*12,vy:(Math.random()*2-1)*12,
+    r:catR(SP[id].t),ph:Math.random()*6.28,born:0,back:null,gx:null,gy:null};
+  clampCat(c);cats.push(c);
+  if(pop)burst(c.x,c.y,SP[id].c,8);
+  return c;
+}
+function newGame(){
+  state='play';cats=[];particles=[];floats=[];banner=null;unlockFlash={};
+  score=0;timeLeft=90;combo=0;spawnCd=0;autoT=0;runNew=0;tickLast=-1;
+  discovered=new Set([0,1,2,3]);
+  dragCat=null;kbGrab=null;selCat=null;activePtr=null;overData=null;
+  // 開場四隻基礎喵：任兩隻皆可融合＝首拖必中，零教學
+  spawnCat(0,130,190,false);spawnCat(1,270,190,false);
+  spawnCat(2,130,340,false);spawnCat(3,270,340,false);
+  hint=computeHint();hintT=0;
+}
+
+// ===== 音效（WebAudio 全合成，無外部資源）=====
+let AC=null;
+function ensureAudio(){
+  if(!AC){try{AC=new (window.AudioContext||window.webkitAudioContext)();}catch(e){AC=null;}}
+  if(AC&&AC.state==='suspended'){AC.resume().catch(function(){});}
+}
+function tone(f,dur,type,vol,delay,slide){
+  if(!AC)return;
+  try{
+    const t0=AC.currentTime+(delay||0);
+    const o=AC.createOscillator(),g=AC.createGain();
+    o.type=type||'sine';
+    o.frequency.setValueAtTime(f,t0);
+    if(slide)o.frequency.exponentialRampToValueAtTime(Math.max(40,f+slide),t0+dur);
+    g.gain.setValueAtTime(0.0001,t0);
+    g.gain.linearRampToValueAtTime(vol||0.2,t0+0.012);
+    g.gain.exponentialRampToValueAtTime(0.0001,t0+dur);
+    o.connect(g);g.connect(AC.destination);
+    o.start(t0);o.stop(t0+dur+0.03);
+  }catch(e){}
+}
+function sndPop(t){const b=320+t*100;tone(b,0.1,'triangle',0.22);tone(b*1.5,0.14,'sine',0.15,0.04,b*0.4);}
+function sndFail(){tone(190,0.18,'sawtooth',0.1,0,-70);tone(120,0.22,'square',0.06,0.06,-40);}
+function sndDiscover(){[660,830,990,1320].forEach((f,i)=>tone(f,0.14,'triangle',0.2,i*0.08));}
+function sndFanfare(){[523,659,784,1047,1319].forEach((f,i)=>tone(f,0.3,'triangle',0.22,i*0.11));}
+function sndTick(){tone(1150,0.045,'square',0.06);}
+function sndUI(){tone(700,0.06,'sine',0.12);}
+function sndGrab(){tone(480,0.05,'sine',0.1);}
+function sndSpawn(){tone(520,0.08,'triangle',0.15);tone(780,0.09,'triangle',0.11,0.05);}
+function sndEnd(){tone(520,0.25,'sine',0.16);tone(390,0.35,'sine',0.14,0.18);}
+
+// ===== 粒子與浮字 =====
+function burst(x,y,color,n){
+  for(let i=0;i<n;i++){
+    const a=Math.random()*6.283,v=40+Math.random()*130,l=0.5+Math.random()*0.5;
+    particles.push({x:x,y:y,vx:Math.cos(a)*v,vy:Math.sin(a)*v-30,life:l,max:l,c:color,sz:2+Math.random()*3});
+  }
+}
+function addFloat(x,y,text,color,size){floats.push({x:x,y:y,text:text,c:color,t:1.25,vy:-30,size:size||16});}
+
+// ===== 提示系統：常駐「差一步」目標，餵渴望 =====
+function computeHint(){
+  const onb={};cats.forEach(c=>{onb[c.id]=(onb[c.id]||0)+1;});
+  for(const r of HINTS){ // 盤上已有整組材料 → 只說「找找看」，答案留給玩家
+    if(discovered.has(r[2]))continue;
+    if(onb[r[0]]&&onb[r[1]])return{ty:1,res:r[2]};
+  }
+  for(const r of HINTS){ // 已認識其中一種材料 → 揭露一半配方
+    if(discovered.has(r[2]))continue;
+    if(discovered.has(r[0]))return{ty:2,known:r[0],res:r[2]};
+    if(discovered.has(r[1]))return{ty:2,known:r[1],res:r[2]};
+  }
+  return null;
+}
+
+// ===== 融合判定：成功＝爆發演出；失敗＝軟失敗零懲罰 =====
+function tryMerge(a,b){
+  const res=RECIPES[rk(a.id,b.id)];
+  const mx=(a.x+b.x)/2,my=(a.y+b.y)/2;
+  if(res===undefined){
+    combo=0;
+    addFloat(mx,my-16,a.id===b.id?'同種融不了喵':'不合喵…','#ffb0b0',15);
+    a.back={x:(a.gx!=null?a.gx:a.x),y:(a.gy!=null?a.gy:a.y)}; // 彈回原位
+    sndFail();
+    return null;
+  }
+  cats=cats.filter(c=>c!==a&&c!==b);
+  const sp=SP[res];
+  combo++;
+  let pts=[0,0,10,30,100][sp.t];
+  const isNew=!discovered.has(res);
+  if(isNew)pts*=3; // 首次發現三倍
+  pts=Math.round(pts*(1+0.15*Math.min(Math.max(combo-1,0),10))); // 連融加成
+  score+=pts;
+  const nc=spawnCat(res,mx,my,false);clampCat(nc);
+  burst(nc.x,nc.y,sp.c,isNew?28:14);
+  let ft='+'+pts;if(combo>=2)ft+='　連融×'+combo;
+  addFloat(nc.x,nc.y-34,ft,'#fff3b0',18);
+  if(isNew){
+    discovered.add(res);runNew++;
+    everDex.add(res);saveDex();
+    timeLeft=Math.min(timeLeft+4,150); // 發現獎勵時間
+    unlockFlash[res]=1.5;
+    banner={text:'✨ 新品種：'+sp.n+'！ +4秒',t:1.6};
+    addFloat(nc.x,nc.y-56,'圖鑑 '+discovered.size+'/'+SP.length,'#b0ffd0',13);
+    sndDiscover();shake=Math.max(shake,3);
+  }else{
+    sndPop(sp.t);shake=Math.max(shake,1);
+  }
+  hint=computeHint();hintT=0;
+  if(discovered.size>=SP.length)gameOver(true); // 全圖鑑＝勝利終局
+  return nc;
+}
+
+function doSpawn(){
+  if(state!=='play')return;
+  if(cats.length>=MAXCATS){
+    addFloat(W/2,BTN.y-12,'貓窩滿了！先融合或放生喵','#ffb0b0',14);
+    sndFail();return;
+  }
+  if(spawnCd>0)return;
+  spawnCd=2;
+  const id=(Math.random()*4)|0;
+  spawnCat(id,PB.x0+50+Math.random()*(PB.x1-PB.x0-100),PB.y1-50,true);
+  sndSpawn();
+}
+
+function gameOver(win){
+  if(state==='over')return;
+  let bonus=0;
+  if(win){bonus=Math.round(timeLeft*5);score+=bonus;} // 剩餘時間換分
+  const prev=best;
+  const rec=score>prev;
+  const diff=rec?0:prev-score;
+  if(rec){best=score;lsSet('mfqz_best',''+best);}
+  overData={win:win,rec:rec,diff:diff,prev:prev,bonus:bonus};
+  state='over';overT=0;
+  dragCat=null;kbGrab=null;activePtr=null;
+  if(rec||win){sndFanfare();burst(W/2,200,'#ffd84e',50);burst(W/2,240,'#aef2b8',40);}
+  else sndEnd();
+  if(window.SC)SC.over(score); // 匿名分數回報
+}
+
+// ===== 輸入：觸控/滑鼠拖曳 =====
+function toLogic(e){
+  const r=cv.getBoundingClientRect();
+  return{x:(e.clientX-r.left)/r.width*W,y:(e.clientY-r.top)/r.height*H};
+}
+function onDown(e){
+  e.preventDefault();ensureAudio();kbMode=false;
+  const p=toLogic(e);
+  if(state==='title'){newGame();sndUI();return;}
+  if(state==='over'){if(overT>0.6){newGame();sndUI();}return;}
+  if(activePtr!==null)return;
+  if(p.x>=BTN.x&&p.x<=BTN.x+BTN.w&&p.y>=BTN.y&&p.y<=BTN.y+BTN.h){doSpawn();return;}
+  let bc=null,bd=1e9;
+  for(const c of cats){
+    const d=Math.hypot(p.x-c.x,p.y-c.y);
+    if(d<c.r+14&&d<bd){bd=d;bc=c;}
+  }
+  if(bc){
+    activePtr=e.pointerId;
+    dragCat=bc;bc.gx=bc.x;bc.gy=bc.y;bc.back=null;
+    dragOff.x=bc.x-p.x;dragOff.y=bc.y-p.y;
+    kbGrab=null;selCat=bc;
+    try{cv.setPointerCapture(e.pointerId);}catch(err){}
+    sndGrab();
+  }
+}
+function onMove(e){
+  if(activePtr!==e.pointerId||!dragCat)return;
+  e.preventDefault();
+  const p=toLogic(e);
+  dragCat.x=Math.max(10,Math.min(W-10,p.x+dragOff.x));
+  dragCat.y=Math.max(10,Math.min(H-10,p.y+dragOff.y));
+}
+function onUp(e){
+  if(e.pointerId!==activePtr)return;
+  const p=toLogic(e);
+  const a=dragCat;
+  activePtr=null;dragCat=null;
+  if(!a||state!=='play')return;
+  if(p.y>=BTN.y-6&&p.x>=BTN.x&&p.x<=BTN.x+BTN.w){ // 拖到按鈕＝放生（防卡死）
+    cats=cats.filter(c=>c!==a);
+    burst(a.x,a.y,'#ffffff',10);
+    addFloat(W/2,BTN.y-14,'放生了 '+SP[a.id].n+'～','#cfe8ff',13);
+    sndUI();hint=computeHint();hintT=0;
+    return;
+  }
+  let tg=null,bd=1e9;
+  for(const c of cats){
+    if(c===a)continue;
+    const d=Math.hypot(c.x-a.x,c.y-a.y);
+    if(d<(c.r+a.r)*0.92&&d<bd){bd=d;tg=c;}
+  }
+  if(tg)tryMerge(a,tg);
+  else clampCat(a);
+}
+function onCancel(){
+  if(dragCat){clampCat(dragCat);dragCat=null;}
+  activePtr=null;
+}
+cv.addEventListener('pointerdown',onDown);
+cv.addEventListener('pointermove',onMove);
+cv.addEventListener('pointerup',onUp);
+cv.addEventListener('pointercancel',onCancel);
+window.addEventListener('blur',function(){onCancel();kbGrab=null;});
+
+// ===== 輸入：鍵盤（方向鍵選貓、空白抓/融、C 召喚）=====
+function moveSel(dx,dy){
+  if(!cats.length)return;
+  if(!selCat||cats.indexOf(selCat)<0){selCat=cats[0];return;}
+  let bc=null,bd=1e9;
+  for(const c of cats){
+    if(c===selCat)continue;
+    const vx=c.x-selCat.x,vy=c.y-selCat.y;
+    if(vx*dx+vy*dy<=0)continue;
+    const d=Math.hypot(vx,vy),off=Math.abs(vx*dy)+Math.abs(vy*dx);
+    const sc=d+off*1.5;
+    if(sc<bd){bd=sc;bc=c;}
+  }
+  if(bc)selCat=bc;
+}
+window.addEventListener('keydown',function(e){
+  const k=e.key;
+  if(k===' '||k.indexOf('Arrow')===0)e.preventDefault();
+  ensureAudio();
+  if(state==='title'){newGame();sndUI();return;}
+  if(state==='over'){
+    if(overT>0.4&&(k==='r'||k==='R'||k===' '||k==='Enter')){newGame();sndUI();}
+    return;
+  }
+  if(k==='c'||k==='C'){doSpawn();return;}
+  if(k==='Escape'){kbGrab=null;return;}
+  if(k===' '||k==='Enter'){
+    kbMode=true;
+    if(!selCat||cats.indexOf(selCat)<0){selCat=cats[0]||null;return;}
+    if(!kbGrab){kbGrab=selCat;sndGrab();}
+    else if(kbGrab===selCat){kbGrab=null;}
+    else{
+      const a=kbGrab;kbGrab=null;
+      if(cats.indexOf(a)>=0){
+        const nc=tryMerge(a,selCat);
+        if(nc)selCat=nc;
+        else if(cats.indexOf(selCat)<0)selCat=cats[0]||null;
+      }
+    }
+    return;
+  }
+  let dx=0,dy=0;
+  if(k==='ArrowUp')dy=-1;else if(k==='ArrowDown')dy=1;
+  else if(k==='ArrowLeft')dx=-1;else if(k==='ArrowRight')dx=1;else return;
+  kbMode=true;moveSel(dx,dy);
+});
+
+// ===== 更新（固定時間步長，不吃螢幕更新率）=====
+function update(dt){
+  for(const p of particles){p.x+=p.vx*dt;p.y+=p.vy*dt;p.vy+=90*dt;p.life-=dt;}
+  particles=particles.filter(p=>p.life>0);
+  for(const f of floats){f.y+=f.vy*dt;f.t-=dt;}
+  floats=floats.filter(f=>f.t>0);
+  if(banner){banner.t-=dt;if(banner.t<=0)banner=null;}
+  for(const k in unlockFlash){unlockFlash[k]-=dt;if(unlockFlash[k]<=0)delete unlockFlash[k];}
+  if(shake>0)shake=Math.max(0,shake-dt*22);
+  if(state==='over'){overT+=dt;return;}
+  if(state!=='play')return;
+
+  timeLeft-=dt;
+  if(timeLeft<=0){timeLeft=0;gameOver(false);return;}
+  if(timeLeft<=10){
+    const s=Math.ceil(timeLeft);
+    if(s!==tickLast){tickLast=s;sndTick();}
+  }
+  spawnCd=Math.max(0,spawnCd-dt);
+  autoT+=dt;
+  if(autoT>=8){ // 補料安全網：盤面太空自動補基礎喵
+    autoT=0;
+    if(cats.length<5){
+      spawnCat((Math.random()*4)|0,PB.x0+50+Math.random()*(PB.x1-PB.x0-100),PB.y1-50,true);
+      sndSpawn();
+    }
+  }
+  hintT+=dt;
+  if(hintT>0.6){hintT=0;hint=computeHint();}
+
+  // 貓咪漂浮與回彈
+  for(const c of cats){
+    c.ph+=dt*2;c.born=Math.min(1,c.born+dt*2.6);
+    if(c===dragCat)continue;
+    if(c.back){
+      c.x+=(c.back.x-c.x)*Math.min(1,dt*9);
+      c.y+=(c.back.y-c.y)*Math.min(1,dt*9);
+      if(Math.hypot(c.back.x-c.x,c.back.y-c.y)<2)c.back=null;
+    }else{
+      c.vx+=(Math.random()*2-1)*30*dt;c.vy+=(Math.random()*2-1)*30*dt;
+      c.vx*=0.985;c.vy*=0.985;
+      const sp=Math.hypot(c.vx,c.vy);
+      if(sp>25){c.vx*=25/sp;c.vy*=25/sp;}
+      c.x+=c.vx*dt;c.y+=c.vy*dt;
+    }
+    clampCat(c);
+  }
+  // 輕柔分離避免重疊
+  for(let i=0;i<cats.length;i++)for(let j=i+1;j<cats.length;j++){
+    const a=cats[i],b=cats[j];
+    if(a===dragCat||b===dragCat)continue;
+    const dx=b.x-a.x,dy=b.y-a.y,d=Math.hypot(dx,dy),min=a.r+b.r-6;
+    if(d<min&&d>0.01){
+      const push=(min-d)/2,nx=dx/d,ny=dy/d;
+      a.x-=nx*push;a.y-=ny*push;b.x+=nx*push;b.y+=ny*push;
+      clampCat(a);clampCat(b);
+    }
+  }
+}
+
+// ===== 繪圖 =====
+function rr(x,y,w,h,r){
+  ctx.beginPath();
+  ctx.moveTo(x+r,y);
+  ctx.arcTo(x+w,y,x+w,y+h,r);ctx.arcTo(x+w,y+h,x,y+h,r);
+  ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);
+  ctx.closePath();
+}
+function backOut(t){const s=1.70158;t=t-1;return 1+t*t*((s+1)*t+s);}
+
+function drawCatBody(id,x,y,r,ph,withName){
+  const sp=SP[id];
+  const sq=1+Math.sin(ph*2)*0.035; // 呼吸擠壓
+  ctx.save();ctx.translate(x,y);
+  ctx.fillStyle='rgba(0,0,0,0.25)';
+  ctx.beginPath();ctx.ellipse(0,r*0.85,r*0.8,r*0.24,0,0,6.283);ctx.fill();
+  ctx.scale(sq,2-sq);
+  ctx.fillStyle=sp.c;
+  ctx.beginPath();ctx.moveTo(-r*0.7,-r*0.3);ctx.lineTo(-r*0.46,-r*1.05);ctx.lineTo(-r*0.08,-r*0.58);ctx.closePath();ctx.fill();
+  ctx.beginPath();ctx.moveTo(r*0.7,-r*0.3);ctx.lineTo(r*0.46,-r*1.05);ctx.lineTo(r*0.08,-r*0.58);ctx.closePath();ctx.fill();
+  ctx.beginPath();ctx.ellipse(0,0,r,r*0.92,0,0,6.283);ctx.fill();
+  ctx.beginPath();ctx.ellipse(0,r*0.5,r*0.95,r*0.38,0,0,6.283);ctx.fill();
+  ctx.fillStyle='rgba(255,255,255,0.35)';
+  ctx.beginPath();ctx.ellipse(-r*0.35,-r*0.4,r*0.22,r*0.14,-0.5,0,6.283);ctx.fill();
+  ctx.strokeStyle='#1e2430';ctx.lineWidth=Math.max(1.5,r*0.08);ctx.lineCap='round';
+  ctx.beginPath();ctx.arc(-r*0.32,-r*0.02,r*0.16,Math.PI+0.35,Math.PI*2-0.35);ctx.stroke();
+  ctx.beginPath();ctx.arc(r*0.32,-r*0.02,r*0.16,Math.PI+0.35,Math.PI*2-0.35);ctx.stroke();
+  ctx.beginPath();ctx.arc(-r*0.09,r*0.2,r*0.09,0.2,Math.PI-0.2);ctx.stroke();
+  ctx.beginPath();ctx.arc(r*0.09,r*0.2,r*0.09,0.2,Math.PI-0.2);ctx.stroke();
+  ctx.fillStyle='rgba(255,120,140,0.4)';
+  ctx.beginPath();ctx.ellipse(-r*0.55,r*0.15,r*0.13,r*0.08,0,0,6.283);ctx.fill();
+  ctx.beginPath();ctx.ellipse(r*0.55,r*0.15,r*0.13,r*0.08,0,0,6.283);ctx.fill();
+  ctx.restore();
+  // 種類徽章（emoji）
+  ctx.fillStyle='rgba(255,255,255,0.88)';
+  ctx.beginPath();ctx.arc(x+r*0.74,y-r*0.74,r*0.34,0,6.283);ctx.fill();
+  ctx.font=Math.round(r*0.5)+'px sans-serif';
+  ctx.textAlign='center';ctx.textBaseline='middle';
+  ctx.fillText(sp.e,x+r*0.74,y-r*0.7);
+  ctx.textBaseline='alphabetic';
+  if(withName){
+    ctx.font='10px sans-serif';ctx.fillStyle='rgba(255,255,255,0.85)';
+    ctx.fillText(sp.n,x,y+r+13);
+  }
+}
+function drawCat(c){
+  let s=c.born<1?0.5+0.5*backOut(c.born):1;
+  if(c===dragCat||c===kbGrab)s*=1.1;
+  drawCatBody(c.id,c.x,c.y,c.r*s,c.ph,true);
+  if(c===kbGrab){
+    ctx.strokeStyle='#ffe08a';ctx.setLineDash([5,4]);ctx.lineWidth=2;
+    ctx.beginPath();ctx.arc(c.x,c.y,c.r+7,0,6.283);ctx.stroke();ctx.setLineDash([]);
+  }else if(kbMode&&c===selCat){
+    ctx.strokeStyle='rgba(255,255,255,0.55)';ctx.setLineDash([3,4]);ctx.lineWidth=1.5;
+    ctx.beginPath();ctx.arc(c.x,c.y,c.r+6,0,6.283);ctx.stroke();ctx.setLineDash([]);
+  }
+  if(dragCat&&c!==dragCat){ // 拖曳靠近時中性提示圈（不劇透成敗）
+    const d=Math.hypot(dragCat.x-c.x,dragCat.y-c.y);
+    if(d<(c.r+dragCat.r)*0.92){
+      ctx.strokeStyle='rgba(255,224,138,0.9)';ctx.lineWidth=3;
+      ctx.beginPath();ctx.arc(c.x,c.y,c.r+5,0,6.283);ctx.stroke();
+    }
+  }
+}
+function drawHUD(){
+  ctx.textAlign='left';ctx.fillStyle='#fff';ctx.font='bold 18px sans-serif';
+  ctx.fillText('分數 '+score,16,30);
+  const tl=Math.ceil(timeLeft);
+  ctx.textAlign='center';ctx.font='bold 20px sans-serif';
+  ctx.fillStyle=(state==='play'&&timeLeft<=10)?(Math.sin(performance.now()/110)>0?'#ff6a6a':'#ffd0d0'):'#ffe08a';
+  ctx.fillText('⏱'+tl,W/2,30);
+  ctx.textAlign='right';ctx.fillStyle='#9fb4e8';ctx.font='13px sans-serif';
+  ctx.fillText('最高 '+best,W-16,24);
+  if(state==='play'&&best>0){ // 即時 near-miss 挑釁
+    if(score>best){ctx.fillStyle='#ffe08a';ctx.fillText('🎉 新紀錄中！',W-16,40);}
+    else if(best-score<=60){ctx.fillStyle='#ffb37a';ctx.fillText('差 '+(best-score)+' 分破紀錄',W-16,40);}
+  }
+  ctx.textAlign='left';ctx.fillStyle='#b0ffd0';ctx.font='bold 13px sans-serif';
+  ctx.fillText('圖鑑 '+discovered.size+'/'+SP.length,16,50);
+  let ht='';
+  if(hint)ht=hint.ty===1?'🎯 提示：盤上就有一組能融出新品種！':'🎯 提示：'+SP[hint.known].n+' ＋ ❓ ＝ 新品種';
+  else if(discovered.size<SP.length)ht='🎯 融出更高階的貓再互相配看看';
+  ctx.fillStyle='#d8e0ff';ctx.font='12px sans-serif';
+  ctx.fillText(ht,96,50);
+}
+function drawPlayArea(){
+  rr(14,58,372,402,14);
+  ctx.fillStyle='rgba(0,0,0,0.18)';ctx.fill();
+  ctx.strokeStyle='rgba(255,255,255,0.08)';ctx.lineWidth=1.5;
+  rr(14,58,372,402,14);ctx.stroke();
+}
+function drawDex(){
+  for(let i=0;i<SP.length;i++){
+    const x=DEX.x+(i%10)*36,y=DEX.y+((i/10)|0)*36;
+    const got=discovered.has(i),ever=everDex.has(i);
+    rr(x+2,y+2,32,32,8);
+    ctx.fillStyle=got?'rgba(255,255,255,0.16)':'rgba(0,0,0,0.3)';ctx.fill();
+    ctx.textAlign='center';ctx.textBaseline='middle';
+    if(got){ctx.font='18px sans-serif';ctx.fillText(SP[i].e,x+18,y+19);}
+    else if(ever){ctx.globalAlpha=0.3;ctx.font='18px sans-serif';ctx.fillText(SP[i].e,x+18,y+19);ctx.globalAlpha=1;}
+    else{ctx.fillStyle='rgba(255,255,255,0.35)';ctx.font='bold 16px sans-serif';ctx.fillText('?',x+18,y+19);}
+    const uf=unlockFlash[i];
+    if(uf>0){
+      ctx.strokeStyle='rgba(255,220,110,'+Math.min(1,uf).toFixed(2)+')';
+      ctx.lineWidth=2.5;rr(x+1,y+1,34,34,9);ctx.stroke();
+    }
+  }
+  ctx.textBaseline='alphabetic';
+}
+function drawBtn(){
+  const full=cats.length>=MAXCATS;
+  rr(BTN.x,BTN.y,BTN.w,BTN.h,12);
+  ctx.fillStyle=dragCat?'rgba(160,190,255,0.2)':(full?'rgba(255,90,90,0.25)':'rgba(120,220,140,0.2)');
+  ctx.fill();
+  if(spawnCd>0&&!full&&!dragCat){
+    ctx.save();
+    rr(BTN.x,BTN.y,BTN.w*(1-spawnCd/2),BTN.h,12);ctx.clip();
+    ctx.fillStyle='rgba(120,220,140,0.25)';
+    ctx.fillRect(BTN.x,BTN.y,BTN.w,BTN.h);
+    ctx.restore();
+  }
+  ctx.strokeStyle='rgba(255,255,255,0.25)';ctx.lineWidth=1.5;
+  rr(BTN.x,BTN.y,BTN.w,BTN.h,12);ctx.stroke();
+  ctx.fillStyle='#fff';ctx.font='bold 15px sans-serif';ctx.textAlign='center';
+  let label;
+  if(dragCat)label='🕊 拖到這裡可以放生這隻貓';
+  else if(full)label='貓窩滿了！先融合騰位（12/12）';
+  else label='＋ 召喚基礎喵（'+cats.length+'/12・鍵盤 C）';
+  ctx.fillText(label,W/2,BTN.y+28);
+}
+function drawBanner(){
+  const a=Math.min(1,banner.t/0.3);
+  const s=1+Math.max(0,banner.t-1.3)*2.5;
+  ctx.save();ctx.globalAlpha=a;ctx.translate(W/2,240);ctx.scale(s,s);
+  ctx.fillStyle='rgba(20,25,45,0.8)';rr(-155,-26,310,44,12);ctx.fill();
+  ctx.fillStyle='#ffe08a';ctx.font='bold 20px sans-serif';ctx.textAlign='center';
+  ctx.fillText(banner.text,0,5);
+  ctx.restore();
+}
+function drawTitle(){
+  ctx.fillStyle='rgba(14,18,34,0.93)';ctx.fillRect(0,0,W,H);
+  const t=performance.now()/500;
+  ctx.textAlign='center';
+  ctx.fillStyle='#aef2b8';ctx.font='bold 38px sans-serif';
+  ctx.fillText('喵融奇種錄',W/2,120);
+  ctx.fillStyle='#d8e0ff';ctx.font='16px sans-serif';
+  ctx.fillText('把兩隻「不同的」史萊姆貓拖在一起，',W/2,165);
+  ctx.fillText('融出沒見過的新品種，限時集滿圖鑑！',W/2,190);
+  // 示範：火喵＋水喵＝蒸氣喵
+  drawCatBody(0,105,290,26,t,true);
+  ctx.fillStyle='#fff';ctx.font='bold 24px sans-serif';ctx.fillText('＋',157,298);
+  drawCatBody(1,210,290,26,t+1,true);
+  ctx.fillStyle='#ffe08a';ctx.fillText('＝',262,298);
+  drawCatBody(4,318,290,30,t+2,true);
+  ctx.fillStyle='#9fb4e8';ctx.font='13px sans-serif';
+  ctx.fillText('🖐 拖曳貓咪互撞融合｜配錯只會彈回，不扣分',W/2,375);
+  ctx.fillText('⌨ 方向鍵選貓・空白鍵抓取/融合・C 召喚',W/2,398);
+  ctx.fillText('新發現 +4 秒｜卡住就把貓拖到下方按鈕放生',W/2,421);
+  ctx.fillStyle='#b0ffd0';ctx.font='bold 15px sans-serif';
+  ctx.fillText('最高分 '+best+'　永久圖鑑 '+everDex.size+'/'+SP.length,W/2,460);
+  ctx.globalAlpha=0.6+0.4*Math.sin(performance.now()/300);
+  ctx.fillStyle='#ffe08a';ctx.font='bold 22px sans-serif';
+  ctx.fillText('點擊畫面 開始遊戲',W/2,515);
+  ctx.globalAlpha=1;
+}
+function drawOver(){
+  const od=overData;if(!od)return;
+  ctx.fillStyle='rgba(12,16,32,0.88)';ctx.fillRect(0,0,W,H);
+  ctx.fillStyle='rgba(30,38,70,0.96)';rr(36,105,328,380,18);ctx.fill();
+  ctx.strokeStyle='rgba(255,255,255,0.15)';ctx.lineWidth=1.5;rr(36,105,328,380,18);ctx.stroke();
+  ctx.textAlign='center';
+  ctx.fillStyle=od.win?'#ffe08a':'#ffffff';ctx.font='bold 26px sans-serif';
+  ctx.fillText(od.win?'🏆 圖鑑全滿！奇蹟達成！':'⏰ 時間到！',W/2,148);
+  ctx.fillStyle='#aef2b8';ctx.font='bold 46px sans-serif';
+  ctx.fillText(''+score,W/2,208);
+  ctx.fillStyle='#9fb4e8';ctx.font='13px sans-serif';
+  ctx.fillText('分數',W/2,228);
+  if(od.bonus>0){ctx.fillStyle='#ffe08a';ctx.fillText('含全圖鑑加成 +'+od.bonus,W/2,248);}
+  ctx.fillStyle='#d8e0ff';ctx.font='15px sans-serif';
+  ctx.fillText('本局發現 '+runNew+' 種新品種｜圖鑑 '+discovered.size+'/'+SP.length,W/2,278);
+  // near-miss：把失敗包裝成邀請
+  if(od.rec){
+    ctx.fillStyle='#ffe08a';ctx.font='bold 19px sans-serif';
+    ctx.fillText('🎉 新紀錄！（舊紀錄 '+od.prev+'）',W/2,312);
+  }else if(od.diff===0){
+    ctx.fillStyle='#ffb37a';ctx.font='bold 17px sans-serif';
+    ctx.fillText('追平最高分！差一點點就超越了！',W/2,312);
+  }else{
+    ctx.fillStyle='#ffb37a';ctx.font='bold 17px sans-serif';
+    ctx.fillText('差 '+od.diff+' 分就破紀錄，再一局雪恥！',W/2,312);
+  }
+  ctx.fillStyle='#b0ffd0';ctx.font='bold 15px sans-serif';
+  ctx.fillText('永久圖鑑 '+everDex.size+'/'+SP.length,W/2,348);
+  const remain=SP.length-everDex.size;
+  ctx.fillStyle='#9fb4e8';ctx.font='13px sans-serif';
+  ctx.fillText(remain>0?'還有 '+remain+' 種喵沒見過，明天再來收服！':'全部貓種都被你收服了！挑戰更高分吧！',W/2,372);
+  if(overT>0.6){
+    ctx.globalAlpha=0.6+0.4*Math.sin(performance.now()/280);
+    ctx.fillStyle='#ffe08a';ctx.font='bold 20px sans-serif';
+    ctx.fillText('點一下 馬上再來一局（R）',W/2,435);
+    ctx.globalAlpha=1;
+  }
+}
+function render(){
+  ctx.setTransform(vscale*dpr,0,0,vscale*dpr,0,0);
+  const g=ctx.createLinearGradient(0,0,0,H);
+  g.addColorStop(0,'#1b2440');g.addColorStop(1,'#2a1f3d');
+  ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
+  let ox=0,oy=0;
+  if(shake>0){ox=(Math.random()*2-1)*shake;oy=(Math.random()*2-1)*shake;}
+  ctx.save();ctx.translate(ox,oy);
+  drawHUD();
+  drawPlayArea();
+  const sorted=cats.slice().sort((a,b)=>a.y-b.y);
+  for(const c of sorted)drawCat(c);
+  drawDex();
+  drawBtn();
+  if(banner&&state==='play')drawBanner();
+  ctx.restore();
+  if(state==='title')drawTitle();
+  if(state==='over')drawOver();
+  // 粒子與浮字最上層（結算慶祝彩紙也看得到）
+  for(const p of particles){
+    ctx.globalAlpha=Math.max(0,p.life/p.max);
+    ctx.fillStyle=p.c;
+    ctx.beginPath();ctx.arc(p.x,p.y,p.sz,0,6.283);ctx.fill();
+  }
+  ctx.globalAlpha=1;
+  for(const f of floats){
+    ctx.globalAlpha=Math.min(1,f.t);
+    ctx.fillStyle=f.c;ctx.font='bold '+f.size+'px sans-serif';ctx.textAlign='center';
+    ctx.fillText(f.text,f.x,f.y);
+  }
+  ctx.globalAlpha=1;
+}
+
+// ===== 主迴圈：固定步長累加器（120Hz 不會變兩倍速）=====
+const STEP=1/60;
+let last=performance.now(),acc=0;
+function frame(now){
+  let dt=(now-last)/1000;last=now;
+  if(dt>0.25)dt=0.25;
+  acc+=dt;
+  while(acc>=STEP){update(STEP);acc-=STEP;}
+  render();
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+<script src="../../sc_config.js"></script>
+<script src="../../stats.js"></script>
+</body>
+</html>
