@@ -139,6 +139,7 @@ function resetGame(daily){
     pressed:-1, elapsed:0
   };
   G.doors=genDoors(1);
+  pushMsg('目標：在爪心用完前，兌現最多分數帶回地面！');
   pushMsg('選一扇門下潛，寶石先進背包。');
   pushMsg('按下方大按鈕「上浮兌現」才算分數！');
 }
@@ -178,7 +179,7 @@ function minRisk(d){
 function genDoors(d){
   var R = G.daily ? mulberry32((G.seed+d*7919)>>>0) : Math.random;
   var base=3+d*1.2, mr=minRisk(d);
-  var spec=[{r:mr,g:1.0},{r:mr+0.14,g:2.0},{r:mr+0.30,g:3.6}];
+  var spec=[{r:mr,g:1.0},{r:mr+0.14,g:2.0},{r:mr+0.30,g:3.06}];
   var doors=spec.map(function(s){
     return {risk:Math.min(0.78,s.r), gem:Math.max(2,Math.round(base*s.g*(0.9+R()*0.25))),
             kind:'gem', open:0, trap:false, altar:false};
@@ -794,10 +795,12 @@ function drawTitle(){
   var bob=Math.sin(G.time*2)*3;
   ctx.fillStyle='rgba(0,0,0,0.5)'; F(44,'800'); txt('貓窟深潛',202,240+bob,'center');
   ctx.fillStyle='#9df7c0'; txt('貓窟深潛',200,238+bob,'center');
+  ctx.fillStyle='#ffd166'; F(14,'800');
+  txt('目標：在爪心用完前，兌現最多分數帶回地面！',200,262,'center');
   ctx.fillStyle='rgba(255,255,255,0.85)'; F(15,'700');
-  txt('每層選一扇門：越深越肥，被逮到全沒收。',200,278,'center');
+  txt('每層選一扇門：越深越肥，被逮到全沒收。',200,282,'center');
   ctx.fillStyle='rgba(255,255,255,0.55)'; F(12,'600');
-  txt('寶石只進「背包」，按上浮兌現才變成分數。',200,300,'center');
+  txt('寶石只進「背包」，按上浮兌現才變成分數。',200,302,'center');
   txt('連續下潛越多層，兌現倍率越高——要貪還是要穩？',200,320,'center');
   ctx.fillStyle='rgba(255,255,255,0.4)'; F(11,'600');
   txt('操作：點門 / 按 1 2 3 選門 ‧ 空白鍵＝上浮兌現',200,348,'center');
