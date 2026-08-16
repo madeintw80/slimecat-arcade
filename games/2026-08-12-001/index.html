@@ -19,7 +19,7 @@ canvas{touch-action:none;display:block;border-radius:8px;box-shadow:0 0 30px rgb
 'use strict';
 (function(){
 // ===== 基本常數 =====
-var W=400,H=600,TOTAL=100;           // 邏輯畫布 400x600、一局 100 秒
+var W=400,H=600,TOTAL=150;           // 邏輯畫布 400x600、一局 150 秒（依玩家回饋由 100 秒延長）
 var FLOORS=5,COLS=3,N=15;
 var PRICES=[0,12,18,26,38,54,75,100,135,180,235,300,380,470,575]; // 各鋪位開店價（near-affordable 階梯）
 var EMO=['🐟','🧶','🍪','🎈','🧀','🎩','🪅','🍰','🌂','🎁','🛁','🎨','📚','🎧','👑'];
@@ -167,7 +167,7 @@ function tryBuy(i){
       payBurst(r.x+r.w/2,r.y+30);
       var f=r.f;
       if(shops[f*3].open&&shops[f*3+1].open&&shops[f*3+2].open){
-        var b=30*(f+1);cash+=b;score+=b;sUp();
+        var b=30*(f+1);cash+=b;score+=b;tLeft+=5;sUp();
         floats.push({x:200,y:300,txt:(f+1)+'F 全面開張！獎勵 +'+b,col:'#ffd766',t:0,life:1.6,big:true});
       }
       if(openCount===N&&!fullDone){
@@ -212,7 +212,7 @@ function update(dt){
   if(state==='over'){overT+=dt;return;}
   if(state!=='playing')return;
 
-  elapsed=TOTAL-tLeft;
+  elapsed+=dt;   // 實際遊玩時間獨立累計（tLeft 會因目標獎勵加秒，不能再用 TOTAL-tLeft 回推）
 
   // 尖峰時刻
   var on=false;
@@ -406,7 +406,7 @@ function render(){
   ctx.fillText('⏱ '+Math.ceil(tLeft)+'s'+(rushOn?' 🚨×2':''),200,26);
   ctx.font='11px system-ui';ctx.fillStyle='#9c92c9';
   ctx.fillText('🏪 '+openCount+'/15',200,44);
-  var frac=Math.max(0,tLeft/TOTAL);
+  var frac=Math.min(1,Math.max(0,tLeft/TOTAL));
   ctx.fillStyle=frac>0.3?'#66bb6a':'#ef5350';
   ctx.fillRect(0,53,W*frac,5);
   // 連擊
@@ -451,7 +451,7 @@ function drawTitle(){
   ctx.fillText('🐟',260-Math.sin(gt*2)*5,250);
   ctx.fillStyle='#eae4ff';ctx.font='15px system-ui';
   ctx.fillText('點亮鋪位開喵店，貓客立刻上門付小魚乾',200,378);
-  ctx.fillText('錢再開下一間，100 秒塞滿整棟百貨！',200,402);
+  ctx.fillText('錢再開下一間，150 秒塞滿整棟百貨！',200,402);
   ctx.fillStyle='#9c92c9';ctx.font='13px system-ui';
   ctx.fillText('📱 點鋪位＝開店／升級　⌨️ 方向鍵＋Enter',200,436);
   ctx.fillText('排不到隊的貓客會氣走、連擊歸零！',200,458);
