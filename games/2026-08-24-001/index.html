@@ -1,0 +1,817 @@
+<!--GAMEMETA {"title":"喵格錯身斬","emoji":"⚔️","genre":"動作","inspiration":"Guidus One（izzle Inc.）","desc":"紅格亮起快錯身，貼邊擦身暴擊反殺鼠群！"}-->
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>喵格錯身斬</title>
+<style>
+html,body{margin:0;padding:0;background:#171126;height:100%;overflow:hidden;font-family:"Microsoft JhengHei","PingFang TC",system-ui,sans-serif}
+#wrap{position:fixed;inset:0;display:flex;align-items:center;justify-content:center}
+canvas{touch-action:none;display:block;border-radius:8px;background:#1d1530}
+#back{position:fixed;left:8px;top:8px;z-index:9;color:#9be89b;text-decoration:none;font-size:14px;background:rgba(0,0,0,.45);padding:4px 10px;border-radius:8px}
+</style>
+</head>
+<body>
+<a id="back" href="../../index.html">← 回遊戲區</a>
+<div id="wrap"><canvas id="cv"></canvas></div>
+<script>
+'use strict';
+// ===== 基本畫布：邏輯座標 400x600，實體緩衝 = 顯示尺寸 x dpr(上限3) =====
+const cv=document.getElementById('cv'),ctx=cv.getContext('2d');
+const W=400,H=600,STEP=1/60;
+const FONT='"Microsoft JhengHei","PingFang TC",system-ui,sans-serif';
+let dpr=1,scale=1;
+function resize(){
+  dpr=Math.min(window.devicePixelRatio||1,3);
+  scale=Math.min(window.innerWidth/W,window.innerHeight/H);
+  cv.style.width=(W*scale)+'px';cv.style.height=(H*scale)+'px';
+  cv.width=Math.round(W*scale*dpr);cv.height=Math.round(H*scale*dpr);
+}
+resize();window.addEventListener('resize',resize);
+
+// ===== 九宮格版面 =====
+const GX=42,GY=250,CS=100,GAP=8;
+const cellCX=c=>GX+c*(CS+GAP)+CS/2;
+const cellCY=r=>GY+r*(CS+GAP)+CS/2;
+const inG=(r,c)=>r>=0&&r<3&&c>=0&&c<3;
+const SLOTX=[80,200,320],EY=165; // 敵人站位
+
+// ===== 敵人種類：四種攻擊語法（可背起來的複雜度）=====
+const TYPES={
+  line:{emoji:'🐭',hp:2,glyph:[[1,0],[1,1],[1,2]]},
+  cross:{emoji:'🐀',hp:3,glyph:[[0,1],[1,0],[1,1],[1,2],[2,1]]},
+  ring:{emoji:'🦇',hp:3,glyph:[[0,0],[0,1],[0,2],[1,0],[1,2],[2,0],[2,1],[2,2]]},
+  checker:{emoji:'👻',hp:4,glyph:[[0,0],[0,2],[1,1],[2,0],[2,2]]}
+};
+
+// ===== 存檔 =====
+let best=0;
+try{best=parseInt(localStorage.getItem('mgcs_best')||'0')||0;}catch(e){}
+function saveBest(){try{localStorage.setItem('mgcs_best',''+best);}catch(e){}}
+
+// ===== WebAudio 合成音效 =====
+let AC=null,noiseBuf=null;
+function initAudio(){
+  try{
+    if(!AC)AC=new (window.AudioContext||window.webkitAudioContext)();
+    if(AC&&AC.state==='suspended')AC.resume();
+  }catch(e){AC=null;}
+}
+function tone(f,dur,type,vol,slideTo,delay){
+  if(!AC)return;
+  try{
+    const t0=AC.currentTime+(delay||0);
+    const o=AC.createOscillator(),g=AC.createGain();
+    o.type=type||'square';o.frequency.setValueAtTime(f,t0);
+    if(slideTo)o.frequency.exponentialRampToValueAtTime(Math.max(20,slideTo),t0+dur);
+    g.gain.setValueAtTime(vol||0.12,t0);
+    g.gain.exponentialRampToValueAtTime(0.001,t0+dur);
+    o.connect(g);g.connect(AC.destination);
+    o.start(t0);o.stop(t0+dur+0.03);
+  }catch(e){}
+}
+function noiseS(dur,vol,delay,freq){
+  if(!AC)return;
+  try{
+    if(!noiseBuf){
+      noiseBuf=AC.createBuffer(1,Math.floor(AC.sampleRate*0.3),AC.sampleRate);
+      const d=noiseBuf.getChannelData(0);
+      for(let i=0;i<d.length;i++)d[i]=Math.random()*2-1;
+    }
+    const t0=AC.currentTime+(delay||0);
+    const s=AC.createBufferSource();s.buffer=noiseBuf;s.loop=true;
+    const f=AC.createBiquadFilter();f.type='lowpass';f.frequency.value=freq||900;
+    const g=AC.createGain();
+    g.gain.setValueAtTime(vol,t0);g.gain.exponentialRampToValueAtTime(0.001,t0+dur);
+    s.connect(f);f.connect(g);g.connect(AC.destination);
+    s.start(t0);s.stop(t0+dur+0.03);
+  }catch(e){}
+}
+const sHop=()=>tone(320,0.06,'sine',0.07,480);
+const sTick=n=>tone([660,880,1120][n]||660,0.06,'square',0.09);
+const sBoom=()=>{noiseS(0.22,0.28,0,700);tone(130,0.28,'sine',0.28,45);};
+const sSlash=()=>{noiseS(0.07,0.16,0,3200);tone(520,0.08,'square',0.1,300);};
+const sCrit=()=>{tone(880,0.07,'square',0.14);tone(1320,0.12,'square',0.14,null,0.06);noiseS(0.09,0.12,0,4000);};
+const sHurt=()=>tone(210,0.3,'sawtooth',0.24,70);
+const sKill=()=>{tone(523,0.08,'square',0.13);tone(659,0.08,'square',0.13,null,0.07);tone(784,0.14,'square',0.13,null,0.14);};
+const sPick=()=>{tone(660,0.09,'triangle',0.18);tone(990,0.14,'triangle',0.18,null,0.08);};
+const sOver=()=>{tone(392,0.2,'sawtooth',0.18);tone(311,0.2,'sawtooth',0.16,null,0.18);tone(233,0.45,'sawtooth',0.16,null,0.36);};
+const sRecord=()=>{[523,659,784,1046,1318].forEach((f,i)=>tone(f,0.14,'square',0.14,null,0.09*i));};
+const sBossWarn=()=>{tone(95,0.5,'sawtooth',0.22,55);tone(95,0.5,'sawtooth',0.2,55,0.5);};
+const sBossSoon=()=>tone(140,0.25,'sawtooth',0.14,80);
+
+// ===== 遊戲狀態 =====
+let state='title',animT=0,t=0,overT=0;
+let score=0,combo=0,maxCombo=0,hp=3,maxHp=3,atk=1,shield=0;
+let kills=0,killsSincePick=0,dodges=0;
+let freeze=0,shake=0,flashA=0,scorePop=0,spawnT=0;
+let nextBoss=65,bossEv=null,newRecord=false,bestAtStart=0,crossedRecord=false;
+let bossN=0,bossFrom=0,bossSoon=false; // 波數與鼠王倒數（長線目標感）
+let enemies=[],particles=[],floats=[],slashes=[],picks=[];
+let introduced=new Set(),pd=null;
+let player={r:1,c:1,fx:0,fy:0,hop:0,hopMax:0.14,cd:0,inv:0};
+let cellFlash=[[0,0,0],[0,0,0],[0,0,0]];
+// 背景星點（載入時固定，避免閃爍）
+const stars=[];for(let i=0;i<40;i++)stars.push({x:Math.random()*W,y:Math.random()*H,s:Math.random()*1.6+0.5,a:Math.random()*0.5+0.15});
+
+// ===== 難度曲線：預警縮短、敵人變多、後期連擊追打 =====
+const warnDur=()=>Math.max(0.55,1.35-t*0.0065);
+const maxEnemies=()=>t<18?1:(t<45?2:3);
+const maxWarns=()=>t<90?2:3;
+const cooldown=()=>Math.max(0.55,1.5-t*0.005)+Math.random()*0.8;
+function unlocked(){const a=['line'];if(t>=20)a.push('cross');if(t>=45)a.push('ring');if(t>=75)a.push('checker');return a;}
+
+// ===== 工具 =====
+function rr(x,y,w,h,r){ctx.beginPath();ctx.moveTo(x+r,y);ctx.arcTo(x+w,y,x+w,y+h,r);ctx.arcTo(x+w,y+h,x,y+h,r);ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);ctx.closePath();}
+function txt(s,x,y,size,col,align,bold){ctx.font=(bold?'bold ':'')+size+'px '+FONT;ctx.fillStyle=col||'#fff';ctx.textAlign=align||'center';ctx.textBaseline='middle';ctx.fillText(s,x,y);}
+function addFloat(x,y,s,col,size){floats.push({x,y,txt:s,col:col||'#fff',size:size||16,life:1.1,vy:-42});}
+function addScore(n){score+=Math.floor(n);scorePop=1;
+  if(!crossedRecord&&bestAtStart>0&&score>bestAtStart){crossedRecord=true;addFloat(200,120,'🎉 破紀錄了！保持住！','#ffd966',20);sRecord();}
+}
+function boomP(x,y,col){
+  for(let i=0;i<10;i++){
+    const a=Math.random()*Math.PI*2,sp=60+Math.random()*160;
+    particles.push({x,y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp-40,g:300,life:0.4+Math.random()*0.3,ml:0.7,size:2+Math.random()*4,col:col||(Math.random()<0.5?'#ff6b4a':'#ffc14d')});
+  }
+  if(particles.length>350)particles.splice(0,60);
+}
+function confetti(){
+  particles.push({x:Math.random()*W,y:-10,vx:(Math.random()-0.5)*70,vy:60+Math.random()*90,g:60,life:2.2,ml:2.2,size:3+Math.random()*4,col:['#ff6b6b','#ffd966','#7ed957','#6bc5ff','#d78cff'][Math.floor(Math.random()*5)]});
+}
+
+// ===== 開新局：重開 = 一鍵零等待 =====
+function startGame(){
+  state='play';t=0;score=0;combo=0;maxCombo=0;hp=3;maxHp=3;atk=1;shield=0;
+  kills=0;killsSincePick=0;dodges=0;freeze=0;shake=0;flashA=0;scorePop=0;
+  spawnT=0.8;nextBoss=65;bossEv=null;newRecord=false;crossedRecord=false;bestAtStart=best;
+  bossN=0;bossFrom=0;bossSoon=false;
+  enemies=[];particles=[];floats=[];slashes=[];picks=[];introduced=new Set();
+  player={r:1,c:1,fx:cellCX(1),fy:cellCY(1),hop:0,hopMax:0.14,cd:0,inv:0};
+  cellFlash=[[0,0,0],[0,0,0],[0,0,0]];
+}
+
+// ===== 攻擊圖形：預警開始時鎖定，資訊全公開（歸因於己）=====
+function patternCells(type){
+  const pr=player.r,pc=player.c,cells=[];
+  if(type==='line'){
+    if(Math.random()<0.5){for(let c=0;c<3;c++)cells.push([pr,c]);}
+    else{for(let r=0;r<3;r++)cells.push([r,pc]);}
+  }else if(type==='cross'){
+    cells.push([pr,pc]);
+    [[pr-1,pc],[pr+1,pc],[pr,pc-1],[pr,pc+1]].forEach(p=>{if(inG(p[0],p[1]))cells.push(p);});
+  }else if(type==='ring'){
+    for(let r=pr-1;r<=pr+1;r++)for(let c=pc-1;c<=pc+1;c++)
+      if((r!==pr||c!==pc)&&inG(r,c))cells.push([r,c]);
+  }else{
+    const par=(pr+pc)%2;
+    for(let r=0;r<3;r++)for(let c=0;c<3;c++)if((r+c)%2===par)cells.push([r,c]);
+  }
+  return cells;
+}
+
+// 保底檢查：不管幾隻同時預警（含 ring+line/cross 疊加），全場永遠留至少一格安全
+function guardSafe(cells){
+  const cover=[[0,0,0],[0,0,0],[0,0,0]];
+  for(const e of enemies)if(e.state==='warn')for(const rc of e.cells)cover[rc[0]][rc[1]]=1;
+  const safe=[];
+  for(let r=0;r<3;r++)for(let c=0;c<3;c++)if(!cover[r][c])safe.push([r,c]);
+  if(!safe.length)return cells;
+  const hit=rc=>cells.some(p=>p[0]===rc[0]&&p[1]===rc[1]);
+  if(safe.some(rc=>!hit(rc)))return cells;
+  // 新圖案會蓋掉所有殘存安全格：挖回離玩家最近的一格
+  let keep=safe[0],kd=99;
+  for(const rc of safe){
+    const d=Math.max(Math.abs(rc[0]-player.r),Math.abs(rc[1]-player.c));
+    if(d<kd){kd=d;keep=rc;}
+  }
+  return cells.filter(p=>!(p[0]===keep[0]&&p[1]===keep[1]));
+}
+
+function spawnEnemy(){
+  const used=enemies.map(e=>e.slot);
+  const free=[0,1,2].filter(s=>used.indexOf(s)<0);
+  if(!free.length)return;
+  const slot=free[Math.floor(Math.random()*free.length)];
+  const av=unlocked();
+  const fresh=av.filter(k=>!introduced.has(k));
+  const type=fresh.length?fresh[0]:av[Math.floor(Math.random()*av.length)];
+  const isFresh=fresh.length>0;
+  introduced.add(type);
+  const first=(kills===0&&enemies.length===0&&t<10); // 第一隻：教學保護
+  enemies.push({type,slot,hp:TYPES[type].hp,maxHp:TYPES[type].hp,state:'wait',timer:first?0.9:0.6+Math.random()*0.8,tick:0,cells:[],warnDur:1,hitFlash:0,dead:false,first});
+  if(isFresh&&kills>0)addFloat(SLOTX[slot],EY-48,'新敵人！','#ffd966',14);
+}
+
+const warnCount=()=>enemies.filter(e=>e.state==='warn').length;
+
+function beginWarn(e){
+  e.state='warn';e.tick=0;
+  e.cells=guardSafe(patternCells(e.type));
+  e.warnDur=e.first?1.8:Math.max(warnDur(),t<12?1.5:0);
+  e.first=false;
+}
+
+function enemyUpdate(e,dt){
+  if(e.state==='wait'){
+    e.timer-=dt;
+    if(e.timer<=0){
+      if(warnCount()>=maxWarns()){e.timer=0.1;return;} // 同時預警上限，避免無解
+      beginWarn(e);
+    }
+  }else{
+    e.timer-=dt;
+    const p=1-e.timer/e.warnDur;
+    while(e.tick<3&&p>=[0.3,0.62,0.86][e.tick]){sTick(e.tick);e.tick++;}
+    if(e.timer<=0)strike(e);
+  }
+}
+
+// ===== 結算：閃過就自動反擊；貼著紅格＝擦身暴擊＋連段 =====
+function strike(e){
+  sBoom();shake=Math.max(shake,6);
+  for(const rc of e.cells){cellFlash[rc[0]][rc[1]]=0.28;boomP(cellCX(rc[1]),cellCY(rc[0]));}
+  const onCell=e.cells.some(rc=>rc[0]===player.r&&rc[1]===player.c);
+  if(onCell){
+    if(player.inv<=0)playerHit();
+  }else{
+    const graze=e.cells.some(rc=>Math.max(Math.abs(rc[0]-player.r),Math.abs(rc[1]-player.c))===1);
+    counter(e,graze);
+  }
+  e.state='wait';
+  e.timer=(t>100&&Math.random()<0.35)?0.25:cooldown(); // 後期壓力源：連擊追打
+}
+
+function counter(e,graze){
+  dodges++;
+  const dmg=atk*(graze?2:1);
+  e.hp-=dmg;e.hitFlash=0.25;
+  freeze=graze?0.09:0.05; // hit-stop 打擊感
+  const ex=SLOTX[e.slot];
+  slashes.push({x1:cellCX(player.c),y1:cellCY(player.r)-20,x2:ex,y2:EY,life:0.18});
+  if(graze){
+    combo++;if(combo>maxCombo)maxCombo=combo;
+    sCrit();
+    addFloat(ex,EY-34,'-'+dmg+' 暴擊！','#ffce54',20);
+    addFloat(cellCX(player.c),cellCY(player.r)-58,'擦身！🔥','#ff9f43',15);
+    if(combo>0&&combo%5===0)addFloat(200,310,'🔥 連段 ×'+combo+'！','#ff9f43',26);
+  }else{
+    sSlash();
+    addFloat(ex,EY-34,'-'+dmg,'#fff',16);
+  }
+  addScore(dmg*10*Math.max(1,combo));
+  if(e.hp<=0)killEnemy(e);
+}
+
+function killEnemy(e){
+  if(e.dead)return;
+  e.dead=true;kills++;killsSincePick++;
+  const b=100*Math.max(1,combo);
+  addScore(b);
+  addFloat(SLOTX[e.slot],EY-52,'+'+b,'#7ed957',18);
+  addFloat(SLOTX[e.slot],EY-16,'擊倒！','#fff',13);
+  sKill();boomP(SLOTX[e.slot],EY,'#ffd966');
+}
+
+function playerHit(){
+  if(shield>0){
+    shield--;player.inv=1.0;sPick();
+    addFloat(cellCX(player.c),cellCY(player.r)-60,'🛡️ 護罩擋下！','#8fd7ff',17);
+    return;
+  }
+  hp--;combo=0;player.inv=1.3;shake=12;flashA=0.4;sHurt();
+  addFloat(cellCX(player.c),cellCY(player.r)-60,'好痛喵！-❤️','#ff6b6b',18);
+  if(hp<=0)doGameOver();
+}
+
+function doGameOver(){
+  state='over';overT=0;
+  newRecord=score>best;
+  if(newRecord){best=score;saveBest();}
+  sOver();
+  if(newRecord)sRecord();
+  if (window.SC) SC.over(score); // 匿名數據回報
+}
+
+// ===== 鼠王全域衝擊：慢拍大招（呼吸感＋「我全看懂了」爽點）=====
+function startBoss(){
+  bossN++;
+  // 收掉場上殘留預警：鼠王期間只看鼠王的格子，不留誤導紅格
+  for(const e of enemies)if(e.state==='warn'){e.state='wait';e.timer=1.2+Math.random()*0.8;}
+  const sr=Math.floor(Math.random()*3),scl=Math.floor(Math.random()*3);
+  const cells=[];
+  for(let r=0;r<3;r++)for(let c=0;c<3;c++)if(!(r===sr&&c===scl))cells.push([r,c]);
+  bossEv={timer:2.2,dur:2.2,cells,safeR:sr,safeC:scl,tick:0};
+  sBossWarn();shake=Math.max(shake,4);
+  addFloat(200,230,'⚠️ 第'+bossN+'波鼠王衝擊！','#ff5a4d',22);
+}
+function bossUpdate(dt){
+  bossEv.timer-=dt;bossEv.tick-=dt;
+  if(bossEv.tick<=0){tone(85,0.18,'sawtooth',0.18);bossEv.tick=0.4;}
+  if(bossEv.timer<=0){
+    sBoom();shake=14;
+    for(const rc of bossEv.cells){cellFlash[rc[0]][rc[1]]=0.3;boomP(cellCX(rc[1]),cellCY(rc[0]));}
+    const safe=(player.r===bossEv.safeR&&player.c===bossEv.safeC);
+    if(safe){
+      dodges++;combo+=2;if(combo>maxCombo)maxCombo=combo;
+      const b=250*Math.max(1,combo);
+      addScore(b);sCrit();freeze=0.12;
+      addFloat(200,320,'完美閃避!! +'+b,'#ffd966',24);
+      for(const e of enemies){
+        e.hp-=2;e.hitFlash=0.3;
+        addFloat(SLOTX[e.slot],EY-34,'-2','#ffce54',16);
+        if(e.hp<=0)killEnemy(e);
+      }
+    }else if(player.inv<=0){playerHit();}
+    bossEv=null;
+    nextBoss=t+(t>110?26:36);
+    bossFrom=t;bossSoon=false;
+    enemies=enemies.filter(e=>!e.dead);
+  }
+}
+
+// ===== 每 3 殺一次二選一：選擇即獎勵 =====
+const PICKINFO={heal:{e:'❤️',n:'回復 1 顆心'},atk:{e:'⚔️',n:'反擊傷害 +1'},shield:{e:'🛡️',n:'肉球護罩·擋一次'},gold:{e:'⭐',n:'立即 +400 分'}};
+function openPick(){
+  killsSincePick=0;
+  const pool=[];
+  if(hp<maxHp)pool.push('heal');
+  pool.push('atk');
+  if(shield<1)pool.push('shield');
+  pool.push('gold');
+  for(let i=pool.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));const tmp=pool[i];pool[i]=pool[j];pool[j]=tmp;}
+  picks=pool.slice(0,2);
+  state='pick';sPick();
+}
+function applyPick(i){
+  if(state!=='pick')return;
+  const id=picks[i];if(!id)return;
+  if(id==='heal')hp=Math.min(maxHp,hp+1);
+  else if(id==='atk')atk++;
+  else if(id==='shield')shield=1;
+  else addScore(400);
+  addFloat(200,300,PICKINFO[id].e+' '+PICKINFO[id].n,'#ffd966',20);
+  sPick();state='play';
+}
+
+// ===== 移動：唯一的動詞「選一格站」；點哪格就直達哪格 =====
+function tryMoveTo(nr,nc){
+  if(state!=='play')return;
+  if(player.cd>0)return;
+  if(!inG(nr,nc))return;
+  if(nr===player.r&&nc===player.c)return;
+  player.fx=cellCX(player.c);player.fy=cellCY(player.r);
+  player.r=nr;player.c=nc;
+  player.hop=0.14;player.hopMax=0.14;player.cd=0.11;
+  sHop();
+  for(let i=0;i<4;i++)particles.push({x:player.fx+(Math.random()-0.5)*30,y:player.fy+24,vx:(Math.random()-0.5)*60,vy:-Math.random()*40,g:200,life:0.3,ml:0.3,size:2.5,col:'#9b8a6a'});
+}
+function tryMove(dr,dc){
+  tryMoveTo(Math.min(2,Math.max(0,player.r+dr)),Math.min(2,Math.max(0,player.c+dc)));
+}
+
+// ===== 輸入：座標一律用 getBoundingClientRect 換算回邏輯座標 =====
+function pt(e){const r=cv.getBoundingClientRect();return{x:(e.clientX-r.left)/r.width*W,y:(e.clientY-r.top)/r.height*H};}
+function tapAt(x,y){
+  if(x>GX-12&&x<GX+3*CS+2*GAP+12&&y>GY-12&&y<GY+3*CS+2*GAP+12){
+    const c=Math.min(2,Math.max(0,Math.floor((x-GX)/(CS+GAP))));
+    const r=Math.min(2,Math.max(0,Math.floor((y-GY)/(CS+GAP))));
+    tryMoveTo(r,c); // 點哪格＝直接跳到那格（緊張時一點到位，不用連點）
+  }
+}
+function pickAt(x,y){
+  if(y>250&&y<420){
+    if(x>35&&x<185)applyPick(0);
+    else if(x>215&&x<365)applyPick(1);
+  }
+}
+cv.addEventListener('pointerdown',e=>{
+  e.preventDefault();initAudio();
+  const p=pt(e);
+  if(state==='title'){startGame();return;}
+  if(state==='over'){if(overT>0.5)startGame();return;}
+  if(state==='pick'){pickAt(p.x,p.y);return;}
+  pd={x:p.x,y:p.y,swiped:false};
+});
+cv.addEventListener('pointermove',e=>{
+  if(!pd||pd.swiped)return;
+  const p=pt(e),dx=p.x-pd.x,dy=p.y-pd.y;
+  if(Math.hypot(dx,dy)>30){ // 滑動＝立即移動
+    pd.swiped=true;
+    const adx=Math.abs(dx),ady=Math.abs(dy);
+    let dr=0,dc=0;
+    if(adx>ady*0.5)dc=Math.sign(dx);
+    if(ady>adx*0.5)dr=Math.sign(dy);
+    tryMove(dr,dc);
+  }
+});
+cv.addEventListener('pointerup',e=>{
+  if(!pd)return;
+  const p=pt(e);
+  if(!pd.swiped)tapAt(p.x,p.y);
+  pd=null;
+});
+cv.addEventListener('pointercancel',()=>{pd=null;}); // 防卡住
+window.addEventListener('blur',()=>{pd=null;});
+window.addEventListener('keydown',e=>{
+  const k=e.key;
+  if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].indexOf(k)>=0)e.preventDefault();
+  initAudio();
+  if(state==='title'){startGame();return;}
+  if(state==='over'){if(overT>0.5)startGame();return;}
+  if(state==='pick'){
+    if(k==='1')applyPick(0);
+    if(k==='2')applyPick(1);
+    return;
+  }
+  if(k==='ArrowUp'||k==='w'||k==='W')tryMove(-1,0);
+  else if(k==='ArrowDown'||k==='s'||k==='S')tryMove(1,0);
+  else if(k==='ArrowLeft'||k==='a'||k==='A')tryMove(0,-1);
+  else if(k==='ArrowRight'||k==='d'||k==='D')tryMove(0,1);
+});
+
+// ===== 更新（固定時間步長）=====
+function update(dt){
+  animT+=dt;
+  // 裝飾層永遠更新
+  if(shake>0)shake=Math.max(0,shake-40*dt);
+  if(flashA>0)flashA=Math.max(0,flashA-dt*1.6);
+  scorePop=Math.max(0,scorePop-dt*3);
+  for(let r=0;r<3;r++)for(let c=0;c<3;c++)if(cellFlash[r][c]>0)cellFlash[r][c]-=dt;
+  for(const e of enemies)if(e.hitFlash>0)e.hitFlash-=dt;
+  for(let i=particles.length-1;i>=0;i--){
+    const p=particles[i];
+    p.x+=p.vx*dt;p.y+=p.vy*dt;p.vy+=p.g*dt;p.life-=dt;
+    if(p.life<=0)particles.splice(i,1);
+  }
+  for(let i=floats.length-1;i>=0;i--){
+    const f=floats[i];f.y+=f.vy*dt;f.life-=dt;
+    if(f.life<=0)floats.splice(i,1);
+  }
+  for(let i=slashes.length-1;i>=0;i--){
+    slashes[i].life-=dt;
+    if(slashes[i].life<=0)slashes.splice(i,1);
+  }
+  if(state==='over'){
+    overT+=dt;
+    if(newRecord&&Math.random()<0.1)confetti();
+    return;
+  }
+  if(state!=='play')return;
+  if(freeze>0){freeze-=dt;return;} // hit-stop：畫面照畫、時間暫停
+  t+=dt;
+  if(player.cd>0)player.cd-=dt;
+  if(player.inv>0)player.inv-=dt;
+  if(player.hop>0)player.hop-=dt;
+  if(bossEv){bossUpdate(dt);return;} // 鼠王期間其他敵人屏息
+  if(!bossSoon&&nextBoss-t<=5){bossSoon=true;addFloat(200,120,'🐗 鼠王逼近！','#ff8a7a',15);sBossSoon();} // 倒數臨界提示
+  if(t>=nextBoss&&hp>0){startBoss();return;}
+  if(enemies.length<maxEnemies()){
+    spawnT-=dt;
+    if(spawnT<=0){spawnEnemy();spawnT=1.6;}
+  }
+  for(const e of enemies)enemyUpdate(e,dt);
+  enemies=enemies.filter(e=>!e.dead);
+  if(killsSincePick>=3)openPick();
+}
+
+// ===== 繪圖 =====
+function drawCat(x,y,s,sx,sy){
+  ctx.save();ctx.translate(x,y);ctx.scale(sx,sy);
+  ctx.lineWidth=3;ctx.strokeStyle='#3a8a2e';
+  // 耳朵（先畫，身體蓋住底部）
+  ctx.fillStyle='#6cc94e';
+  ctx.beginPath();ctx.moveTo(-s*0.55,-s*0.55);ctx.lineTo(-s*0.75,-s*1.1);ctx.lineTo(-s*0.2,-s*0.78);ctx.closePath();ctx.fill();ctx.stroke();
+  ctx.beginPath();ctx.moveTo(s*0.55,-s*0.55);ctx.lineTo(s*0.75,-s*1.1);ctx.lineTo(s*0.2,-s*0.78);ctx.closePath();ctx.fill();ctx.stroke();
+  ctx.fillStyle='#ffb3c7';
+  ctx.beginPath();ctx.moveTo(-s*0.5,-s*0.64);ctx.lineTo(-s*0.63,-s*0.97);ctx.lineTo(-s*0.32,-s*0.75);ctx.closePath();ctx.fill();
+  ctx.beginPath();ctx.moveTo(s*0.5,-s*0.64);ctx.lineTo(s*0.63,-s*0.97);ctx.lineTo(s*0.32,-s*0.75);ctx.closePath();ctx.fill();
+  // 史萊姆身體
+  ctx.fillStyle='#7ed957';
+  ctx.beginPath();
+  ctx.moveTo(-s,s*0.45);
+  ctx.quadraticCurveTo(-s*1.08,-s*0.5,-s*0.5,-s*0.72);
+  ctx.quadraticCurveTo(0,-s*0.95,s*0.5,-s*0.72);
+  ctx.quadraticCurveTo(s*1.08,-s*0.5,s,s*0.45);
+  ctx.quadraticCurveTo(0,s*0.72,-s,s*0.45);
+  ctx.closePath();ctx.fill();ctx.stroke();
+  // 高光
+  ctx.fillStyle='rgba(255,255,255,0.35)';
+  ctx.beginPath();ctx.ellipse(-s*0.35,-s*0.45,s*0.18,s*0.1,-0.5,0,Math.PI*2);ctx.fill();
+  // 眼睛（會眨眼）
+  ctx.fillStyle='#22331f';
+  if((animT%3.2)<0.12){
+    ctx.lineWidth=2.5;ctx.strokeStyle='#22331f';
+    ctx.beginPath();ctx.moveTo(-s*0.42,-s*0.15);ctx.lineTo(-s*0.2,-s*0.15);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(s*0.2,-s*0.15);ctx.lineTo(s*0.42,-s*0.15);ctx.stroke();
+  }else{
+    ctx.beginPath();ctx.ellipse(-s*0.31,-s*0.15,s*0.09,s*0.13,0,0,Math.PI*2);ctx.fill();
+    ctx.beginPath();ctx.ellipse(s*0.31,-s*0.15,s*0.09,s*0.13,0,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle='#fff';
+    ctx.beginPath();ctx.arc(-s*0.28,-s*0.2,s*0.03,0,Math.PI*2);ctx.fill();
+    ctx.beginPath();ctx.arc(s*0.34,-s*0.2,s*0.03,0,Math.PI*2);ctx.fill();
+  }
+  // ω 嘴
+  ctx.strokeStyle='#22331f';ctx.lineWidth=2;
+  ctx.beginPath();ctx.arc(-s*0.08,s*0.08,s*0.08,0.15,Math.PI-0.15);ctx.stroke();
+  ctx.beginPath();ctx.arc(s*0.08,s*0.08,s*0.08,0.15,Math.PI-0.15);ctx.stroke();
+  // 腮紅
+  ctx.fillStyle='rgba(255,120,150,0.45)';
+  ctx.beginPath();ctx.ellipse(-s*0.55,s*0.06,s*0.11,s*0.07,0,0,Math.PI*2);ctx.fill();
+  ctx.beginPath();ctx.ellipse(s*0.55,s*0.06,s*0.11,s*0.07,0,0,Math.PI*2);ctx.fill();
+  ctx.restore();
+}
+function drawGlyph(gx,gy,cellsArr){
+  const s=6;
+  for(let r=0;r<3;r++)for(let c=0;c<3;c++){
+    ctx.fillStyle='rgba(255,255,255,0.15)';
+    ctx.fillRect(gx+c*(s+1),gy+r*(s+1),s,s);
+  }
+  ctx.fillStyle='#ff5a4d';
+  for(const rc of cellsArr)ctx.fillRect(gx+rc[1]*(s+1),gy+rc[0]*(s+1),s,s);
+}
+function warnMap(){
+  const m=[[0,0,0],[0,0,0],[0,0,0]];
+  for(const e of enemies)if(e.state==='warn'){
+    const p=1-e.timer/e.warnDur;
+    for(const rc of e.cells)m[rc[0]][rc[1]]=Math.max(m[rc[0]][rc[1]],p);
+  }
+  if(bossEv){
+    const p=1-bossEv.timer/bossEv.dur;
+    for(const rc of bossEv.cells)m[rc[0]][rc[1]]=Math.max(m[rc[0]][rc[1]],p);
+  }
+  return m;
+}
+function drawBG(){
+  const g=ctx.createLinearGradient(0,0,0,H);
+  g.addColorStop(0,'#241b3a');g.addColorStop(1,'#171126');
+  ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
+  for(const s of stars){
+    ctx.fillStyle='rgba(255,255,255,'+(s.a*(0.6+0.4*Math.sin(animT*2+s.x))).toFixed(3)+')';
+    ctx.fillRect(s.x,s.y,s.s,s.s);
+  }
+}
+function drawGrid(){
+  const m=warnMap();
+  const anyWarn=enemies.some(e=>e.state==='warn')||!!bossEv;
+  const showSafe=dodges<2&&anyWarn&&t<25;
+  for(let r=0;r<3;r++)for(let c=0;c<3;c++){
+    const x=GX+c*(CS+GAP),y=GY+r*(CS+GAP);
+    // 喵餅格
+    ctx.fillStyle='#c89b62';rr(x,y,CS,CS,14);ctx.fill();
+    ctx.strokeStyle='#7c5a33';ctx.lineWidth=3;ctx.stroke();
+    ctx.fillStyle='rgba(122,88,45,0.45)';
+    ctx.beginPath();ctx.arc(x+26,y+30,3,0,Math.PI*2);ctx.fill();
+    ctx.beginPath();ctx.arc(x+68,y+56,3,0,Math.PI*2);ctx.fill();
+    ctx.beginPath();ctx.arc(x+42,y+76,3,0,Math.PI*2);ctx.fill();
+    const p=m[r][c];
+    if(p>0){ // 紅格預警：顏色隨倒數加深＋末段閃爍
+      let a=0.22+0.5*p;
+      if(p>0.7)a+=0.15*Math.sin(animT*28);
+      ctx.fillStyle='rgba(255,58,48,'+Math.min(0.85,Math.max(0,a)).toFixed(3)+')';
+      rr(x+3,y+3,CS-6,CS-6,12);ctx.fill();
+      ctx.strokeStyle='rgba(255,130,90,'+(0.4+0.5*p).toFixed(3)+')';
+      ctx.lineWidth=3;ctx.stroke();
+    }else if(showSafe){ // 教學期：綠格＝安全
+      ctx.fillStyle='rgba(90,255,130,'+(0.1+0.05*Math.sin(animT*6)).toFixed(3)+')';
+      rr(x+3,y+3,CS-6,CS-6,12);ctx.fill();
+    }
+    if(bossEv&&r===bossEv.safeR&&c===bossEv.safeC){
+      ctx.strokeStyle='#7ed957';ctx.lineWidth=4+2*Math.sin(animT*10);
+      rr(x+4,y+4,CS-8,CS-8,12);ctx.stroke();
+      txt('安全',x+CS/2,y+CS/2,16,'#7ed957','center',true);
+    }
+    const cf=cellFlash[r][c];
+    if(cf>0){
+      ctx.fillStyle='rgba(255,220,140,'+(cf/0.28*0.8).toFixed(3)+')';
+      rr(x+2,y+2,CS-4,CS-4,13);ctx.fill();
+    }
+  }
+}
+function drawEnemies(){
+  for(const e of enemies){
+    const cfg=TYPES[e.type];
+    let ex=SLOTX[e.slot],ey=EY;
+    if(e.state==='warn'){
+      const p=1-e.timer/e.warnDur;
+      ex+=(Math.random()*2-1)*3*p;
+      ey+=Math.sin(animT*20)*2;
+      ctx.fillStyle='rgba(255,60,50,'+(0.12+0.25*p).toFixed(3)+')';
+      ctx.beginPath();ctx.arc(SLOTX[e.slot],EY,30+6*p,0,Math.PI*2);ctx.fill();
+    }
+    if(e.hitFlash>0){
+      ex+=(Math.random()*2-1)*4;
+      ctx.fillStyle='rgba(255,255,255,'+(e.hitFlash*2).toFixed(3)+')';
+      ctx.beginPath();ctx.arc(SLOTX[e.slot],EY,30,0,Math.PI*2);ctx.fill();
+    }
+    ctx.fillStyle='rgba(0,0,0,0.3)';
+    ctx.beginPath();ctx.ellipse(SLOTX[e.slot],EY+28,20,6,0,0,Math.PI*2);ctx.fill();
+    ctx.font='34px sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';
+    ctx.fillText(cfg.emoji,ex,ey);
+    // 血量豆
+    for(let i=0;i<e.maxHp;i++){
+      ctx.fillStyle=i<e.hp?'#ff6b6b':'rgba(255,255,255,0.2)';
+      ctx.fillRect(SLOTX[e.slot]-e.maxHp*6+i*12+1,EY+34,10,5);
+    }
+    // 攻擊圖形小抄（敵人語法可背）
+    drawGlyph(SLOTX[e.slot]+22,EY-40,cfg.glyph);
+  }
+  if(bossEv){
+    const jx=(Math.random()*2-1)*4;
+    ctx.fillStyle='rgba(255,60,50,0.25)';
+    ctx.beginPath();ctx.arc(200,128,40,0,Math.PI*2);ctx.fill();
+    ctx.font='48px sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';
+    ctx.fillText('🐗',200+jx,128);
+    const a=0.5+0.5*Math.sin(animT*14);
+    txt('⚠️ 站上綠色安全格！',200,232,17,'rgba(255,120,90,'+a.toFixed(2)+')','center',true);
+  }
+}
+function drawPlayer(){
+  const cx=cellCX(player.c),cy=cellCY(player.r);
+  let px=cx,py=cy,arc=0,k=1;
+  if(player.hop>0){
+    k=1-player.hop/player.hopMax;
+    px=player.fx+(cx-player.fx)*k;
+    py=player.fy+(cy-player.fy)*k;
+    arc=Math.sin(k*Math.PI)*20;
+  }
+  ctx.fillStyle='rgba(0,0,0,0.3)';
+  ctx.beginPath();ctx.ellipse(px,py+26,22-arc*0.3,7-arc*0.1,0,0,Math.PI*2);ctx.fill();
+  if(combo>=3){ // 連段光環
+    const g=ctx.createRadialGradient(px,py-6-arc,5,px,py-6-arc,45);
+    g.addColorStop(0,'rgba(255,160,60,'+Math.min(0.45,combo*0.05).toFixed(3)+')');
+    g.addColorStop(1,'rgba(255,160,60,0)');
+    ctx.fillStyle=g;
+    ctx.beginPath();ctx.arc(px,py-6-arc,45,0,Math.PI*2);ctx.fill();
+  }
+  const st=Math.sin(k*Math.PI);
+  let sx=(1-0.12*st)*(1+0.03*Math.sin(animT*5));
+  let sy=(1+0.18*st)*(1-0.03*Math.sin(animT*5));
+  if(player.inv>0)ctx.globalAlpha=0.45+0.3*Math.sin(animT*30);
+  drawCat(px,py-6-arc,30,sx,sy);
+  ctx.globalAlpha=1;
+}
+function drawFx(){
+  for(const p of particles){
+    ctx.globalAlpha=Math.max(0,Math.min(1,p.life/p.ml));
+    ctx.fillStyle=p.col;
+    ctx.fillRect(p.x-p.size/2,p.y-p.size/2,p.size,p.size);
+  }
+  ctx.globalAlpha=1;
+  for(const s of slashes){ // 爪痕反擊特效
+    const a=Math.max(0,s.life/0.18);
+    ctx.strokeStyle='rgba(255,255,200,'+a.toFixed(3)+')';
+    ctx.lineWidth=4*a+1;
+    ctx.beginPath();ctx.moveTo(s.x1,s.y1);ctx.lineTo(s.x2,s.y2);ctx.stroke();
+    ctx.strokeStyle='rgba(255,220,120,'+a.toFixed(3)+')';ctx.lineWidth=3*a+1;
+    for(let i=-1;i<=1;i++){
+      ctx.beginPath();
+      ctx.moveTo(s.x2-14+i*8,s.y2-14);ctx.lineTo(s.x2+6+i*8,s.y2+14);
+      ctx.stroke();
+    }
+  }
+  for(const f of floats){
+    ctx.globalAlpha=Math.max(0,Math.min(1,f.life));
+    txt(f.txt,f.x,f.y,f.size,f.col,'center',true);
+  }
+  ctx.globalAlpha=1;
+}
+function drawHUD(){
+  for(let i=0;i<maxHp;i++)txt(i<hp?'❤️':'🖤',20+i*26,28,18,'#fff','left');
+  if(shield>0)txt('🛡️',20+maxHp*26+6,28,18,'#fff','left');
+  ctx.save();
+  ctx.translate(200,48);ctx.scale(1+scorePop*0.25,1+scorePop*0.25);
+  txt(''+score,0,0,32,'#fff','center',true);
+  ctx.restore();
+  txt('🏆 '+best,388,22,13,'#ffd966','right');
+  if(bestAtStart>0&&score>bestAtStart)txt('🎉 紀錄領先中！',388,44,12,'#ffd966','right');
+  else if(best>0&&score<best&&best-score<=200)txt('再 '+(best-score)+' 分破紀錄！',388,44,12,'rgba(255,217,102,'+(0.6+0.4*Math.sin(animT*6)).toFixed(2)+')','right');
+  // 鼠王倒數條：長線目標感（第幾波＋還剩幾秒）
+  if(!bossEv&&state!=='over'){
+    const rem=Math.max(0,nextBoss-t);
+    const span=Math.max(1,nextBoss-bossFrom);
+    const fill=Math.min(1,Math.max(0,(t-bossFrom)/span));
+    const urgent=rem<=5;
+    const col=urgent?'rgba(255,110,90,'+(0.7+0.3*Math.sin(animT*10)).toFixed(2)+')':'rgba(205,195,225,0.8)';
+    txt('🐗 第'+(bossN+1)+'波鼠王',20,52,12,col,'left',urgent);
+    ctx.fillStyle='rgba(255,255,255,0.15)';
+    rr(20,60,86,6,3);ctx.fill();
+    if(fill>0.03){
+      ctx.fillStyle=urgent?'#ff6b52':'#b89ce0';
+      rr(20,60,86*fill,6,3);ctx.fill();
+    }
+    txt(Math.ceil(rem)+'s',112,63,11,col,'left');
+  }
+  if(combo>=2){
+    const pz=1+0.06*Math.sin(animT*10);
+    txt('🔥 連段 ×'+combo,200,80,Math.round((17+Math.min(8,combo*0.5))*pz),'#ff9f43','center',true);
+  }
+  if(t<14){ // 開場教學（前 15 秒不會死的保護傘）
+    txt('紅格＝即將爆炸，點安全格直接跳過去！',200,222,14,'#ffe9a8','center',true);
+    if(dodges<2)txt('綠格＝安全｜貼著紅格閃＝暴擊🔥',200,240,12,'#b8f5c0');
+  }
+  txt('點哪格直達哪格｜貼紅格閃過＝暴擊連段',200,586,11,'rgba(255,255,255,0.4)');
+}
+function drawPickUI(){
+  ctx.fillStyle='rgba(10,6,20,0.65)';ctx.fillRect(0,0,W,H);
+  txt('⭐ 選一個獎勵！',200,200,24,'#ffd966','center',true);
+  txt('（點卡片，或按 1 / 2）',200,230,13,'#cbc3dd');
+  for(let i=0;i<2;i++){
+    const x=35+i*180,y=255;
+    const info=PICKINFO[picks[i]];
+    if(!info)continue;
+    ctx.fillStyle='#2e2547';rr(x,y,150,150,16);ctx.fill();
+    ctx.strokeStyle='#ffd966';ctx.lineWidth=3;ctx.stroke();
+    ctx.font='46px sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';
+    ctx.fillText(info.e,x+75,y+58);
+    txt(info.n,x+75,y+112,15,'#fff','center',true);
+    txt(''+(i+1),x+16,y+18,14,'#ffd966','center',true);
+  }
+}
+function drawTitle(){
+  txt('喵格錯身斬',200,110,44,'#ffd966','center',true);
+  txt('錯身閃避 × 擦身暴擊 × 反殺鼠群',200,152,15,'#cbc3dd');
+  ctx.fillStyle='rgba(0,0,0,0.3)';
+  ctx.beginPath();ctx.ellipse(200,248,26,8,0,0,Math.PI*2);ctx.fill();
+  drawCat(200,218,38,1+0.03*Math.sin(animT*4),1-0.03*Math.sin(animT*4));
+  // 迷你示範：紅格危險、貼邊暴擊、遠離安全
+  const demoY=300,ds=64;
+  const cxs=[116,200,284];
+  for(let i=0;i<3;i++){
+    const x=cxs[i]-ds/2;
+    ctx.fillStyle='#c89b62';rr(x,demoY,ds,ds,10);ctx.fill();
+    ctx.strokeStyle='#7c5a33';ctx.lineWidth=2.5;ctx.stroke();
+    if(i===0){
+      ctx.fillStyle='rgba(255,58,48,'+(0.4+0.25*Math.sin(animT*8)).toFixed(3)+')';
+      rr(x+2,demoY+2,ds-4,ds-4,9);ctx.fill();
+      ctx.font='24px sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';
+      ctx.fillText('💥',cxs[0],demoY+ds/2);
+    }
+    if(i===1)drawCat(cxs[1],demoY+ds/2-4,17,1,1);
+  }
+  txt('紅格＝危險',cxs[0],demoY+ds+16,12,'#ff8a7a');
+  txt('貼邊＝暴擊🔥',cxs[1],demoY+ds+16,12,'#ff9f43');
+  txt('遠離＝安全',cxs[2],demoY+ds+16,12,'#9be89b');
+  txt('紅格亮起前跳開，閃過就自動反擊鼠輩！',200,428,15,'#ffe9a8','center',true);
+  txt('📱 點哪格直達哪格　⌨️ 方向鍵 / WASD',200,456,14,'#aab');
+  txt('連段越高、分數越爆；撐過一波波鼠王衝擊！',200,480,13,'#aab');
+  if(best>0)txt('🏆 最高分 '+best+'｜今天能破嗎？',200,516,15,'#ffd966','center',true);
+  else txt('第一次玩？站上喵餅開斬！',200,516,15,'#ffd966','center',true);
+  txt('— 點一下開始 —',200,556,18,'rgba(255,255,255,'+(0.5+0.5*Math.sin(animT*4)).toFixed(2)+')','center',true);
+}
+function drawOver(){
+  ctx.fillStyle='rgba(8,5,16,0.8)';ctx.fillRect(0,0,W,H);
+  txt('喵嗚…被拍扁了！',200,150,26,'#ffdb8a','center',true);
+  txt('得分',200,212,14,'#cbc3dd');
+  txt(''+score,200,252,44,'#fff','center',true);
+  const diff=best-score;
+  if(newRecord){
+    const pz=1+0.08*Math.sin(animT*8);
+    txt('🎉 新紀錄！',200,308,Math.round(26*pz),'#ffd966','center',true);
+  }else if(diff<=0){
+    txt('追平最高分！再一分就超越！',200,308,18,'#ffd966','center',true);
+  }else{
+    txt('差 '+diff+' 分就破紀錄！',200,308,20,'#ffd966','center',true); // near-miss 邀請
+  }
+  txt('🏆 最高分 '+best,200,340,14,'#cbc3dd');
+  txt('擊倒 '+kills+' 鼠｜撐過 '+bossN+' 波鼠王｜最大連段 ×'+maxCombo+'｜存活 '+Math.floor(t)+' 秒',200,372,12,'#aab');
+  if(overT>0.5)txt('— 點一下馬上再來一局 —',200,440,18,'rgba(255,255,255,'+(0.5+0.5*Math.sin(animT*4)).toFixed(2)+')','center',true);
+}
+function render(){
+  // 每幀重設 transform：邏輯座標固定 400x600（高 DPI 不糊）
+  ctx.setTransform(scale*dpr,0,0,scale*dpr,0,0);
+  ctx.clearRect(0,0,W,H);
+  drawBG();
+  if(shake>0)ctx.translate((Math.random()*2-1)*shake*0.5,(Math.random()*2-1)*shake*0.5);
+  if(state==='title'){drawTitle();drawFx();return;}
+  drawEnemies();
+  drawGrid();
+  drawPlayer();
+  drawFx();
+  drawHUD();
+  if(state==='pick')drawPickUI();
+  if(state==='over')drawOver();
+  if(flashA>0){
+    ctx.fillStyle='rgba(255,60,60,'+flashA.toFixed(3)+')';
+    ctx.setTransform(scale*dpr,0,0,scale*dpr,0,0);
+    ctx.fillRect(0,0,W,H);
+  }
+}
+
+// ===== 主迴圈：fixed timestep accumulator，120Hz 不會變兩倍速 =====
+let last=0,acc=0;
+function frame(ts){
+  requestAnimationFrame(frame);
+  if(!last)last=ts;
+  let d=(ts-last)/1000;last=ts;
+  if(d>0.1)d=0.1; // 切頁回來不暴衝
+  acc+=d;
+  while(acc>=STEP){update(STEP);acc-=STEP;}
+  render();
+}
+requestAnimationFrame(frame);
+</script>
+<script src="../../sc_config.js"></script>
+<script src="../../stats.js"></script>
+</body>
+</html>
