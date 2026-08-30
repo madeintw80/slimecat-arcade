@@ -1,0 +1,521 @@
+<!--GAMEMETA {"title":"喵車衝多遠","emoji":"🛒","genre":"街機","inspiration":"Car Evolve","desc":"按住油門衝下貓坡，距離換魚乾當場升級，一趟比一趟遠！"}-->
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<title>喵車衝多遠</title>
+<style>
+html,body{margin:0;height:100%;background:#22323e;overflow:hidden;font-family:system-ui,-apple-system,sans-serif;-webkit-user-select:none;user-select:none}
+body{display:flex;align-items:center;justify-content:center}
+canvas{touch-action:none;display:block;background:#bfe6ff}
+#back{position:fixed;left:8px;top:8px;z-index:9;color:#fff;text-decoration:none;font-size:14px;background:rgba(0,0,0,.35);padding:4px 10px;border-radius:8px}
+</style>
+</head>
+<body>
+<a id="back" href="../../index.html">← 回遊戲區</a>
+<canvas id="cv"></canvas>
+<script>
+'use strict';
+// ====== 基本設定 ======
+const W=400,H=600,PXM=12,STEP=1/120,I=1500; // PXM=每公尺像素、固定時間步長
+const cv=document.getElementById('cv'),ctx=cv.getContext('2d');
+let S=1; // 縮放(含 DPR)
+function resize(){
+  const dpr=Math.min(3,window.devicePixelRatio||1);
+  const sc=Math.min(innerWidth/W,innerHeight/H);
+  cv.style.width=(W*sc)+'px';cv.style.height=(H*sc)+'px';
+  cv.width=Math.round(W*sc*dpr);cv.height=Math.round(H*sc*dpr);
+  S=sc*dpr;
+}
+addEventListener('resize',resize);resize();
+cv.addEventListener('contextmenu',e=>e.preventDefault());
+
+// ====== 存檔(小魚乾/升級/最遠紀錄) ======
+let coins=0,pw=0,gp=0,fl=0,best=0;
+function load(){try{const d=JSON.parse(localStorage.getItem('meowcar_v1')||'{}');coins=d.c||0;pw=d.p||0;gp=d.g||0;fl=d.f||0;best=d.b||0;}catch(e){}}
+function save(){try{localStorage.setItem('meowcar_v1',JSON.stringify({c:coins,p:pw,g:gp,f:fl,b:best}));}catch(e){}}
+load();
+const price=l=>Math.round(30*Math.pow(1.8,l)); // 升級價格：永遠吊在下一局門檻
+const powerAcc=()=>300+pw*85, maxV=()=>340+pw*30, grip=()=>1+gp*0.35, fuelMax=()=>100+fl*38;
+
+// ====== WebAudio 合成音效 ======
+let AC=null,engO=null,engG=null;
+function ensureAudio(){
+  if(AC){try{if(AC.state==='suspended')AC.resume();}catch(e){}return;}
+  try{
+    AC=new (window.AudioContext||window.webkitAudioContext)();
+    engO=AC.createOscillator();engG=AC.createGain();
+    engO.type='sawtooth';engO.frequency.value=60;engG.gain.value=0;
+    engO.connect(engG);engG.connect(AC.destination);engO.start();
+  }catch(e){AC=null;}
+}
+function beep(f,d,type,v,slide){
+  if(!AC)return;
+  try{
+    const o=AC.createOscillator(),g=AC.createGain(),t=AC.currentTime;
+    o.type=type||'square';o.frequency.setValueAtTime(f,t);
+    if(slide)o.frequency.exponentialRampToValueAtTime(slide,t+d);
+    g.gain.setValueAtTime(v||0.07,t);
+    g.gain.exponentialRampToValueAtTime(0.0001,t+d);
+    o.connect(g);g.connect(AC.destination);o.start(t);o.stop(t+d+0.02);
+  }catch(e){}
+}
+function crashSnd(){ // 噪音爆破
+  if(!AC)return;
+  try{
+    const n=(AC.sampleRate*0.3)|0,b=AC.createBuffer(1,n,AC.sampleRate),ch=b.getChannelData(0);
+    for(let i=0;i<n;i++)ch[i]=(Math.random()*2-1)*(1-i/n);
+    const s=AC.createBufferSource(),g=AC.createGain(),f=AC.createBiquadFilter();
+    f.type='lowpass';f.frequency.value=900;g.gain.value=0.25;
+    s.buffer=b;s.connect(f);f.connect(g);g.connect(AC.destination);s.start();
+  }catch(e){}
+}
+
+// ====== 地形(前段緩坡保證前15秒體驗，越遠越陡) ======
+function groundY(x){
+  const m=x/PXM;
+  let y=430-Math.max(0,26-m)*4.5; // 起點高台往下衝：不按也會前進
+  const a1=Math.min(52,4+Math.max(0,m-15)*0.34);
+  const a2=Math.min(26,Math.max(0,m-40)*0.14);
+  const a3=Math.min(12,Math.max(0,m-150)*0.05); // 後期第三層起伏＝新壓力源
+  y+=Math.sin(x*0.006+2.1)*a1+Math.sin(x*0.016+0.7)*a2+Math.sin(x*0.045+5.3)*a3;
+  return y;
+}
+
+// ====== 遊戲狀態 ======
+const REASONS=[ // 失敗歸因：直接指向該買的升級
+  {txt:'沒油了！',hint:2,tip:'油量不足 → 升級油箱跑更遠'},
+  {txt:'爬不上去！',hint:0,tip:'動力不足 → 升級引擎衝上坡'},
+  {txt:'翻車啦！',hint:1,tip:'車身不穩 → 升級抓地穩落地'}
+];
+const ROWY=326,ROWH=54;
+let state='title',gt=0;
+let cart={x:40,y:groundY(40)-26,vx:0,vy:0,a:0,av:0};
+let fuel=0,runT=0,maxX=40,noProg=0,fishRun=0,combo=0,comboT=0;
+let camX=cart.x-120,camY=cart.y-300,input=false,sq=1,wheelSpin=0,prevGround=true,passedFlag=false;
+let shakeT=0,shakeA=0,dieT=0,overT=0,rollTick=0;
+let fishes=[],cans=[],genX=200,nextCan=1500;
+let parts=[],floats=[];
+let ov=null;
+
+function startRun(){ // 一鍵重開，零等待
+  cart={x:40,y:groundY(40)-26,vx:0,vy:0,a:0,av:0};
+  fuel=fuelMax();runT=0;maxX=40;noProg=0;fishRun=0;combo=0;comboT=0;
+  camX=cart.x-120;camY=cart.y-300;input=false;sq=1;prevGround=true;passedFlag=false;
+  fishes=[];cans=[];genX=200;nextCan=1500;parts=[];floats=[];shakeT=0;
+  state='play';
+}
+
+function genItems(upTo){ // 沿路生成小魚乾與油罐
+  while(genX<upTo){
+    genX+=90;
+    if(Math.random()<0.65){
+      const n=3+((Math.random()*3)|0);
+      for(let j=0;j<n;j++){const x=genX+j*24;fishes.push({x:x,y:groundY(x)-30,t:false});}
+    }
+    if(genX>nextCan){cans.push({x:genX+40,y:groundY(genX+40)-32,t:false});nextCan=genX+1000;}
+  }
+}
+function addFloat(x,y,txt,col,big){floats.push({x:x,y:y,txt:txt,col:col||'#fff',t:0,big:big||0});}
+function burst(x,y,n,col,sp){
+  for(let i=0;i<n;i++){
+    const a=Math.random()*6.28,v=(0.3+Math.random()*0.7)*(sp||160);
+    parts.push({x:x,y:y,vx:Math.cos(a)*v,vy:Math.sin(a)*v-60,t:0,life:0.5+Math.random()*0.5,col:col,r:2+Math.random()*3});
+  }
+}
+function angNorm(a){while(a>Math.PI)a-=Math.PI*2;while(a<-Math.PI)a+=Math.PI*2;return a;}
+
+// ====== 物理(簡化剛體＋兩輪接地) ======
+function phys(dt,ctrl){
+  const g=1300,cs=Math.cos(cart.a),sn=Math.sin(cart.a);
+  const th=ctrl&&input&&fuel>0;
+  let ax=0,ay=g,tq=0,grounded=0,slopeSum=0;
+  for(const off of [[-26,14],[26,14]]){
+    const rx=off[0]*cs-off[1]*sn,ry=off[0]*sn+off[1]*cs;
+    const wx=cart.x+rx,wy=cart.y+ry,gy=groundY(wx);
+    const pen=wy+10-gy;
+    if(pen>0){
+      grounded++;
+      const sl=(groundY(wx+6)-groundY(wx-6))/12;slopeSum+=sl;
+      const pvx=cart.vx-cart.av*ry,pvy=cart.vy+cart.av*rx;
+      const Fy=-Math.max(0,pen*380+pvy*14); // 彈簧支撐
+      const L=Math.hypot(1,sl),tx=1/L,ty=sl/L;
+      const vt=pvx*tx+pvy*ty;
+      let Ft;
+      if(th)Ft=powerAcc()/2; // 油門推力(沿坡)
+      else{Ft=-vt*2.2;const cap=380*grip();if(Ft>cap)Ft=cap;if(Ft<-cap)Ft=-cap;} // 摩擦
+      const Fx=Ft*tx,Fyt=Ft*ty+Fy;
+      ax+=Fx;ay+=Fyt;
+      tq+=rx*Fyt-ry*Fx;
+    }
+  }
+  if(grounded){
+    const target=Math.atan(slopeSum/grounded); // 貼地扶正(抓地越高越穩)
+    cart.av+=angNorm(target-cart.a)*6*dt*Math.min(2,grip());
+    cart.av*=Math.max(0,1-4*dt);
+  }else{
+    if(ctrl){if(input)cart.av+=4.5*dt;else cart.av-=2.6*dt;} // 空中：按=前傾 放=後仰
+    cart.av*=Math.max(0,1-1.1*dt);
+  }
+  cart.av+=tq/I*dt;
+  if(cart.av>8)cart.av=8;if(cart.av<-8)cart.av=-8;
+  cart.vx+=ax*dt;cart.vy+=ay*dt;
+  const mv=maxV();if(cart.vx>mv)cart.vx=mv;if(cart.vx<-mv)cart.vx=-mv;
+  cart.x+=cart.vx*dt;cart.y+=cart.vy*dt;cart.a=angNorm(cart.a+cart.av*dt);
+  if(cart.x<20){cart.x=20;if(cart.vx<0)cart.vx=0;}
+  wheelSpin+=cart.vx/10*dt;
+  return grounded;
+}
+
+function crash(){
+  state='dying';dieT=0;input=false;
+  crashSnd();shakeT=0.4;shakeA=9;
+  burst(cart.x,cart.y,26,'#ff9f43',260);burst(cart.x,cart.y,16,'#7ed957',200);
+}
+
+function settle(r){ // 結算＝發薪水畫面
+  const finalM=Math.max(0,Math.floor((maxX-40)/PXM));
+  const bonus=Math.floor(finalM/4); // 距離全數換小魚乾：沒有白玩的一局
+  const gain=fishRun+bonus;
+  coins+=gain;
+  const rec=finalM>best;
+  const diff=rec?0:(best-finalM);
+  if(rec)best=finalM;
+  save();
+  if (window.SC) SC.over(finalM);
+  ov={m:finalM,fish:fishRun,bonus:bonus,gain:gain,rec:rec,diff:diff,r:REASONS[r],fanf:false};
+  state='over';overT=0;input=false;
+}
+
+function updatePlay(dt){
+  runT+=dt;
+  const vyBefore=cart.vy;
+  const grounded=phys(dt,true);
+  if(grounded&&!prevGround&&vyBefore>320){ // 落地 squash＋塵土
+    sq=0.55;shakeT=0.15;shakeA=4;beep(90,0.08,'sine',0.1);
+    burst(cart.x,cart.y+18,6,'#c9b58a',120);
+  }
+  prevGround=grounded>0;
+  sq+=(1-sq)*Math.min(1,10*dt);
+  if(runT<15){ // 前15秒保證不死：自動扶正
+    if(Math.abs(cart.a)>0.9){cart.a*=Math.max(0,1-5*dt);cart.av*=0.8;}
+  }else{ // 貓頭著地＝翻車
+    const cs=Math.cos(cart.a),sn=Math.sin(cart.a);
+    const hx=cart.x+22*sn,hy=cart.y-22*cs;
+    if(hy+6>groundY(hx)){crash();return;}
+  }
+  if(input&&fuel>0)fuel-=(grounded?8:2.5)*dt;else fuel-=1.1*dt;
+  if(fuel<0)fuel=0;
+  if(cart.x>maxX+2){maxX=cart.x;noProg=0;}else if(runT>6)noProg+=dt;
+  if(noProg>3.2){settle(fuel<=0?0:1);return;} // 卡坡/沒油結束
+  genItems(cart.x+700);
+  comboT-=dt;if(comboT<0)combo=0;
+  for(const f of fishes){
+    if(!f.t&&Math.abs(f.x-cart.x)<26&&Math.abs(f.y-cart.y)<30){
+      f.t=true;fishRun++;combo++;comboT=1.2;
+      beep(500+Math.min(10,combo)*60,0.07,'square',0.06);
+      burst(f.x,f.y,6,'#ffd54f',120);
+      addFloat(f.x,f.y-10,combo>=3?'🐟x'+combo:'+1','#ffd54f');
+    }
+  }
+  for(const c of cans){
+    if(!c.t&&Math.abs(c.x-cart.x)<28&&Math.abs(c.y-cart.y)<32){
+      c.t=true;fuel=Math.min(fuelMax(),fuel+50);
+      beep(400,0.15,'square',0.07,800);
+      addFloat(c.x,c.y-12,'⛽ 加油！','#8ef');
+    }
+  }
+  const m=Math.floor((cart.x-40)/PXM); // 超越最遠旗＝全螢幕慶祝
+  if(best>0&&!passedFlag&&m>best){
+    passedFlag=true;beep(880,0.25,'square',0.08,1760);
+    addFloat(cart.x,cart.y-60,'🚩 超越最遠紀錄！','#ffec8b',1);
+    burst(cart.x,cart.y-40,20,'#ffec8b',200);
+  }
+  camX+=((cart.x-120)-camX)*Math.min(1,10*dt);
+  camY+=((cart.y-300)-camY)*Math.min(1,5*dt);
+  if(fishes.length>350)fishes=fishes.filter(f=>!f.t&&f.x>camX-80);
+  if(cans.length>30)cans=cans.filter(c=>!c.t&&c.x>camX-80);
+}
+
+function updateOver(dt){
+  overT+=dt;rollTick-=dt;
+  if(overT<0.9&&rollTick<=0){rollTick=0.06;beep(300+overT*400,0.03,'square',0.03);} // 數字跑動音
+  if(ov.rec&&!ov.fanf&&overT>1){
+    ov.fanf=true;
+    beep(523,0.12,'square',0.09);
+    setTimeout(()=>beep(659,0.12,'square',0.09),120);
+    setTimeout(()=>beep(784,0.25,'square',0.09),240);
+  }
+  if(ov.rec&&overT<2.5&&Math.random()<0.4){ // 新紀錄彩帶
+    parts.push({x:camX+Math.random()*W,y:camY-10,vx:(Math.random()-0.5)*60,vy:80+Math.random()*80,t:0,life:1,col:['#ff6b6b','#ffd54f','#7ed957','#74b9ff'][(Math.random()*4)|0],r:3});
+  }
+}
+
+function updateFx(dt){
+  for(const p of parts){p.t+=dt;p.x+=p.vx*dt;p.y+=p.vy*dt;p.vy+=500*dt;}
+  parts=parts.filter(p=>p.t<p.life);
+  for(const f of floats)f.t+=dt;
+  floats=floats.filter(f=>f.t<1.2);
+  if(shakeT>0)shakeT-=dt;
+}
+
+// ====== 商店與按鈕 ======
+function buyUp(i){
+  const lv=[pw,gp,fl][i];
+  if(lv>=8)return;
+  const c=price(lv);
+  if(coins<c){beep(160,0.12,'sawtooth',0.06);return;}
+  coins-=c;
+  if(i===0)pw++;else if(i===1)gp++;else fl++;
+  save();
+  beep(523,0.07,'square',0.08);setTimeout(()=>beep(784,0.09,'square',0.08),70);
+  addFloat(camX+200,camY+ROWY+i*ROWH,'升級成功！','#7ed957');
+}
+function overClick(p){
+  for(let i=0;i<3;i++){
+    const y=ROWY+i*ROWH;
+    if(p.x>=42&&p.x<=358&&p.y>=y&&p.y<=y+46){buyUp(i);return;}
+  }
+  if(p.x>=70&&p.x<=330&&p.y>=500&&p.y<=556){beep(660,0.08,'square',0.08);startRun();}
+}
+
+// ====== 輸入(觸控＋鍵盤，防卡鍵) ======
+function toLogic(e){const r=cv.getBoundingClientRect();return{x:(e.clientX-r.left)/r.width*W,y:(e.clientY-r.top)/r.height*H};}
+cv.addEventListener('pointerdown',e=>{
+  e.preventDefault();ensureAudio();
+  const p=toLogic(e);
+  if(state==='title'){beep(660,0.08,'square',0.08);startRun();return;}
+  if(state==='over'){overClick(p);return;}
+  input=true;
+});
+addEventListener('pointerup',()=>{input=false;});
+addEventListener('pointercancel',()=>{input=false;});
+addEventListener('blur',()=>{input=false;});
+addEventListener('keydown',e=>{
+  if(e.code==='Space'||e.code==='ArrowUp'||e.code==='KeyW'||e.code==='Enter'){
+    e.preventDefault();ensureAudio();
+    if(state==='title'){startRun();return;}
+    if(state==='over'){if(overT>0.6)startRun();return;}
+    input=true;
+  }
+});
+addEventListener('keyup',e=>{if(e.code==='Space'||e.code==='ArrowUp'||e.code==='KeyW')input=false;});
+
+// ====== 繪圖 ======
+function rr(x,y,w,h,r){ctx.beginPath();ctx.moveTo(x+r,y);ctx.arcTo(x+w,y,x+w,y+h,r);ctx.arcTo(x+w,y+h,x,y+h,r);ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);ctx.closePath();}
+function drawCart(x,y,a,s){ // 史萊姆貓＋果凍推車
+  ctx.save();ctx.translate(x,y);ctx.rotate(a);ctx.scale(1,s);
+  for(const wx of [-26,26]){
+    ctx.save();ctx.translate(wx,14);ctx.rotate(wheelSpin);
+    ctx.fillStyle='#3b3b46';ctx.beginPath();ctx.arc(0,0,10,0,6.28);ctx.fill();
+    ctx.strokeStyle='#8d8da0';ctx.lineWidth=2;
+    ctx.beginPath();ctx.moveTo(-8,0);ctx.lineTo(8,0);ctx.moveTo(0,-8);ctx.lineTo(0,8);ctx.stroke();
+    ctx.fillStyle='#ffce54';ctx.beginPath();ctx.arc(0,0,3,0,6.28);ctx.fill();
+    ctx.restore();
+  }
+  ctx.fillStyle='rgba(126,217,87,0.55)';ctx.strokeStyle='#54b02f';ctx.lineWidth=2;
+  rr(-32,-4,64,16,7);ctx.fill();ctx.stroke();
+  ctx.fillStyle='#7ed957';
+  ctx.beginPath();ctx.arc(0,-16,13,0,6.28);ctx.fill();
+  ctx.beginPath();ctx.moveTo(-11,-24);ctx.lineTo(-7,-34);ctx.lineTo(-2,-26);ctx.closePath();ctx.fill(); // 左耳
+  ctx.beginPath();ctx.moveTo(11,-24);ctx.lineTo(7,-34);ctx.lineTo(2,-26);ctx.closePath();ctx.fill(); // 右耳
+  ctx.fillStyle='rgba(255,255,255,0.5)';ctx.beginPath();ctx.arc(-5,-21,4,0,6.28);ctx.fill();
+  ctx.fillStyle='#234d13';
+  ctx.beginPath();ctx.arc(-4,-16,1.8,0,6.28);ctx.fill();
+  ctx.beginPath();ctx.arc(5,-16,1.8,0,6.28);ctx.fill();
+  ctx.strokeStyle='#234d13';ctx.lineWidth=1.5;
+  ctx.beginPath();ctx.arc(0.5,-12,3,0.2,2.9);ctx.stroke();
+  ctx.restore();
+}
+function drawWorld(){
+  ctx.fillStyle='#cdeccb'; // 遠山視差
+  ctx.beginPath();ctx.moveTo(0,H);
+  for(let sx=0;sx<=W;sx+=16)ctx.lineTo(sx,300+Math.sin((camX*0.3+sx)*0.012+2)*36-camY*0.15);
+  ctx.lineTo(W,H);ctx.fill();
+  ctx.fillStyle='#b2dfa8';
+  ctx.beginPath();ctx.moveTo(0,H);
+  for(let sx=0;sx<=W;sx+=16)ctx.lineTo(sx,340+Math.sin((camX*0.55+sx)*0.02+5)*30-camY*0.3);
+  ctx.lineTo(W,H);ctx.fill();
+  ctx.beginPath();ctx.moveTo(-10,H+60); // 地面
+  for(let sx=-10;sx<=W+10;sx+=6)ctx.lineTo(sx,groundY(camX+sx)-camY);
+  ctx.lineTo(W+10,H+60);ctx.closePath();
+  ctx.fillStyle='#7cb85c';ctx.fill();
+  ctx.strokeStyle='#4c9a3f';ctx.lineWidth=6;
+  ctx.beginPath();
+  for(let sx=-10;sx<=W+10;sx+=6){const y=groundY(camX+sx)-camY;if(sx===-10)ctx.moveTo(sx,y);else ctx.lineTo(sx,y);}
+  ctx.stroke();
+  if(best>0){ // 最遠紀錄旗(near-miss 可視化)
+    const wxf=40+best*PXM,fx=wxf-camX;
+    if(fx>-40&&fx<W+40){
+      const fy=groundY(wxf)-camY;
+      ctx.strokeStyle='#8a5a2b';ctx.lineWidth=4;
+      ctx.beginPath();ctx.moveTo(fx,fy);ctx.lineTo(fx,fy-64);ctx.stroke();
+      ctx.fillStyle='#ff5252';
+      ctx.beginPath();ctx.moveTo(fx,fy-64);ctx.lineTo(fx+34,fy-54);ctx.lineTo(fx,fy-44);ctx.closePath();ctx.fill();
+      ctx.fillStyle='#fff';ctx.font='9px sans-serif';ctx.textAlign='left';ctx.textBaseline='alphabetic';
+      ctx.fillText('最遠',fx+4,fy-51);
+    }
+  }
+  ctx.textAlign='center';ctx.textBaseline='middle';
+  ctx.font='16px sans-serif';
+  for(const f of fishes){if(f.t)continue;const x=f.x-camX;if(x<-20||x>W+20)continue;ctx.fillText('🐟',x,f.y-camY+Math.sin(gt*4+f.x)*2);}
+  ctx.font='18px sans-serif';
+  for(const c of cans){if(c.t)continue;const x=c.x-camX;if(x<-20||x>W+20)continue;ctx.fillText('⛽',x,c.y-camY+Math.sin(gt*3+c.x)*2);}
+  ctx.textBaseline='alphabetic';
+  const bob=(state==='title')?Math.sin(gt*3)*2:0;
+  drawCart(cart.x-camX,cart.y-camY+bob,cart.a,sq);
+  for(const p of parts){ctx.globalAlpha=Math.max(0,1-p.t/p.life);ctx.fillStyle=p.col;ctx.beginPath();ctx.arc(p.x-camX,p.y-camY,p.r,0,6.28);ctx.fill();}
+  ctx.globalAlpha=1;
+  for(const f of floats){
+    ctx.globalAlpha=Math.max(0,1-f.t/1.2);ctx.fillStyle=f.col;
+    ctx.font=(f.big?'bold 20px ':'bold 14px ')+'sans-serif';ctx.textAlign='center';
+    ctx.fillText(f.txt,f.x-camX,f.y-camY-f.t*30);
+  }
+  ctx.globalAlpha=1;
+}
+function drawHUD(){
+  if(state!=='play'&&state!=='dying')return;
+  const m=Math.max(0,Math.floor((cart.x-40)/PXM));
+  ctx.textAlign='left';ctx.textBaseline='alphabetic';
+  ctx.font='bold 26px sans-serif';
+  ctx.fillStyle='rgba(0,0,0,0.25)';ctx.fillText(m+' m',14,64);
+  ctx.fillStyle='#fff';ctx.fillText(m+' m',12,62);
+  ctx.font='bold 15px sans-serif';
+  ctx.fillStyle='#ffec8b';ctx.fillText('🐟 '+fishRun,12,86);
+  ctx.fillStyle='#fff';ctx.fillText('🚩 最遠 '+best+' m',12,106);
+  const fw=150,fx=W-fw-14,fy=16; // 油量條
+  ctx.fillStyle='rgba(0,0,0,0.3)';rr(fx-2,fy-2,fw+4,16,6);ctx.fill();
+  const fr=Math.max(0,fuel/fuelMax());
+  ctx.fillStyle=fr<0.25?'#ff5252':'#ffb142';
+  rr(fx,fy,Math.max(2,fw*fr),12,5);ctx.fill();
+  ctx.fillStyle='#fff';ctx.font='12px sans-serif';ctx.fillText('⛽',fx-18,fy+11);
+  if(fr<0.25&&Math.sin(gt*10)>0){ctx.fillStyle='#ff5252';ctx.font='bold 13px sans-serif';ctx.textAlign='center';ctx.fillText('油量不足！',fx+fw/2,fy+32);}
+  if(runT<4){ctx.textAlign='center';ctx.fillStyle='rgba(255,255,255,'+Math.max(0,0.9-runT*0.2)+')';ctx.font='bold 16px sans-serif';ctx.fillText('按住畫面＝油門！',200,545);}
+}
+function drawTitle(){
+  ctx.fillStyle='rgba(20,40,25,0.55)';ctx.fillRect(0,0,W,H);
+  ctx.textAlign='center';ctx.textBaseline='alphabetic';
+  ctx.fillStyle='#fff';ctx.font='bold 40px sans-serif';
+  ctx.fillText('喵車衝多遠',200,150);
+  ctx.font='16px sans-serif';ctx.fillStyle='#d8ffd0';
+  ctx.fillText('史萊姆貓的果凍推車，能衝下貓坡多遠？',200,192);
+  ctx.font='15px sans-serif';ctx.fillStyle='#fff';
+  ctx.fillText('🖐 按住畫面／空白鍵＝踩油門（空中會前傾）',200,252);
+  ctx.fillText('✋ 放開＝滑行（空中會後仰，穩住落地）',200,280);
+  ctx.fillText('🐟 距離全換小魚乾，撞爛也不虧，當場升級！',200,308);
+  if(best>0){ctx.fillStyle='#ffec8b';ctx.font='bold 18px sans-serif';ctx.fillText('🚩 最遠紀錄 '+best+' m　今天能超過嗎？',200,354);}
+  const p=1+Math.sin(gt*4)*0.06;
+  ctx.save();ctx.translate(200,430);ctx.scale(p,p);
+  ctx.fillStyle='#ffb142';rr(-110,-28,220,56,16);ctx.fill();
+  ctx.fillStyle='#3b2a10';ctx.font='bold 24px sans-serif';ctx.fillText('點擊開始衝！',0,9);
+  ctx.restore();
+}
+function drawOver(){
+  ctx.fillStyle='rgba(15,25,35,0.72)';ctx.fillRect(0,0,W,H);
+  const o=ov;
+  ctx.textAlign='center';ctx.textBaseline='alphabetic';
+  ctx.fillStyle='#ffd0d0';ctx.font='bold 24px sans-serif';
+  ctx.fillText(o.r.txt,200,120);
+  ctx.fillStyle='#ffec8b';ctx.font='13px sans-serif';
+  ctx.fillText(o.r.tip,200,143);
+  const k=Math.min(1,overT/0.9),e=1-(1-k)*(1-k); // 距離數字跑動
+  ctx.fillStyle='#fff';ctx.font='bold 44px sans-serif';
+  ctx.fillText(Math.floor(o.m*e)+' m',200,196);
+  const k2=Math.max(0,Math.min(1,(overT-0.9)/0.7));
+  ctx.font='15px sans-serif';ctx.fillStyle='#ffd54f';
+  ctx.fillText('🐟 路上撿到 '+Math.floor(o.fish*k2)+'　＋ 距離獎勵 '+Math.floor(o.bonus*k2),200,226);
+  ctx.font='bold 18px sans-serif';
+  if(o.rec){
+    const pp=1+Math.sin(gt*6)*0.08;
+    ctx.save();ctx.translate(200,258);ctx.scale(pp,pp);
+    ctx.fillStyle='#7ed957';ctx.fillText('🎉 新紀錄！',0,0);ctx.restore();
+  }else{
+    ctx.fillStyle='#8ecbff';ctx.fillText('差 '+o.diff+' m 就破紀錄了，再衝一次！',200,258);
+  }
+  ctx.fillStyle='#fff';ctx.font='bold 17px sans-serif';
+  ctx.fillText('持有小魚乾：'+coins+' 🐟',200,298);
+  const names=['🔥 動力','🐾 抓地','🛢 油量'],lvs=[pw,gp,fl],descs=['衝力與極速，爬得上更陡的坡','車身穩定，落地不亂滑','油箱加大，一趟跑更久'];
+  for(let i=0;i<3;i++){
+    const y=ROWY+i*ROWH,lv=lvs[i],max=lv>=8,c=price(lv),can=!max&&coins>=c;
+    ctx.fillStyle=can?'rgba(90,150,80,0.92)':'rgba(70,80,90,0.85)';
+    rr(42,y,316,46,10);ctx.fill();
+    if(o.r.hint===i){ // 失敗歸因→箭頭直指該升級
+      ctx.strokeStyle='#ffec8b';ctx.lineWidth=3;rr(42,y,316,46,10);ctx.stroke();
+      ctx.fillStyle='#ffec8b';ctx.font='bold 16px sans-serif';ctx.textAlign='left';
+      ctx.fillText('▶',24+Math.sin(gt*6)*3,y+29);
+    }
+    ctx.textAlign='left';ctx.fillStyle='#fff';ctx.font='bold 15px sans-serif';
+    ctx.fillText(names[i]+' Lv.'+lv,56,y+20);
+    ctx.font='11px sans-serif';ctx.fillStyle='#cfe8cf';
+    ctx.fillText(descs[i],56,y+38);
+    ctx.textAlign='right';ctx.font='bold 15px sans-serif';
+    ctx.fillStyle=max?'#aaa':(can?'#ffec8b':'#ffb0b0');
+    ctx.fillText(max?'MAX':(c+' 🐟'),346,y+29);
+  }
+  const pp2=1+Math.sin(gt*4)*0.05;
+  ctx.save();ctx.translate(200,528);ctx.scale(pp2,pp2);
+  ctx.fillStyle='#ffb142';rr(-130,-28,260,56,16);ctx.fill();
+  ctx.fillStyle='#3b2a10';ctx.font='bold 24px sans-serif';ctx.textAlign='center';
+  ctx.fillText('🚀 再衝一次！',0,9);
+  ctx.restore();
+  ctx.textAlign='center';ctx.fillStyle='rgba(255,255,255,0.6)';ctx.font='11px sans-serif';
+  ctx.fillText('點升級卡直接購買・空白鍵重開',200,578);
+}
+function render(){
+  ctx.setTransform(S,0,0,S,0,0);
+  const sky=ctx.createLinearGradient(0,0,0,H);
+  sky.addColorStop(0,'#aee3ff');sky.addColorStop(1,'#e9f8ff');
+  ctx.fillStyle=sky;ctx.fillRect(0,0,W,H);
+  let ox=0,oy=0;
+  if(shakeT>0){ox=(Math.random()-0.5)*shakeA*2;oy=(Math.random()-0.5)*shakeA*2;}
+  ctx.save();ctx.translate(ox,oy);
+  drawWorld();
+  ctx.restore();
+  drawHUD();
+  if(state==='title')drawTitle();
+  if(state==='over')drawOver();
+}
+function updateEngine(){ // 引擎聲隨車速起伏
+  if(!AC||!engG)return;
+  try{
+    let tg=0,fq=60;
+    if(state==='play'){
+      const sp=Math.abs(cart.vx);
+      fq=55+sp*0.45+((input&&fuel>0)?45:0);
+      tg=(input&&fuel>0)?0.045:0.015;
+    }
+    engG.gain.value+=(tg-engG.gain.value)*0.15;
+    engO.frequency.value=fq;
+  }catch(e){}
+}
+
+// ====== 主迴圈(固定時間步長，不假設 60fps) ======
+let last=performance.now(),acc=0;
+function frame(now){
+  let dt=(now-last)/1000;last=now;
+  if(dt>0.1)dt=0.1;
+  acc+=dt;
+  while(acc>=STEP){
+    gt+=STEP;
+    if(state==='play')updatePlay(STEP);
+    else if(state==='dying'){
+      phys(STEP,false);dieT+=STEP;
+      camX+=((cart.x-120)-camX)*Math.min(1,10*STEP);
+      camY+=((cart.y-300)-camY)*Math.min(1,5*STEP);
+      if(dieT>1)settle(2);
+    }
+    else if(state==='over')updateOver(STEP);
+    updateFx(STEP);
+    acc-=STEP;
+  }
+  render();
+  updateEngine();
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+<script src="../../sc_config.js"></script>
+<script src="../../stats.js"></script>
+</body>
+</html>
