@@ -3,3 +3,5 @@ factory/factory.log
 factory/shots/
 factory/trends.json
 factory/analytics_summary.json
+factory/failed_outputs/
+factory/factory_heartbeat.txt
