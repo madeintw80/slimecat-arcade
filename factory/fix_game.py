@@ -101,16 +101,29 @@ def build_prompt(g: dict, html: str, bugs: list, feedback: str = "") -> str:
 （你也沒有寫檔權限），把修復後的完整檔案當純文字印出來就是交稿。
 輸出格式：不要 markdown code fence、不要任何解說文字，
 第一行是原本的 GAMEMETA 註解，接著就是修復後的完整網頁內容。
+交稿前最後自檢：輸出第 1 行必須就是原本那行 <!--GAMEMETA …-->，漏了整包作廢。
 """
 
 
-def extract_fixed(output: str, orig_len: int) -> str:
-    """驗收修復輸出：要有 GAMEMETA、canvas、stats 標籤，且不能是殘缺片段。"""
-    i = output.find("<!--GAMEMETA")
-    if i < 0:
-        raise ValueError("輸出裡找不到 GAMEMETA 標頭")
-    html = output[i:].strip()
+def extract_fixed(output: str, orig_len: int, orig_html: str = "") -> str:
+    """驗收修復輸出：要有 GAMEMETA、canvas、stats 標籤，且不能是殘缺片段。
+
+    漏 GAMEMETA 但網頁本體完整時不整包退件：修復場景的 meta 是已知的
+    （原檔第一行），直接接回原標頭續跑（2026-08-21 GAMEMETA 漏產潮的救援）。
+    """
     import re
+    i = output.find("<!--GAMEMETA")
+    if i >= 0:
+        html = output[i:].strip()
+    else:
+        low = output.lower()
+        j = low.find("<!doctype html")
+        if j < 0:
+            j = low.find("<html")
+        m = re.match(r"<!--GAMEMETA.*?-->", orig_html, re.S)
+        if j < 0 or "</html>" not in low or m is None:
+            raise ValueError("輸出裡找不到 GAMEMETA 標頭")
+        html = m.group(0) + "\n" + output[j:].strip()
     html = re.sub(r"\n```\s*$", "", html)
     if "<canvas" not in html.lower():
         raise ValueError("修復後的 HTML 裡沒有 canvas")
@@ -162,7 +175,7 @@ def fix_one(g: dict, data: dict) -> bool:
         log(f"  第 {attempt}/{MAX_ATTEMPTS} 次修復…")
         try:
             out = run_claude(build_prompt(g, html, bugs, feedback), GEN_TIMEOUT)
-            fixed = extract_fixed(out, len(html))
+            fixed = extract_fixed(out, len(html), html)
         except Exception as e:
             log(f"  ❌ 修復輸出不合格：{e}")
             feedback = str(e)

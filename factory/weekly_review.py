@@ -44,9 +44,17 @@ def main() -> int:
     except Exception as e:
         log(f"⚠️ 自動修復階段出錯（不擋檢討）：{e}")
 
-    # 1. 更新數據（失敗不擋檢討）
-    subprocess.run([sys.executable, str(HERE / "analytics_pull.py"), "--quiet"],
-                   capture_output=True)
+    # 1. 更新數據（失敗不擋檢討，但要留線索：以前沒 try 也不看結果碼，
+    #    analytics_pull 掛了只會默默拿上次的舊摘要開會，事後看 log 完全不知道數據其實沒更新）
+    try:
+        r = subprocess.run([sys.executable, str(HERE / "analytics_pull.py"), "--quiet"],
+                           capture_output=True, text=True, encoding="utf-8", errors="replace",
+                           timeout=600)
+        if r.returncode != 0:
+            tail = (r.stderr or r.stdout or "").strip()[-300:]
+            log(f"⚠️ analytics_pull 結果碼 {r.returncode}（沿用上次摘要）：{tail}")
+    except Exception as e:
+        log(f"⚠️ analytics_pull 執行失敗（沿用上次摘要）：{e}")
     analytics = "（數據追蹤尚未啟用）"
     if SUMMARY_FILE.exists():
         analytics = SUMMARY_FILE.read_text(encoding="utf-8")

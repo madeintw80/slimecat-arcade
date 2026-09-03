@@ -42,6 +42,7 @@ KNOW = HERE / "knowledge"
 KB_FILE = KNOW / "fun_principles.md"
 LEARN_FILE = KNOW / "learnings.md"
 DECON_DIR = KNOW / "deconstructions"
+FAILED_DIR = HERE / "failed_outputs"   # 交稿解析失敗的原始輸出（驗屍用，最多留 10 份）
 
 sys.path.insert(0, str(HERE))
 import fetch_trends                  # noqa: E402
@@ -97,6 +98,10 @@ def run_claude(prompt: str, timeout: int, model: str = MODEL_BUILD) -> str:
                           timeout=timeout, cwd=str(LLM_CWD))
     if proc.returncode != 0:
         err = (proc.stderr or "")[-500:]
+        if not err.strip():
+            # claude -p 的錯誤（額度上限/API error）常印在 stdout、stderr 反而全空，
+            # 只看 stderr 會把真正原因丟掉（2026-08-21 停產事故：log 只剩「code 1：」）
+            err = (proc.stdout or "")[-500:]
         if "401" in err or "unauthorized" in err.lower():
             raise RuntimeError("claude CLI 401：token 過期，請跑 scripts/claude_relogin.bat 重登")
         raise RuntimeError(f"claude -p 失敗 (code {proc.returncode})：{err}")
@@ -219,9 +224,23 @@ def stage_generate(decon: dict, past_games: list, feedback: str = ""):
 - 檔案第一行必須是這個中繼資料註解（JSON 單行）：
 <!--GAMEMETA {{"title":"遊戲中文名","emoji":"一個代表emoji","genre":"{decon['genre']}","inspiration":"{decon['source']}","desc":"一句話介紹(30字內)"}}-->
 - 第二行開始就是 <!DOCTYPE html> 起頭的完整網頁
+- 🔴 交稿前最後自檢：輸出的「第 1 行」必須就是那行 <!--GAMEMETA …--> 中繼資料註解
+  （先印它、再印網頁）；漏了這行，整包交稿直接作廢
 """
     out = run_claude(prompt, GEN_TIMEOUT, model=MODEL_BUILD)
-    return extract(out)
+    try:
+        return extract(out)
+    except ValueError as e:
+        body = split_html(out)
+        if body is None:
+            p = save_failed_output(out, "build")
+            log(f"  🗄️ 原始輸出已存 failed_outputs/{p.name}（驗屍用）")
+            raise
+        # GAMEMETA 壞了但遊戲本體完整：15 分鐘的 fable 成品別整包丟，
+        # 用便宜模型從成品反推補一份 meta，照常走後面的品管把關
+        log(f"  🚑 {e} → HTML 本體完整，用 {MODEL_CRITIC} 補產 GAMEMETA 救回成品")
+        save_failed_output(out, "build-rescued")
+        return rescue_meta(body, decon)
 
 
 def extract(output: str):
@@ -244,6 +263,67 @@ def extract(output: str):
     if "<canvas" not in html.lower():
         raise ValueError("HTML 裡沒有 canvas")
     return meta, html
+
+
+def split_html(output: str):
+    """撈出完整的 HTML 本體（GAMEMETA 壞掉時的救援前置檢查）。
+
+    要求 <!DOCTYPE/<html 起頭、</html> 收尾、含 canvas 才算「本體完整」；
+    缺一就回 None——殘缺的輸出救回來也過不了品管，不值得花救援呼叫。
+    """
+    low = output.lower()
+    i = low.find("<!doctype html")
+    if i < 0:
+        i = low.find("<html")
+    if i < 0:
+        return None
+    body = re.sub(r"\n```\s*$", "", output[i:].strip())
+    if "</html>" not in body.lower() or "<canvas" not in body.lower():
+        return None
+    return body
+
+
+def save_failed_output(out: str, stage: str) -> Path:
+    """交稿解析失敗時把原始輸出存檔（事後驗屍用），只留最新 10 份。
+
+    以前解析失敗原始輸出直接丟掉，fable 到底交了什麼永遠查不到
+    （2026-08-18/21 連環漏 GAMEMETA 就是這樣變成懸案的）。
+    """
+    FAILED_DIR.mkdir(exist_ok=True)
+    ts = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+    p = FAILED_DIR / f"{ts}-{stage}.txt"
+    p.write_text(out, encoding="utf-8")
+    for old in sorted(FAILED_DIR.glob("*.txt"))[:-10]:
+        old.unlink()
+    return p
+
+
+def rescue_meta(body: str, decon: dict):
+    """開發者漏交 GAMEMETA 時，用便宜模型從成品 HTML 反推補一份 meta。
+
+    genre/inspiration 不用問模型——解構筆記本來就知道；只要它從成品
+    讀出 title/emoji/desc。回傳格式同 extract()：(meta, 含標頭的完整 HTML)。
+    """
+    prompt = f"""以下是一款 canvas 小遊戲的完整原始碼。讀完後只輸出一行 JSON（不要解說、不要 code fence）：
+{{"title":"遊戲中文名(從標題畫面或<title>取)","emoji":"一個代表emoji","desc":"一句話介紹(30字內)"}}
+
+原始碼：
+{body[:45000]}
+"""
+    out = run_claude(prompt, SMALL_TIMEOUT, model=MODEL_CRITIC)
+    i, j = out.find("{"), out.rfind("}")
+    got = json.loads(out[i:j + 1])
+    meta = {
+        "title": str(got.get("title", "")).strip(),
+        "emoji": str(got.get("emoji", "")).strip() or "🎮",
+        "genre": decon.get("genre", "小遊戲"),
+        "inspiration": decon.get("source", ""),
+        "desc": str(got.get("desc", "")).strip()[:60],
+    }
+    if not meta["title"] or not meta["inspiration"]:
+        raise ValueError("救援補產的 GAMEMETA 仍缺 title/inspiration")
+    header = "<!--GAMEMETA " + json.dumps(meta, ensure_ascii=False) + "-->"
+    return meta, header + "\n" + body
 
 
 # ---------------------------------------------------------------- 出廠自評
@@ -316,9 +396,20 @@ def stage_polish(html: str, meta: dict, crit: dict) -> str:
 
 🔴 交付方式：你唯一的交付物是「印出的文字」。不要使用任何工具（你也沒有寫檔權限）。
 輸出格式：不要 code fence、不要任何解說文字；第一行是原本的 GAMEMETA 註解，第二行起是完整 HTML。
+交稿前最後自檢：輸出第 1 行必須就是原本那行 <!--GAMEMETA …-->，漏了整包作廢。
 """
     out = run_claude(prompt, GEN_TIMEOUT, model=MODEL_BUILD)
-    _, html2 = extract(out)   # meta 一律沿用原版（防模型偷改名），只取修訂後的 HTML
+    try:
+        _, html2 = extract(out)   # meta 一律沿用原版（防模型偷改名），只取修訂後的 HTML
+    except ValueError as e:
+        body = split_html(out)
+        m = re.match(r"<!--GAMEMETA.*?-->", html, re.S)
+        if body is None or m is None:
+            save_failed_output(out, "polish")
+            raise
+        # 打磨版只是漏抄標頭：meta 本來就沿用原版，接回原標頭繼續品管
+        log(f"  🚑 {e} → 打磨版 HTML 完整，接回原版 GAMEMETA 續跑")
+        html2 = m.group(0) + "\n" + body
     return html2
 
 
@@ -511,7 +602,7 @@ def produce_from_decon(decon: dict) -> int:
             notify_fail(f"《{meta['title']}》已生成但部署失敗、公開站尚未更新：{e}")
         return 0
 
-    log("❌ 重試後仍失敗，今天停產（明天排程會再試）")
+    log("❌ 重試後仍失敗，本輪停產（排程三天一產、下一輪會再試；想馬上重來就打「生一個新遊戲」）")
     notify_fail(feedback)
     return 1
 

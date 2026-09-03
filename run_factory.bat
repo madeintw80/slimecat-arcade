@@ -5,6 +5,11 @@ REM factory.log is shared with run_feedback.bat / run_weekly.bat, so its mtime s
 REM when production has stopped for weeks. Only THIS factory run touches factory_heartbeat.txt.
 REM Redirection goes FIRST on the echo lines: a trailing digit before > (exit 0>>) would be
 REM parsed by cmd as a file-handle redirect and silently break the marker.
+REM Rotate factory.log past 2MB (health check 2026-09 backlog level 3): all five factory scripts
+REM append to it and nothing ever rotated it. Must happen HERE before python starts, because this
+REM bat redirects python stdout into the same file (an in-process rename would hit "file in use").
+set LOGF=C:\Users\User\projects\SlimeCatArcade\factory\factory.log
+if exist "%LOGF%" for %%A in ("%LOGF%") do if %%~zA GTR 2097152 move /y "%LOGF%" "%LOGF%.old" >nul
 set HB=C:\Users\User\projects\SlimeCatArcade\factory\factory_heartbeat.txt
 > "%HB%" echo %date% %time% start
 "C:\Users\User\AppData\Local\Python\pythoncore-3.14-64\python.exe" "C:\Users\User\projects\SlimeCatArcade\factory\make_game.py" >> "C:\Users\User\projects\SlimeCatArcade\factory\factory.log" 2>&1
