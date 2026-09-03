@@ -38,6 +38,8 @@ function save(){try{localStorage.setItem('meowcar_v1',JSON.stringify({c:coins,p:
 load();
 const price=l=>Math.round(30*Math.pow(1.8,l)); // 升級價格：永遠吊在下一局門檻
 const powerAcc=()=>300+pw*85, maxV=()=>340+pw*30, grip=()=>1+gp*0.35, fuelMax=()=>100+fl*38;
+const UPPCT=[Math.round(8500/300),35,38]; // 每級加成%（浮動文字與 HUD 共用同一組數字）
+const UPNAME=['🔥 動力','🐾 抓地','🛢 油量'];
 
 // ====== WebAudio 合成音效 ======
 let AC=null,engO=null,engG=null;
@@ -96,7 +98,7 @@ let fuel=0,runT=0,maxX=40,noProg=0,fishRun=0,combo=0,comboT=0;
 let camX=cart.x-120,camY=cart.y-300,input=false,sq=1,wheelSpin=0,prevGround=true,passedFlag=false;
 let shakeT=0,shakeA=0,dieT=0,overT=0,rollTick=0;
 let fishes=[],cans=[],genX=200,nextCan=1500;
-let parts=[],floats=[];
+let parts=[],floats=[],flashT=0;
 let ov=null;
 
 function startRun(){ // 一鍵重開，零等待
@@ -258,6 +260,7 @@ function updateFx(dt){
   for(const f of floats)f.t+=dt;
   floats=floats.filter(f=>f.t<1.2);
   if(shakeT>0)shakeT-=dt;
+  if(flashT>0)flashT-=dt;
 }
 
 // ====== 商店與按鈕 ======
@@ -269,8 +272,9 @@ function buyUp(i){
   coins-=c;
   if(i===0)pw++;else if(i===1)gp++;else fl++;
   save();
-  beep(523,0.07,'square',0.08);setTimeout(()=>beep(784,0.09,'square',0.08),70);
-  addFloat(camX+200,camY+ROWY+i*ROWH,'升級成功！','#7ed957');
+  beep(523,0.3,'square',0.09,1046); // 0.3 秒升級音效
+  flashT=0.6; // 角色閃光
+  addFloat(camX+200,camY+ROWY+i*ROWH,UPNAME[i]+' +'+UPPCT[i]+'%','#7ed957',1);
 }
 function overClick(p){
   for(let i=0;i<3;i++){
@@ -326,6 +330,13 @@ function drawCart(x,y,a,s){ // 史萊姆貓＋果凍推車
   ctx.beginPath();ctx.arc(5,-16,1.8,0,6.28);ctx.fill();
   ctx.strokeStyle='#234d13';ctx.lineWidth=1.5;
   ctx.beginPath();ctx.arc(0.5,-12,3,0.2,2.9);ctx.stroke();
+  if(flashT>0){ // 升級閃光：整隻貓＋推車泛白
+    ctx.globalAlpha=Math.min(1,flashT/0.3)*0.7;
+    ctx.fillStyle='#fff';
+    ctx.beginPath();ctx.arc(0,-16,17,0,6.28);ctx.fill();
+    rr(-34,-6,68,22,9);ctx.fill();
+    ctx.globalAlpha=1;
+  }
   ctx.restore();
 }
 function drawWorld(){
@@ -367,6 +378,9 @@ function drawWorld(){
   drawCart(cart.x-camX,cart.y-camY+bob,cart.a,sq);
   for(const p of parts){ctx.globalAlpha=Math.max(0,1-p.t/p.life);ctx.fillStyle=p.col;ctx.beginPath();ctx.arc(p.x-camX,p.y-camY,p.r,0,6.28);ctx.fill();}
   ctx.globalAlpha=1;
+}
+function drawFloats(){ // 浮動文字最後畫：結算畫面的升級提示也不會被遮住
+  ctx.textBaseline='alphabetic';
   for(const f of floats){
     ctx.globalAlpha=Math.max(0,1-f.t/1.2);ctx.fillStyle=f.col;
     ctx.font=(f.big?'bold 20px ':'bold 14px ')+'sans-serif';ctx.textAlign='center';
@@ -384,6 +398,9 @@ function drawHUD(){
   ctx.font='bold 15px sans-serif';
   ctx.fillStyle='#ffec8b';ctx.fillText('🐟 '+fishRun,12,86);
   ctx.fillStyle='#fff';ctx.fillText('🚩 最遠 '+best+' m',12,106);
+  ctx.font='bold 12px sans-serif'; // 常駐升級狀態：目前等級＋累積加成
+  ctx.fillStyle='#cdeecb';ctx.fillText('⬆ 🔥Lv.'+pw+' 🐾Lv.'+gp+' 🛢Lv.'+fl,12,126);
+  ctx.fillStyle='#9fd89f';ctx.fillText('動力+'+(pw*UPPCT[0])+'% 抓地+'+(gp*UPPCT[1])+'% 油量+'+(fl*UPPCT[2])+'%',12,142);
   const fw=150,fx=W-fw-14,fy=16; // 油量條
   ctx.fillStyle='rgba(0,0,0,0.3)';rr(fx-2,fy-2,fw+4,16,6);ctx.fill();
   const fr=Math.max(0,fuel/fuelMax());
@@ -475,6 +492,7 @@ function render(){
   drawHUD();
   if(state==='title')drawTitle();
   if(state==='over')drawOver();
+  drawFloats();
 }
 function updateEngine(){ // 引擎聲隨車速起伏
   if(!AC||!engG)return;
