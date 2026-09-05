@@ -1653,13 +1653,20 @@ const GAMES = [
     "desc": "拖著喵淵吞光貓屋雜物，越吞越大，回頭把胖貓房東一口吞掉！",
     "pipeline": "v3",
     "packs": {
-      "scenes": 12,
       "objects": 30,
       "perks": 24,
-      "feats": 20
+      "feats": 20,
+      "scenes": 12
     },
-    "ai_score": 27,
+    "ai_score": 38,
     "reviewer": "echo:gpt-5.6-sol",
-    "howto": "拖曳喵淵先吞小物，變大後吞房東進門。"
+    "howto": "拖曳喵淵先吞小物變大，再吞房東進門。",
+    "updated_at": "2026-09-05",
+    "changelog": [
+      {
+        "date": "2026-09-05",
+        "summary": "重生房間內容：修正引用不存在的物件、每房都有可吞的成長階梯"
+      }
+    ]
   }
 ];
