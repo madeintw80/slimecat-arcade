@@ -136,7 +136,7 @@
     <div class="brand-mark" aria-hidden="true">🐱</div>
     <div class="brand-copy">
       <h1 class="brand-name"><span>SlimeCat</span> 遊戲區</h1>
-      <p class="brand-tagline">每天出廠一款，現在只挑最好玩的給你。</p>
+      <p class="brand-tagline">每週六出爐一款，排行由玩家玩出來。</p>
     </div>
   </div>
   <div class="header-actions">
@@ -154,8 +154,8 @@
     <section class="hero" aria-label="今日精選">
       <article class="featured" id="featured"></article>
       <aside class="editors-picks">
-        <p class="section-label">Editors' Picks</p>
-        <h2>本週口碑精選</h2>
+        <p class="section-label">Player Favorites</p>
+        <h2>玩家玩出來的排行</h2>
         <div class="pick-list" id="pick-list"></div>
       </aside>
     </section>
@@ -173,7 +173,7 @@
 
     <section aria-labelledby="catalog-title">
       <div class="section-head">
-        <div><p class="section-label">Pick Your Mood</p><h2 id="catalog-title">依心情挑一款</h2><p>新品、玩法與品質，一眼就能決定。</p></div>
+        <div><p class="section-label">Pick Your Mood</p><h2 id="catalog-title">依心情挑一款</h2><p>新品、玩法與玩家口碑，一眼就能決定。</p></div>
       </div>
       <div class="game-grid" id="game-grid"></div>
     </section>
@@ -213,7 +213,7 @@
 
 <script src="sc_config.js"></script>
 <script src="stats.js"></script>
-<script src="games.js?v=2fbbdbbc"></script>
+<script src="games.js?v=b1d35084"></script>
 <script>
 const appStatus = document.getElementById("app-status");
 const app = document.getElementById("app");
@@ -223,6 +223,7 @@ const games = rawGames ? rawGames.sort((a, b) => (b.date + b.id).localeCompare(a
 const today = new Date();
 const todayStr = today.getFullYear() + "-" + String(today.getMonth() + 1).padStart(2, "0") + "-" + String(today.getDate()).padStart(2, "0");
 let activeFilter = "all";
+let featuredGame = null;   // 首屏主打（真實數據第一名；沒數據時＝最新一款）
 
 function esc(s) {
   return String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
@@ -247,21 +248,43 @@ function daysAgo(dateStr) {
   const d = new Date(dateStr + "T00:00:00");
   return Math.floor((today - d) / 86400000);
 }
+// 類型固定清單（與 factory/make_game.py 的 GENRES 一致）→ 大廳四大分類；舊資料的自由文字走正則退路
+const GENRE_MAP = {益智:"puzzle",消除:"puzzle",合成:"puzzle",觀察:"puzzle",策略:"strategy",經營:"strategy",塔防:"strategy",放置:"strategy",動作:"action",街機:"action",反應:"action",跑酷:"action",生存:"action",放鬆:"relax"};
 function broadGenre(genre) {
   const value = String(genre || "");
+  if (GENRE_MAP[value]) return GENRE_MAP[value];
   if (/解壓|放鬆/.test(value)) return "relax";
-  if (/策略|合成|放置|防守/.test(value)) return "strategy";
-  if (/動作|街機|跑酷|反應|生存|物理|駕駛/.test(value)) return "action";
+  if (/策略|經營|塔防|放置|防守|防禦/.test(value)) return "strategy";
+  if (/動作|街機|跑酷|反應|生存|物理|駕駛|射擊/.test(value)) return "action";
   return "puzzle";
 }
+function stat(g) { return g.stats || {}; }
+// 真實數據排序（2026-09-05）：玩家評分（有人評才算）×8 ＞ 回訪率×30（開啟 ≥5 才算）＞ 活躍停留×15（開啟 ≥2 才算，300 秒封頂）＋一點開啟量。
+// 權重用 9/2 實際數據校過：喵骰連鎖陣／貓客滿樓／貓灶封潮夜（回訪 43%、web 8、web 8）剛好前三。
+// 完全沒數據＝0 分，排在有數據的後面；新作靠「本週新作」徽章與精選欄第一格曝光，不靠這裡。AI 自評不參與排序、也不顯示。
+function popScore(g) {
+  const s = stat(g); let score = 0;
+  if (s.web_raters) score += (s.web_score_med || 0) * 8;
+  if (s.opens >= 5) score += (s.return_rate || 0) * 30;
+  if (s.opens >= 2) score += Math.min(s.med_session_sec || 0, 300) / 300 * 15;
+  if (s.opens) score += Math.log1p(s.opens) * 2;
+  return score;
+}
+function rankedGames() {
+  return games.slice().sort((a, b) => popScore(b) - popScore(a) || (b.date + b.id).localeCompare(a.date + a.id));
+}
+function fmtDur(sec) { return sec >= 90 ? Math.round(sec / 60) + " 分鐘" : Math.round(sec) + " 秒"; }
 function qualityText(g) {
-  if (g.user_rating) return "玩家 " + esc(g.user_rating) + "/10";
-  if (g.ai_score) return "品質 " + esc(g.ai_score) + "/50";
+  const s = stat(g);
+  if (s.web_raters) return "玩家 " + esc(s.web_score_med) + "/10（" + s.web_raters + " 人評）";
+  if (g.user_rating) return "站長 " + esc(g.user_rating) + "/10";
+  if (s.opens >= 5 && s.med_session_sec >= 20) return "玩過 " + s.opens + " 次 · 一局約 " + fmtDur(s.med_session_sec);
+  if (s.opens) return "玩過 " + s.opens + " 次";
   const plays = getPlays(g.id);
-  return plays ? "玩過 " + plays + " 次" : "新鮮出廠";
+  return plays ? "你玩過 " + plays + " 次" : "新鮮出廠";
 }
 function statusBadge(g) {
-  if (g.date === todayStr) return '<span class="badge">今日新作</span>';
+  if (daysAgo(g.date) <= 7) return '<span class="badge">本週新作</span>';
   if (g.updated_at && daysAgo(g.updated_at) <= 7) return '<span class="badge update">剛更新</span>';
   return "";
 }
@@ -281,20 +304,24 @@ function cardHtml(g) {
     <div class="card-footer"><span class="quality">${qualityText(g)}</span><button class="ratebtn" type="button" data-rate="${esc(g.id)}" data-title="${esc(g.title)}">評分</button></div>
   </article>`;
 }
-function renderFeatured(g) {
+function renderFeatured(g, isTop) {
   const box = document.getElementById("featured");
+  const kicker = (isTop ? '<span class="badge quality">玩家最愛</span>' : "") + statusBadge(g);
   box.innerHTML = `<a class="feature-shot" href="${gameUrl(g)}" data-game-link="${esc(g.id)}" aria-label="開始玩 ${esc(g.title)}"><div class="feature-fallback" aria-hidden="true">${esc(g.emoji || "🎮")}</div><img src="games/${encodeURIComponent(g.id)}/shot.png" alt="${esc(g.title)} 遊戲畫面"></a>
-    <div class="feature-copy"><div class="kicker-row">${statusBadge(g)}<span class="badge quality">${qualityText(g)}</span></div><h2>${esc(g.title)}</h2><p>${esc(g.desc || "今天剛從 SlimeCat 工廠出爐的新遊戲。")}</p><div class="feature-meta"><span>${esc(g.genre || "小遊戲")}</span><span>${esc(g.date)}</span><span>約 3 分鐘一局</span></div><div class="feature-actions"><a class="btn primary" href="${gameUrl(g)}" data-game-link="${esc(g.id)}">開始玩</a><button class="btn" type="button" data-rate="${esc(g.id)}" data-title="${esc(g.title)}">玩後評分</button></div></div>`;
+    <div class="feature-copy"><div class="kicker-row">${kicker || '<span class="badge">主打</span>'}</div><h2>${esc(g.title)}</h2><p>${esc(g.howto || g.desc || "從 SlimeCat 工廠出爐的新遊戲。")}</p><div class="feature-meta"><span>${qualityText(g)}</span><span>${esc(g.genre || "小遊戲")}</span><span>${esc(g.date)}</span></div><div class="feature-actions"><a class="btn primary" href="${gameUrl(g)}" data-game-link="${esc(g.id)}">開始玩</a><button class="btn" type="button" data-rate="${esc(g.id)}" data-title="${esc(g.title)}">玩後評分</button></div></div>`;
   attachImageFallback(box); attachGameLinks(box);
 }
-function renderPicks(featured) {
-  const picks = games.filter(g => g.id !== featured.id).sort((a,b) => ((b.user_rating || 0) * 5 + (b.ai_score || 0)) - ((a.user_rating || 0) * 5 + (a.ai_score || 0))).slice(0,3);
+function renderPicks(featured, ranked) {
+  // 精選＝真實數據第 2~4 名；本週新作若不在榜上，放第一格保證曝光
+  const picks = ranked.filter(g => g.id !== featured.id && popScore(g) > 0).slice(0, 3);
+  const newest = games[0];
+  if (newest && newest.id !== featured.id && !picks.some(g => g.id === newest.id)) picks.unshift(newest);
   const box = document.getElementById("pick-list");
-  box.innerHTML = picks.map(g => `<div class="pick"><span class="pick-icon" aria-hidden="true">${esc(g.emoji || "🎮")}</span><div><strong>${esc(g.title)}</strong><span>${qualityText(g)} · ${esc(g.genre || "小遊戲")}</span></div><a href="${gameUrl(g)}" data-game-link="${esc(g.id)}" aria-label="玩 ${esc(g.title)}">玩</a></div>`).join("");
+  box.innerHTML = picks.map(g => `<div class="pick"><span class="pick-icon" aria-hidden="true">${esc(g.emoji || "🎮")}</span><div><strong>${esc(g.title)}</strong><span>${g.id === newest.id && popScore(g) === 0 ? "本週新作" : qualityText(g)} · ${esc(g.genre || "小遊戲")}</span></div><a href="${gameUrl(g)}" data-game-link="${esc(g.id)}" aria-label="玩 ${esc(g.title)}">玩</a></div>`).join("");
   attachGameLinks(box);
 }
 function renderCatalog() {
-  const featured = games[0];
+  const featured = featuredGame || games[0];
   const pool = games.filter(g => g.id !== featured.id && (activeFilter === "all" || broadGenre(g.genre) === activeFilter));
   const grid = document.getElementById("game-grid");
   grid.innerHTML = pool.length ? pool.map(cardHtml).join("") : '<div class="empty">這個分類還沒有遊戲，工廠正在準備。</div>';
@@ -321,8 +348,11 @@ if (!rawGames) {
   appStatus.innerHTML = '<div><strong>工廠正在準備第一款遊戲。</strong><br><span>晚點再回來看看。</span></div>';
   appStatus.setAttribute("aria-busy", "false");
 } else {
-  stats.innerHTML = `目前共 <b>${games.length}</b> 款 · 最新出廠 <b>${esc(games[0].date)}</b>`;
-  renderFeatured(games[0]); renderPicks(games[0]); renderCatalog(); renderRecent(); showApp();
+  const ranked = rankedGames();
+  const hasData = ranked.length && popScore(ranked[0]) > 0;
+  featuredGame = hasData ? ranked[0] : games[0];
+  stats.innerHTML = `目前共 <b>${games.length}</b> 款 · 最新出廠 <b>${esc(games[0].date)}</b>` + (hasData ? " · 排行依玩家評分與回訪" : "");
+  renderFeatured(featuredGame, hasData); renderPicks(featuredGame, ranked); renderCatalog(); renderRecent(); showApp();
 }
 
 document.getElementById("filters").addEventListener("click", event => {

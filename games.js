@@ -6,7 +6,14 @@ const GAMES = [
     "emoji": "🐱",
     "genre": "街機",
     "date": "2026-07-04",
-    "desc": "操控史萊姆貓一路往上彈！踩橘色彈簧一飛沖天，掉下去就 GG。"
+    "desc": "操控史萊姆貓一路往上彈！踩橘色彈簧一飛沖天，掉下去就 GG。",
+    "stats": {
+      "opens": 10,
+      "devices": 7,
+      "med_session_sec": 15.5,
+      "return_rate": 0.0,
+      "plays_reported": 10
+    }
   },
   {
     "id": "furball-blast",
@@ -31,7 +38,14 @@ const GAMES = [
         "fixed_at": "2026-07-04",
         "fixed_by": "manual"
       }
-    ]
+    ],
+    "stats": {
+      "opens": 18,
+      "devices": 10,
+      "med_session_sec": 58.5,
+      "return_rate": 0.1,
+      "plays_reported": 6
+    }
   },
   {
     "id": "2026-07-04-002",
@@ -40,7 +54,14 @@ const GAMES = [
     "genre": "益智",
     "date": "2026-07-04",
     "desc": "點開沒被擋住的貓巴士接走同色小貓，別塞爆候車墊！",
-    "ai_score": 34
+    "ai_score": 34,
+    "stats": {
+      "opens": 7,
+      "devices": 5,
+      "med_session_sec": 115.0,
+      "return_rate": 0.2,
+      "plays_reported": 2
+    }
   },
   {
     "id": "2026-07-04-003",
@@ -49,7 +70,14 @@ const GAMES = [
     "genre": "觀察",
     "date": "2026-07-04",
     "desc": "上下兩間貓房限時找碴，點出幽靈亂動的所有地方！",
-    "ai_score": 40
+    "ai_score": 40,
+    "stats": {
+      "opens": 12,
+      "devices": 5,
+      "med_session_sec": 11.5,
+      "return_rate": 0.0,
+      "plays_reported": 1
+    }
   },
   {
     "id": "2026-07-04-004",
@@ -58,7 +86,14 @@ const GAMES = [
     "genre": "跑酷",
     "date": "2026-07-04",
     "desc": "跳與滑閃避障礙，沿路吞小魚餅乾補體力，輸送帶越跑越快！",
-    "ai_score": 40
+    "ai_score": 40,
+    "stats": {
+      "opens": 7,
+      "devices": 6,
+      "med_session_sec": 42.5,
+      "return_rate": 0.17,
+      "plays_reported": 3
+    }
   },
   {
     "id": "2026-07-04-005",
@@ -67,7 +102,14 @@ const GAMES = [
     "genre": "益智",
     "date": "2026-07-04",
     "desc": "貓是液體！把同色貓湯倒進同一罐，集滿凝固成貓",
-    "ai_score": 38
+    "ai_score": 38,
+    "stats": {
+      "opens": 4,
+      "devices": 4,
+      "med_session_sec": 129.0,
+      "return_rate": 0.0,
+      "plays_reported": 0
+    }
   },
   {
     "id": "2026-07-04-006",
@@ -76,7 +118,14 @@ const GAMES = [
     "genre": "動作",
     "date": "2026-07-04",
     "desc": "拖曳蓄力衝撞，把貓咪全撞下布丁擂台，活到最後就是橫綱喵！",
-    "ai_score": 43
+    "ai_score": 43,
+    "stats": {
+      "opens": 10,
+      "devices": 5,
+      "med_session_sec": 51.5,
+      "return_rate": 0.0,
+      "plays_reported": 73
+    }
   },
   {
     "id": "2026-07-04-007",
@@ -85,7 +134,14 @@ const GAMES = [
     "genre": "合成",
     "date": "2026-07-04",
     "desc": "拖曳合併貓咪點心一路升階，在客人氣走前交出訂單衝高分！",
-    "ai_score": 38
+    "ai_score": 38,
+    "stats": {
+      "opens": 3,
+      "devices": 3,
+      "med_session_sec": 179.0,
+      "return_rate": 0.0,
+      "plays_reported": 1
+    }
   },
   {
     "id": "2026-07-04-008",
@@ -94,7 +150,14 @@ const GAMES = [
     "genre": "益智",
     "date": "2026-07-04",
     "desc": "看穿誰擋誰，依正確順序點貓衝出格子，全部放光！",
-    "ai_score": 38
+    "ai_score": 38,
+    "stats": {
+      "opens": 4,
+      "devices": 4,
+      "med_session_sec": 97.0,
+      "return_rate": 0.0,
+      "plays_reported": 0
+    }
   },
   {
     "id": "2026-07-04-009",
@@ -103,7 +166,14 @@ const GAMES = [
     "genre": "消除",
     "date": "2026-07-04",
     "desc": "拖曳交換史萊姆貓三連爆漿，四連生火箭五連召彩虹，限步收集目標貓過關",
-    "ai_score": 42
+    "ai_score": 42,
+    "stats": {
+      "opens": 6,
+      "devices": 4,
+      "med_session_sec": 192.5,
+      "return_rate": 0.25,
+      "plays_reported": 5
+    }
   },
   {
     "id": "2026-07-04-010",
@@ -112,16 +182,31 @@ const GAMES = [
     "genre": "生存",
     "date": "2026-07-04",
     "desc": "拖曳走位閃鼠群，肉球彈幕自動掃射，撐過120秒到天亮！",
-    "ai_score": 41
+    "ai_score": 41,
+    "stats": {
+      "opens": 8,
+      "devices": 4,
+      "med_session_sec": 19.0,
+      "return_rate": 0.25,
+      "plays_reported": 3
+    }
   },
   {
     "id": "2026-07-04-011",
     "title": "喵牌疊疊消",
     "emoji": "🎴",
-    "genre": "配對",
+    "genre": "益智",
     "date": "2026-07-04",
     "desc": "點兩張沒被壓住的同款貓牌爆漿消除，翻出下層藏的驚喜！",
-    "ai_score": 37
+    "ai_score": 37,
+    "genre_raw": "配對",
+    "stats": {
+      "opens": 4,
+      "devices": 3,
+      "med_session_sec": 127.0,
+      "return_rate": 0.0,
+      "plays_reported": 0
+    }
   },
   {
     "id": "2026-07-04-012",
@@ -130,16 +215,31 @@ const GAMES = [
     "genre": "益智",
     "date": "2026-07-04",
     "desc": "拔爪釘拆垮貓抓板，同色三連爆漿，肉墊塞爆前拆光全場！",
-    "ai_score": 38
+    "ai_score": 38,
+    "stats": {
+      "opens": 4,
+      "devices": 3,
+      "med_session_sec": 81.0,
+      "return_rate": 0.0,
+      "plays_reported": 0
+    }
   },
   {
     "id": "2026-07-04-013",
     "title": "喵砲轟轟",
     "emoji": "💥",
-    "genre": "物理彈射",
+    "genre": "街機",
     "date": "2026-07-04",
     "desc": "拉彈弓轟垮點心塔，把打盹的胖貓全部震下來！",
-    "ai_score": 39
+    "ai_score": 39,
+    "genre_raw": "物理彈射",
+    "stats": {
+      "opens": 4,
+      "devices": 3,
+      "med_session_sec": 3.5,
+      "return_rate": 0.0,
+      "plays_reported": 0
+    }
   },
   {
     "id": "2026-07-04-014",
@@ -148,22 +248,37 @@ const GAMES = [
     "genre": "反應",
     "date": "2026-07-04",
     "desc": "照訂單由下往上疊出貓咪漢堡，限時出餐衝小費combo！",
-    "ai_score": 38
+    "ai_score": 38,
+    "stats": {
+      "opens": 6,
+      "devices": 4,
+      "med_session_sec": 3.0,
+      "return_rate": 0.0,
+      "plays_reported": 1
+    }
   },
   {
     "id": "2026-07-05-001",
     "title": "喵陣連環砲",
     "emoji": "🧨",
-    "genre": "滑動策略防守",
+    "genre": "塔防",
     "date": "2026-07-05",
     "desc": "滑動排陣讓砲貓自動守家，湊滿整行整列轟出清屏大爆炸！",
-    "ai_score": 38
+    "ai_score": 38,
+    "genre_raw": "滑動策略防守",
+    "stats": {
+      "opens": 6,
+      "devices": 4,
+      "med_session_sec": 113.0,
+      "return_rate": 0.25,
+      "plays_reported": 2
+    }
   },
   {
     "id": "2026-07-05-002",
     "title": "字裡藏喵",
     "emoji": "🈶",
-    "genre": "文字益智",
+    "genre": "益智",
     "date": "2026-07-05",
     "desc": "點筆畫拆大字，把藏在字裡的小字喵通通抓出來！",
     "ai_score": 38,
@@ -173,7 +288,17 @@ const GAMES = [
         "note": "一堆瑕疵",
         "reply": "謝謝回饋！方便說說是哪些地方卡卡嗎？"
       }
-    ]
+    ],
+    "genre_raw": "文字益智",
+    "stats": {
+      "opens": 4,
+      "devices": 4,
+      "med_session_sec": 211.5,
+      "return_rate": 0.25,
+      "plays_reported": 0,
+      "web_score_med": 2,
+      "web_raters": 1
+    }
   },
   {
     "id": "2026-07-06-001",
@@ -205,7 +330,16 @@ const GAMES = [
         "note": "基本上沒難度 用直線即最短路徑 什麼都不用做",
         "reply": "✅ 已更新（2026-07-07）：謝謝提醒！我們會讓路線更有挑戰性喵～"
       }
-    ]
+    ],
+    "stats": {
+      "opens": 6,
+      "devices": 4,
+      "med_session_sec": 27.0,
+      "return_rate": 0.25,
+      "plays_reported": 1,
+      "web_score_med": 3,
+      "web_raters": 1
+    }
   },
   {
     "id": "2026-07-06-002",
@@ -237,13 +371,22 @@ const GAMES = [
         "note": "其實還不錯 但石頭貓無解這件事不太好 應該要想辦法解得掉",
         "reply": "✅ 已更新（2026-07-07）：石頭貓無解確實不該發生，馬上修！"
       }
-    ]
+    ],
+    "stats": {
+      "opens": 6,
+      "devices": 4,
+      "med_session_sec": 5.0,
+      "return_rate": 0.25,
+      "plays_reported": 1,
+      "web_score_med": 5,
+      "web_raters": 1
+    }
   },
   {
     "id": "2026-07-06-003",
     "title": "點色召喵",
     "emoji": "🎨",
-    "genre": "解壓",
+    "genre": "放鬆",
     "date": "2026-07-06",
     "desc": "點對顏色，把史萊姆貓從喵靈墨中一格格召回！",
     "ai_score": null,
@@ -269,7 +412,17 @@ const GAMES = [
         "note": "可以按照圖形對稱來玩 x的懲罰沒太大意義",
         "reply": "✅ 已更新（2026-07-07）：對稱破解的問題我們會調整，感謝回饋！"
       }
-    ]
+    ],
+    "genre_raw": "解壓",
+    "stats": {
+      "opens": 7,
+      "devices": 5,
+      "med_session_sec": 50.0,
+      "return_rate": 0.4,
+      "plays_reported": 0,
+      "web_score_med": 4,
+      "web_raters": 1
+    }
   },
   {
     "id": "2026-07-07-001",
@@ -301,13 +454,22 @@ const GAMES = [
         "note": "題庫一直重複",
         "reply": "✅ 已更新（2026-07-08）：喵！已在調整出題邏輯，讓題目不再一直重複～"
       }
-    ]
+    ],
+    "stats": {
+      "opens": 4,
+      "devices": 4,
+      "med_session_sec": 95.0,
+      "return_rate": 0.25,
+      "plays_reported": 2,
+      "web_score_med": 5,
+      "web_raters": 1
+    }
   },
   {
     "id": "2026-07-08-001",
     "title": "貓爪碾派對",
     "emoji": "🐾",
-    "genre": "街機／駕駛跑酷",
+    "genre": "跑酷",
     "date": "2026-07-08",
     "desc": "滑動換道輾過毛球飆連段，擦邊閃障礙拚最高分",
     "ai_score": null,
@@ -349,7 +511,17 @@ const GAMES = [
         "note": "變更好玩了 另外應該要有補血 但頻率也不能太高 或是收集多少分就補一滴血",
         "reply": "✅ 已更新（2026-07-10）：會加入低頻補血，靠累積分數回一滴血～謝謝建議！"
       }
-    ]
+    ],
+    "genre_raw": "街機／駕駛跑酷",
+    "stats": {
+      "opens": 6,
+      "devices": 5,
+      "med_session_sec": 84.0,
+      "return_rate": 0.2,
+      "plays_reported": 2,
+      "web_score_med": 7,
+      "web_raters": 1
+    }
   },
   {
     "id": "2026-07-09-001",
@@ -409,7 +581,16 @@ const GAMES = [
         "note": "又變太簡單了 還有不能解的狀況應該不能變既有的 應該要是生成新的吧 也會有那種 剩下兩個 我還要等時間到才會生磚 建議自動一點 現在這版幾乎不會死 除非生成速度",
         "reply": "✅ 已更新（2026-07-12）：感謝！會加快生磚、剩少量自動補磚，死局改生新磚～"
       }
-    ]
+    ],
+    "stats": {
+      "opens": 9,
+      "devices": 5,
+      "med_session_sec": 36.0,
+      "return_rate": 0.2,
+      "plays_reported": 2,
+      "web_score_med": 7,
+      "web_raters": 1
+    }
   },
   {
     "id": "2026-07-10-001",
@@ -453,7 +634,16 @@ const GAMES = [
         "note": "可能要自動種 然後沒澆水也會掛 另外收集圖鑑功能好像沒什麼用 一下就集滿",
         "reply": "✅ 已更新（2026-07-12）：感謝回饋！圖鑑會加更多內容，也會調整枯萎手感～"
       }
-    ]
+    ],
+    "stats": {
+      "opens": 6,
+      "devices": 5,
+      "med_session_sec": 33.0,
+      "return_rate": 0.4,
+      "plays_reported": 1,
+      "web_score_med": 5,
+      "web_raters": 1
+    }
   },
   {
     "id": "2026-07-11-001",
@@ -485,13 +675,22 @@ const GAMES = [
         "note": "還不錯 但暗潮太慢來 也建議多出一點怪 跟種類 例如要砍兩下 要砍多下 補血的頻率似乎太高？ 還有些怪可以速度快一點 或飄的多一點 整體不錯 或砍完會在生一堆怪",
         "reply": "✅ 已更新（2026-07-12）：謝謝！會加快暗潮、降低補血頻率，讓關卡更有張力～"
       }
-    ]
+    ],
+    "stats": {
+      "opens": 7,
+      "devices": 6,
+      "med_session_sec": 7.5,
+      "return_rate": 0.33,
+      "plays_reported": 0,
+      "web_score_med": 7,
+      "web_raters": 1
+    }
   },
   {
     "id": "2026-07-12-001",
     "title": "喵爪湊一組",
     "emoji": "🐾",
-    "genre": "收集消除（拾取三消）",
+    "genre": "消除",
     "date": "2026-07-12",
     "desc": "點掉疊放貓貓，收藏籃塞爆前把同款三個湊成一組消掉",
     "ai_score": 38,
@@ -539,13 +738,23 @@ const GAMES = [
         "note": "還不錯玩 但好像還是太簡單 可以生快一點",
         "reply": "✅ 已更新（2026-07-17）：謝謝喜歡！我們讓喵咪生成再快一點～"
       }
-    ]
+    ],
+    "genre_raw": "收集消除（拾取三消）",
+    "stats": {
+      "opens": 5,
+      "devices": 5,
+      "med_session_sec": 126.0,
+      "return_rate": 0.0,
+      "plays_reported": 0,
+      "web_score_med": 7,
+      "web_raters": 1
+    }
   },
   {
     "id": "2026-07-13-001",
     "title": "喵影浮現",
     "emoji": "🐾",
-    "genre": "接龍益智",
+    "genre": "益智",
     "date": "2026-07-13",
     "desc": "點掉相鄰數字的貓罐頭，連消揭開躲在底下的史萊姆貓",
     "ai_score": 33,
@@ -594,13 +803,23 @@ const GAMES = [
         "note": "沒什麼技術或反應的含量",
         "reply": "謝謝回饋！玩法深度我們會再想想～"
       }
-    ]
+    ],
+    "genre_raw": "接龍益智",
+    "stats": {
+      "opens": 5,
+      "devices": 4,
+      "med_session_sec": 48.0,
+      "return_rate": 0.0,
+      "plays_reported": 1,
+      "web_score_med": 2,
+      "web_raters": 1
+    }
   },
   {
     "id": "2026-07-14-001",
     "title": "喵兵合體陣",
     "emoji": "🐱",
-    "genre": "策略合成防禦",
+    "genre": "塔防",
     "date": "2026-07-14",
     "desc": "拖曳合體同款史萊姆貓兵升階，自動禦敵，別讓格子塞爆",
     "bugs": [
@@ -643,7 +862,17 @@ const GAMES = [
         "note": "感覺不太容易死 而且遊戲太單一",
         "reply": "✅ 已更新（2026-07-17）：難度調一下，讓對戰更有張力！"
       }
-    ]
+    ],
+    "genre_raw": "策略合成防禦",
+    "stats": {
+      "opens": 6,
+      "devices": 5,
+      "med_session_sec": 116.0,
+      "return_rate": 0.2,
+      "plays_reported": 4,
+      "web_score_med": 4,
+      "web_raters": 1
+    }
   },
   {
     "id": "2026-07-15-001",
@@ -682,7 +911,16 @@ const GAMES = [
         "note": "太簡單了 幾乎不會死",
         "reply": "✅ 已更新（2026-07-17）：太簡單收到！我們把難度調高一點～"
       }
-    ]
+    ],
+    "stats": {
+      "opens": 4,
+      "devices": 4,
+      "med_session_sec": 85.5,
+      "return_rate": 0.25,
+      "plays_reported": 0,
+      "web_score_med": 3,
+      "web_raters": 1
+    }
   },
   {
     "id": "2026-07-16-001",
@@ -698,13 +936,22 @@ const GAMES = [
         "note": "玩不太懂 不就一直點？",
         "reply": "抱歉讓你困惑！我們會補教學也加深玩法～"
       }
-    ]
+    ],
+    "stats": {
+      "opens": 5,
+      "devices": 3,
+      "med_session_sec": 13.0,
+      "return_rate": 0.33,
+      "plays_reported": 0,
+      "web_score_med": 3,
+      "web_raters": 1
+    }
   },
   {
     "id": "2026-07-18-001",
     "title": "喵格拆彈夜",
     "emoji": "💣",
-    "genre": "益智（邏輯推理）",
+    "genre": "益智",
     "date": "2026-07-18",
     "desc": "看行列數字避開炸毛地雷，開格拼回史萊姆貓",
     "feedback": [
@@ -713,13 +960,23 @@ const GAMES = [
         "note": "還不錯",
         "reply": "謝謝支持！我們會讓它更上一層樓～"
       }
-    ]
+    ],
+    "genre_raw": "益智（邏輯推理）",
+    "stats": {
+      "opens": 4,
+      "devices": 3,
+      "med_session_sec": 135.0,
+      "return_rate": 0.67,
+      "plays_reported": 7,
+      "web_score_med": 6,
+      "web_raters": 1
+    }
   },
   {
     "id": "2026-07-19-001",
     "title": "喵星換裝局",
     "emoji": "👗",
-    "genre": "益智（直覺速配）",
+    "genre": "益智",
     "date": "2026-07-19",
     "desc": "看情境限時挑穿搭，布幕一掀看爆笑變身",
     "ai_score": 33,
@@ -729,7 +986,17 @@ const GAMES = [
         "note": "情境不夠 概念還可以",
         "reply": "謝謝建議！情境深度我們會認真加強～"
       }
-    ]
+    ],
+    "genre_raw": "益智（直覺速配）",
+    "stats": {
+      "opens": 5,
+      "devices": 5,
+      "med_session_sec": 28.0,
+      "return_rate": 0.6,
+      "plays_reported": 2,
+      "web_score_med": 4,
+      "web_raters": 1
+    }
   },
   {
     "id": "2026-07-20-001",
@@ -761,13 +1028,22 @@ const GAMES = [
         "note": "完全沒難度",
         "reply": "✅ 已更新（2026-07-22）：喵～馬上幫你把難度調上來，挑戰更過癮！"
       }
-    ]
+    ],
+    "stats": {
+      "opens": 3,
+      "devices": 3,
+      "med_session_sec": 72.5,
+      "return_rate": 0.0,
+      "plays_reported": 0,
+      "web_score_med": 3,
+      "web_raters": 1
+    }
   },
   {
     "id": "2026-07-21-001",
     "title": "喵岔路人生",
     "emoji": "🐱",
-    "genre": "選擇模擬",
+    "genre": "策略",
     "date": "2026-07-21",
     "desc": "每個抉擇決定小貓一生，養大看得見的喵家族樹！",
     "ai_score": 36,
@@ -793,7 +1069,17 @@ const GAMES = [
         "note": "有點不知道目的",
         "reply": "✅ 已更新（2026-07-22）：喵～我們會把遊戲目標寫得更清楚，讓你一眼就懂！"
       }
-    ]
+    ],
+    "genre_raw": "選擇模擬",
+    "stats": {
+      "opens": 3,
+      "devices": 3,
+      "med_session_sec": 48.0,
+      "return_rate": 0.33,
+      "plays_reported": 0,
+      "web_score_med": 3,
+      "web_raters": 1
+    }
   },
   {
     "id": "2026-07-22-001",
@@ -809,7 +1095,16 @@ const GAMES = [
         "note": "其實還不錯 就是美術有點差 不然蠻刺激的",
         "reply": "感謝回饋！美術我們排進下一輪打磨，刺激感會保留～"
       }
-    ]
+    ],
+    "stats": {
+      "opens": 5,
+      "devices": 3,
+      "med_session_sec": 9.0,
+      "return_rate": 0.33,
+      "plays_reported": 1,
+      "web_score_med": 6,
+      "web_raters": 1
+    }
   },
   {
     "id": "2026-07-23-001",
@@ -824,7 +1119,16 @@ const GAMES = [
         "note": "還蠻好玩的欸",
         "reply": "謝謝喜歡！我們會繼續努力做更好玩的內容～"
       }
-    ]
+    ],
+    "stats": {
+      "opens": 15,
+      "devices": 7,
+      "med_session_sec": 251.0,
+      "return_rate": 0.43,
+      "plays_reported": 4,
+      "web_score_med": 7,
+      "web_raters": 1
+    }
   },
   {
     "id": "2026-07-25-001",
@@ -840,16 +1144,33 @@ const GAMES = [
         "note": "就一直點有點沒趣味",
         "reply": "喵～收到！點擊玩法的深度我們會再想辦法加料。"
       }
-    ]
+    ],
+    "stats": {
+      "opens": 3,
+      "devices": 2,
+      "med_session_sec": 67.0,
+      "return_rate": 0.5,
+      "plays_reported": 1,
+      "web_score_med": 4,
+      "web_raters": 1
+    }
   },
   {
     "id": "2026-07-26-001",
     "title": "喵色記憶王",
     "emoji": "🎨",
-    "genre": "益智（記憶反應）",
+    "genre": "益智",
     "date": "2026-07-26",
     "desc": "記住每隻史萊姆貓的配色，牠褪色時從近似色中挑回正解",
-    "ai_score": 40
+    "ai_score": 40,
+    "genre_raw": "益智（記憶反應）",
+    "stats": {
+      "opens": 2,
+      "devices": 2,
+      "med_session_sec": 47.0,
+      "return_rate": 0.5,
+      "plays_reported": 1
+    }
   },
   {
     "id": "2026-07-27-001",
@@ -858,7 +1179,14 @@ const GAMES = [
     "genre": "反應",
     "date": "2026-07-27",
     "desc": "拖對肉球藥膏救病貓，別讓噴嚏瘟疫爆表",
-    "ai_score": 39
+    "ai_score": 39,
+    "stats": {
+      "opens": 2,
+      "devices": 2,
+      "med_session_sec": 32.0,
+      "return_rate": 0.5,
+      "plays_reported": 0
+    }
   },
   {
     "id": "2026-07-28-001",
@@ -867,25 +1195,48 @@ const GAMES = [
     "genre": "經營",
     "date": "2026-07-28",
     "desc": "照點單順序備料出餐，連擊倍率點亮暖心小攤",
-    "ai_score": 38
+    "ai_score": 38,
+    "stats": {
+      "opens": 3,
+      "devices": 3,
+      "med_session_sec": 37.0,
+      "return_rate": 0.33,
+      "plays_reported": 0
+    }
   },
   {
     "id": "2026-07-29-001",
     "title": "貓潮突圍夜",
     "emoji": "🐾",
-    "genre": "生存射擊",
+    "genre": "生存",
     "date": "2026-07-29",
     "desc": "走位閃避鼠潮，毛球自動開火，升級三選一撐過夜市三分鐘",
-    "ai_score": 38
+    "ai_score": 38,
+    "genre_raw": "生存射擊",
+    "stats": {
+      "opens": 3,
+      "devices": 3,
+      "med_session_sec": 107.0,
+      "return_rate": 0.33,
+      "plays_reported": 1
+    }
   },
   {
     "id": "2026-07-30-001",
     "title": "喵藏三疊局",
     "emoji": "🥫",
-    "genre": "疊層消除",
+    "genre": "消除",
     "date": "2026-07-30",
     "desc": "點三張同款罐頭爆漿消除，掀開底下的史萊姆貓拼圖",
-    "ai_score": 41
+    "ai_score": 41,
+    "genre_raw": "疊層消除",
+    "stats": {
+      "opens": 2,
+      "devices": 2,
+      "med_session_sec": 9.0,
+      "return_rate": 0.5,
+      "plays_reported": 0
+    }
   },
   {
     "id": "2026-07-31-001",
@@ -894,7 +1245,14 @@ const GAMES = [
     "genre": "生存",
     "date": "2026-07-31",
     "desc": "揮魚乾拖把清鼠潮，護送迷你貓到收銀台結帳",
-    "ai_score": 43
+    "ai_score": 43,
+    "stats": {
+      "opens": 2,
+      "devices": 2,
+      "med_session_sec": 28.0,
+      "return_rate": 0.5,
+      "plays_reported": 1
+    }
   },
   {
     "id": "2026-08-01-001",
@@ -903,7 +1261,14 @@ const GAMES = [
     "genre": "策略",
     "date": "2026-08-01",
     "desc": "選骰前進撿彩金，趕在黑貓追上前收手入袋",
-    "ai_score": 43
+    "ai_score": 43,
+    "stats": {
+      "opens": 2,
+      "devices": 2,
+      "med_session_sec": 118.0,
+      "return_rate": 0.5,
+      "plays_reported": 0
+    }
   },
   {
     "id": "2026-08-02-001",
@@ -912,16 +1277,31 @@ const GAMES = [
     "genre": "合成",
     "date": "2026-08-02",
     "desc": "同款肉球疊合升階，交訂單、震碎焦塊拚高分",
-    "ai_score": 35
+    "ai_score": 35,
+    "stats": {
+      "opens": 2,
+      "devices": 2,
+      "med_session_sec": 983.0,
+      "return_rate": 0.5,
+      "plays_reported": 0
+    }
   },
   {
     "id": "2026-08-03-001",
     "title": "貓爪拆塔令",
     "emoji": "🧶",
-    "genre": "物理解謎",
+    "genre": "益智",
     "date": "2026-08-03",
     "desc": "拋毛線球震垮貓塔，用最少球數敲醒打盹胖貓",
-    "ai_score": 40
+    "ai_score": 40,
+    "genre_raw": "物理解謎",
+    "stats": {
+      "opens": 5,
+      "devices": 4,
+      "med_session_sec": 26.5,
+      "return_rate": 0.5,
+      "plays_reported": 0
+    }
   },
   {
     "id": "2026-08-04-001",
@@ -929,16 +1309,31 @@ const GAMES = [
     "emoji": "🍮",
     "genre": "合成",
     "date": "2026-08-04",
-    "desc": "拖疊相同貓點心合成升階，趕在焦味蔓延前交出訂單"
+    "desc": "拖疊相同貓點心合成升階，趕在焦味蔓延前交出訂單",
+    "stats": {
+      "opens": 3,
+      "devices": 3,
+      "med_session_sec": 136.0,
+      "return_rate": 0.0,
+      "plays_reported": 1
+    }
   },
   {
     "id": "2026-08-05-001",
     "title": "喵探線索鋪",
     "emoji": "🔍",
-    "genre": "合成解謎",
+    "genre": "益智",
     "date": "2026-08-05",
     "desc": "放線索三個同款就合併，湊齊八條線索破案",
-    "ai_score": 42
+    "ai_score": 42,
+    "genre_raw": "合成解謎",
+    "stats": {
+      "opens": 1,
+      "devices": 1,
+      "med_session_sec": 0,
+      "return_rate": 0.0,
+      "plays_reported": 0
+    }
   },
   {
     "id": "2026-08-06-001",
@@ -947,13 +1342,20 @@ const GAMES = [
     "genre": "策略",
     "date": "2026-08-06",
     "desc": "連拆同款八卦信引爆連鎖頭條，身價一路狂飆",
-    "ai_score": 37
+    "ai_score": 37,
+    "stats": {
+      "opens": 3,
+      "devices": 3,
+      "med_session_sec": 83.5,
+      "return_rate": 0.33,
+      "plays_reported": 2
+    }
   },
   {
     "id": "2026-08-07-001",
     "title": "喵刃連段祭",
     "emoji": "🐾",
-    "genre": "動作（連段格鬥／閃避戰鬥）",
+    "genre": "動作",
     "date": "2026-08-07",
     "desc": "點哪斬哪，連段不斷讓分數翻倍的史萊姆貓鼠潮戰",
     "ai_score": 39,
@@ -991,7 +1393,17 @@ const GAMES = [
         "note": "還不錯 但揮爪動作太不明顯 很容易撞到 也沒什麼優勢",
         "reply": "✅ 已更新（2026-08-15）：收到建議！揮爪的表現會更清楚，謝謝支持。"
       }
-    ]
+    ],
+    "genre_raw": "動作（連段格鬥／閃避戰鬥）",
+    "stats": {
+      "opens": 3,
+      "devices": 3,
+      "med_session_sec": 71.0,
+      "return_rate": 0.33,
+      "plays_reported": 2,
+      "web_score_med": 6,
+      "web_raters": 1
+    }
   },
   {
     "id": "2026-08-08-001",
@@ -1006,13 +1418,22 @@ const GAMES = [
         "note": "很好玩",
         "reply": "謝謝喜歡！我們會繼續加油，敬請期待更新！"
       }
-    ]
+    ],
+    "stats": {
+      "opens": 2,
+      "devices": 2,
+      "med_session_sec": 321.0,
+      "return_rate": 0.5,
+      "plays_reported": 1,
+      "web_score_med": 8,
+      "web_raters": 1
+    }
   },
   {
     "id": "2026-08-09-001",
     "title": "貓窟深潛",
     "emoji": "🕳️",
-    "genre": "策略抉擇（Roguelite路徑探索）",
+    "genre": "策略",
     "date": "2026-08-09",
     "desc": "每層選一扇門，越深越肥，及時上浮才算分",
     "bugs": [
@@ -1037,7 +1458,17 @@ const GAMES = [
         "note": "感覺應該不錯 但會讓人一直想選高風險的 不太明白目標",
         "reply": "✅ 已更新（2026-08-16）：謝謝回饋！會把目標講清楚，也調整風險報酬平衡"
       }
-    ]
+    ],
+    "genre_raw": "策略抉擇（Roguelite路徑探索）",
+    "stats": {
+      "opens": 4,
+      "devices": 3,
+      "med_session_sec": 34.0,
+      "return_rate": 0.33,
+      "plays_reported": 1,
+      "web_score_med": 6,
+      "web_raters": 1
+    }
   },
   {
     "id": "2026-08-12-001",
@@ -1069,16 +1500,33 @@ const GAMES = [
         "note": "只有100秒不夠玩 蠻好玩的 感覺可以做成無限模式",
         "reply": "✅ 已更新（2026-08-16）：謝謝喜歡！時間偏短我們會調整，無限模式也記下囉"
       }
-    ]
+    ],
+    "stats": {
+      "opens": 5,
+      "devices": 5,
+      "med_session_sec": 213.0,
+      "return_rate": 0.2,
+      "plays_reported": 2,
+      "web_score_med": 8,
+      "web_raters": 1
+    }
   },
   {
     "id": "2026-08-15-001",
     "title": "喵融奇種錄",
     "emoji": "🧪",
-    "genre": "配方合成",
+    "genre": "合成",
     "date": "2026-08-15",
     "desc": "拖曳兩隻史萊姆貓融合出新品種，限時集滿20種奇貓圖鑑！",
-    "ai_score": 38
+    "ai_score": 38,
+    "genre_raw": "配方合成",
+    "stats": {
+      "opens": 3,
+      "devices": 3,
+      "med_session_sec": 0,
+      "return_rate": 0.0,
+      "plays_reported": 0
+    }
   },
   {
     "id": "2026-08-21-001",
@@ -1094,7 +1542,16 @@ const GAMES = [
         "note": "蠻好玩的 有挑戰性",
         "reply": "謝謝喜歡！挑戰性我們會繼續保持～"
       }
-    ]
+    ],
+    "stats": {
+      "opens": 3,
+      "devices": 3,
+      "med_session_sec": 166.0,
+      "return_rate": 0.33,
+      "plays_reported": 2,
+      "web_score_med": 7,
+      "web_raters": 1
+    }
   },
   {
     "id": "2026-08-24-001",
@@ -1103,7 +1560,14 @@ const GAMES = [
     "genre": "動作",
     "date": "2026-08-24",
     "desc": "紅格亮起快錯身，貼邊擦身暴擊反殺鼠群！",
-    "ai_score": 39
+    "ai_score": 39,
+    "stats": {
+      "opens": 2,
+      "devices": 2,
+      "med_session_sec": 0,
+      "return_rate": 0.0,
+      "plays_reported": 0
+    }
   },
   {
     "id": "2026-08-27-001",
@@ -1119,7 +1583,16 @@ const GAMES = [
         "note": "蠻無聊的",
         "reply": "謝謝回饋！我們會研究怎麼讓遊戲更有趣～"
       }
-    ]
+    ],
+    "stats": {
+      "opens": 4,
+      "devices": 4,
+      "med_session_sec": 80.0,
+      "return_rate": 0.25,
+      "plays_reported": 1,
+      "web_score_med": 3,
+      "web_raters": 1
+    }
   },
   {
     "id": "2026-08-30-001",
@@ -1151,7 +1624,16 @@ const GAMES = [
         "note": "好玩 但升級的感覺不明顯",
         "reply": "✅ 已更新（2026-09-03）：謝謝喜歡！我們會讓升級更有感，敬請期待～"
       }
-    ]
+    ],
+    "stats": {
+      "opens": 4,
+      "devices": 4,
+      "med_session_sec": 462.0,
+      "return_rate": 0.25,
+      "plays_reported": 18,
+      "web_score_med": 7,
+      "web_raters": 1
+    }
   },
   {
     "id": "2026-09-05-001",
