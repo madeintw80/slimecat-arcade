@@ -1,0 +1,626 @@
+<!--GAMEMETA {"title": "喵淵吞吞樂", "emoji": "🌀", "genre": "街機", "inspiration": "Hole Stars: 謎題挑戰", "desc": "拖著喵淵吞光貓屋雜物，越吞越大，回頭把胖貓房東一口吞掉！"}-->
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>喵淵吞吞樂</title>
+<!--CONTENT-NOTES
+（內容設計師只需照本段填 window.SC_CONTENT；引擎對所有數值 clamp、缺欄位補預設、陣列長度自由，未知 enum 退回預設值）
+[scenes] 房間。引擎依 order 排序後重新編為 1..N，總房數＝陣列長度（1 筆也能玩，建議 12）
+ id:string 唯一 | name:string 房名 | order:int 排序鍵 | intro:string ≤18 字（進房轉場顯示）
+ world_w:int 800-1600 | world_h:int 1000-2200 | layout: rings | clusters | scatter（其他→scatter）
+ start:[x,y] 0.05-0.95 正規化 | door:[x,y] 同上（建議與 start 距離 ≥0.5）
+ time_first:int 60-240 首房給秒 | time_next:int 20-120 串接進門加秒 | clear_bonus:int 0-60（進門依清房比例加秒上限）
+ spawn:[{obj:id, n:1-60}] 不含 boss；obj 不存在於 objects 會被略過；每房總數上限 160；空表→自動放 30 個 T1
+ boss:id 須為 objects 內 boss=true（不存在→用第一隻 boss；都沒有→引擎內建預設房東）
+ boss_dist:int 100-320 px（放在起點→門直線上） | mod: none | leak | fog | tide | mod_at:int 0-300 秒 | mod_power:number 0.3-3
+ palette:{bg,grid,accent} 六位 hex（缺→米色預設）
+ 引擎保證：起點 260px 安全圈只放 tier1 非 hazard 食物（至少 14 件優先塞進圈內），危險物/大件不進圈。
+[objects] 吞噬圖鑑（同時是圖鑑內容）
+ id | name | glyph:單一 emoji（純裝飾，碰撞只看 size） | tier:int 1-5（tier 5 一律視為房東）
+ size:int 半徑 6-120（建議 T1 9-14、T2 18-24、T3 30-38、T4 46-56、T5 70-88）
+ gain:number -6～20（hazard 自動轉負、非 hazard 自動轉正） | points:int 0-2000 | refund:number 0-10 秒（hazard 固定 0）
+ move: static | wander | flee | patrol | speed:number 0-160 px/s
+ effect: none | slow | time | effect_value:number 0-15（slow=減速秒；time=加時秒；hazard 不可 time）
+ hazard:bool（紅色脈動、吞下縮小並斷連、不計入清房） | boss:bool
+ color:六位 hex 外框色（缺→依 tier 預設 綠/藍/紫/橘/金；hazard 紅） | lore ≤24 字 | taunt ≤12 字（房東被撞時氣泡）
+[perks] 貪吃卡（進門三選一）
+ id | name ≤6 字 | glyph | desc ≤20 字（請寫數值） | rarity: common | rare | epic | weight:int 1-10 | min_order:int 1-99
+ effects:[{k,v}] v 範圍 -60～60，k ∈
+   speed(+速度倍率 0.1-0.3) capture(+可吞比率 0.05-0.12) gain(+成長倍率 0.15-0.4) combo_window(±秒 -0.3～0.6)
+   refund(+加時倍率 0.2-0.5) magnet(+吸附 px 20-60) hazard_guard(0-1，危險物縮小量減少比例)
+   start_size(≤1 視為起始半徑倍率、>1 視為 px，立即加半徑) points(+分數倍率 0.1-0.4) time_now(立即 +秒 3-15)
+   radar(>0 開啟雷達箭頭指向最肥可吞物) slow_movers(0-0.6 移動物減速比例)；未知 k 略過
+ max_stack:int 1-3
+[feats] 喵功勳（跨局成就）
+ id | name ≤8 字 | glyph | desc ≤24 字
+ stat ∈ objects_total bosses_total max_combo best_score best_rooms_run runs full_clears clocks_total
+   hazards_total dex_count fastest_first_room(秒) clean_rooms_run stars_total daily_days（連續天數）
+ op: gte | lte（fastest_first_room 用 lte） | value:number
+ reward_type: palette | title | none | reward_value: palette='#hex,#hex' 兩色淵色；title=稱號 ≤6 字 | secret:bool
+-->
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;background:#1a1420;color:#f5ead8;font-family:"Noto Sans TC","PingFang TC","Microsoft JhengHei",system-ui,sans-serif;overflow:hidden;-webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent}
+#back{position:fixed;left:8px;top:6px;z-index:30;color:#ffd58a;font-size:13px;text-decoration:none;opacity:.85}
+#wrap{position:absolute;left:0;top:0;width:400px;height:600px}
+#cv{position:absolute;left:0;top:0;touch-action:none;display:block;background:#2a2033}
+#ui{position:absolute;left:0;top:0;width:400px;height:600px;transform-origin:0 0;pointer-events:none}
+.scr{position:absolute;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;padding:18px 16px;pointer-events:auto;background:rgba(26,20,32,.9);text-align:center}
+.scr.on{display:flex}
+.t1{font-size:34px;font-weight:900;color:#ffd58a;text-shadow:0 3px 0 #6b3a1a;margin-bottom:6px}
+.t2{font-size:22px;font-weight:700;color:#ffd58a;margin-bottom:8px}
+.rule{font-size:14px;line-height:1.5;margin:4px 0 6px}
+.ctl{font-size:12px;color:#bfb3cc;line-height:1.6;margin-bottom:6px}
+.stat,.small{font-size:12px;color:#d9cfe6;margin:3px 0}
+.stat b,.small b{color:#ffd58a}
+.lbl{font-size:12px;color:#ffd58a;margin-top:4px}
+.rooms{display:flex;gap:6px;overflow-x:auto;width:100%;padding:6px 2px}
+.rc{flex:0 0 54px;height:60px;border-radius:8px;background:#3a2d47;border:2px solid #5a4a6a;font-size:11px;line-height:1.35;padding-top:4px;cursor:pointer}
+.rc.sel{border-color:#ffd58a;background:#5a3f2a}
+.rc.lock{opacity:.45}
+button{pointer-events:auto;font:inherit;font-size:15px;color:#2a1a10;background:#ffd58a;border:0;border-radius:10px;padding:10px 16px;margin:4px;cursor:pointer;box-shadow:0 3px 0 #b07a2a}
+button:active{transform:translateY(2px);box-shadow:none}
+button.big{font-size:20px;font-weight:700;padding:12px 28px}
+.row{display:flex;flex-wrap:wrap;justify-content:center}
+.row button{font-size:13px;padding:8px 10px}
+.grid{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;width:100%;max-height:300px;overflow-y:auto}
+.cell{background:#3a2d47;border-radius:8px;padding:6px 2px;font-size:11px;cursor:pointer}
+.cell .g{font-size:24px}
+.cell.off{opacity:.4}
+.info{font-size:12px;min-height:40px;color:#e8dcc8;margin:8px 0;line-height:1.5}
+.list{width:100%;max-height:400px;overflow-y:auto;text-align:left;font-size:12px}
+.ft{display:flex;gap:8px;padding:6px;border-bottom:1px solid #3a2d47;align-items:center}
+.ft.off{opacity:.45}
+.ft .g{font-size:22px;width:28px;text-align:center}
+.card{display:flex;align-items:center;width:340px;height:110px;margin:6px 0;border-radius:12px;background:#3a2d47;border:3px solid #6fc06a;text-align:left;padding:8px;cursor:pointer;position:relative}
+.card.rare{border-color:#4d8fe0}.card.epic{border-color:#e0b63d;background:#4a3a2a}
+.card .cg{font-size:42px;width:64px;text-align:center;flex:0 0 64px}
+.card b{font-size:18px}
+.card .rr{font-size:11px;margin-left:6px;opacity:.7}
+.card p{font-size:14px;margin-top:6px;color:#e8dcc8}
+.card .ck{position:absolute;right:10px;top:8px;font-size:12px;opacity:.6}
+.res{font-size:14px;line-height:1.8}
+.res b{color:#ffd58a}
+.nm{font-size:16px;color:#ffe14d;margin:4px 0}
+.new{color:#7ef0a0;font-size:13px;line-height:1.6;margin:4px 0}
+.rec{font-size:24px;color:#ffe14d;margin:4px 0;animation:pop .6s ease-out}
+@keyframes pop{0%{transform:scale(.5)}60%{transform:scale(1.2)}100%{transform:scale(1)}}
+</style>
+</head>
+<body>
+<a id="back" href="../../index.html">← 回遊戲區</a>
+<div id="wrap">
+<canvas id="cv" width="400" height="600"></canvas>
+<div id="ui">
+ <div class="scr" id="s-title">
+  <div class="t1">🌀 喵淵吞吞樂</div>
+  <div class="rule">拖著喵淵吞掉比你小的雜物，越吞越大，<br>回頭把彈開你的胖貓房東一口吞掉！</div>
+  <div class="ctl">📱 按住畫面任一處拖曳移動 ｜ ⌨ WASD／方向鍵<br>1/2/3 選卡 ・ P 暫停 ・ M 靜音 ・ Space 開始</div>
+  <div id="t-stats" class="stat"></div>
+  <div class="lbl">選擇起點房（一趟最多串 4 房，吞下房東進門就解鎖下一房）</div>
+  <div id="rooms" class="rooms"></div>
+  <button class="big" id="b-start" data-act="start">▶ 開始</button>
+  <div class="row"><button data-act="daily">📅 每日一房</button><button data-act="dex">📖 圖鑑</button><button data-act="feats">🏅 功勳</button><button id="b-mute" data-act="mute">🔊</button></div>
+  <div id="t-daily" class="small"></div>
+ </div>
+ <div class="scr" id="s-dex"><div class="t2">📖 吞噬圖鑑 <span id="dex-n"></span></div><div class="grid" id="dex-grid"></div><div id="dex-info" class="info"></div><button data-act="back">返回</button></div>
+ <div class="scr" id="s-feats"><div class="t2">🏅 喵功勳 <span id="feat-n"></span></div><div class="list" id="feat-list"></div><button data-act="back">返回</button></div>
+ <div class="scr" id="s-perk"><div class="t2">🎴 貪吃卡 三選一</div><div id="perk-sum" class="small"></div><div id="cards"></div><div class="small">計時已暫停，選一張再進下一房</div></div>
+ <div class="scr" id="s-pause"><div class="t2">⏸ 暫停</div><button class="big" data-act="resume">▶ 繼續</button><div class="row"><button data-act="title">🏠 回標題</button><button id="b-mute2" data-act="mute">🔊</button></div></div>
+ <div class="scr" id="s-result"><div id="res-body"></div><button class="big" data-act="retry">🔁 再來一趟</button><div class="row"><button data-act="title">🏠 換房／標題</button><button data-act="daily">📅 每日一房</button></div></div>
+</div>
+</div>
+<script id="sc-content">window.SC_CONTENT = {"scenes": [{"id": "r01", "name": "玄關拖鞋窟", "order": 1, "intro": "小東西先吞，房東等你長大", "world_w": 900, "world_h": 1200, "layout": "rings", "start": [0.5, 0.62], "door": [0.5, 0.08], "time_first": 150, "time_next": 60, "spawn": [{"obj": "crumb", "n": 26}, {"obj": "kibble", "n": 12}, {"obj": "sock", "n": 10}, {"obj": "mug", "n": 8}, {"obj": "bowl", "n": 6}, {"obj": "cushion", "n": 5}, {"obj": "basket", "n": 3}, {"obj": "stool", "n": 2}], "boss": "landlord", "boss_dist": 150, "mod": "leak", "mod_at": 95, "mod_power": 0.8, "palette": {"bg": "#f3e7d3", "grid": "#e6d5b8", "accent": "#c9743a"}, "clear_bonus": 20}, {"id": "r02", "name": "電視櫃絨球陣", "order": 2, "intro": "絨球會滾，小心別追丟", "world_w": 1300, "world_h": 1700, "layout": "scatter", "start": [0.3, 0.85], "door": [0.75, 0.15], "time_first": 146, "time_next": 59, "spawn": [{"obj": "crumb", "n": 20}, {"obj": "coin", "n": 10}, {"obj": "sock", "n": 8}, {"obj": "mug", "n": 6}, {"obj": "ball", "n": 10}, {"obj": "spool", "n": 6}, {"obj": "cushion", "n": 4}, {"obj": "lamp", "n": 3}, {"obj": "basket", "n": 3}, {"obj": "bowl", "n": 4}, {"obj": "mousetrap", "n": 3}], "boss": "butler_cat", "boss_dist": 170, "mod": "none", "mod_at": 0, "mod_power": 1.0, "palette": {"bg": "#e8e0f0", "grid": "#d6c9e8", "accent": "#8a5fc2"}, "clear_bonus": 21}, {"id": "r03", "name": "廚房油煙迷宮", "order": 3, "intro": "油煙迷路，鬧鐘會逃跑", "world_w": 950, "world_h": 1300, "layout": "rings", "start": [0.5, 0.9], "door": [0.5, 0.1], "time_first": 142, "time_next": 58, "spawn": [{"obj": "crumb", "n": 22}, {"obj": "bead", "n": 14}, {"obj": "coin", "n": 8}, {"obj": "mug", "n": 10}, {"obj": "slipper", "n": 6}, {"obj": "ball", "n": 8}, {"obj": "spool", "n": 5}, {"obj": "lamp", "n": 4}, {"obj": "cushion", "n": 3}, {"obj": "vase", "n": 3}, {"obj": "hairball", "n": 4}, {"obj": "alarm_mouse", "n": 2}], "boss": "granny_cat", "boss_dist": 160, "mod": "leak", "mod_at": 60, "mod_power": 0.6, "palette": {"bg": "#fde8d0", "grid": "#f5cfa0", "accent": "#e0762a"}, "clear_bonus": 22}, {"id": "r04", "name": "陽台洗衣渦流", "order": 4, "intro": "潮水要來，抓緊別被沖走", "world_w": 1400, "world_h": 1850, "layout": "scatter", "start": [0.5, 0.88], "door": [0.5, 0.08], "time_first": 138, "time_next": 57, "spawn": [{"obj": "crumb", "n": 18}, {"obj": "leaf", "n": 16}, {"obj": "coin", "n": 10}, {"obj": "bowl", "n": 9}, {"obj": "slipper", "n": 8}, {"obj": "spool", "n": 8}, {"obj": "basket", "n": 5}, {"obj": "vase", "n": 4}, {"obj": "crate", "n": 2}, {"obj": "pin", "n": 5}, {"obj": "alarm_mouse", "n": 2}], "boss": "chef_cat", "boss_dist": 190, "mod": "tide", "mod_at": 22, "mod_power": 1.0, "palette": {"bg": "#e3f2f7", "grid": "#c9e2ea", "accent": "#2f7ea6"}, "clear_bonus": 24}, {"id": "r05", "name": "儲藏室紙箱谷", "order": 5, "intro": "紙箱堆成谷，貨車會巡邏", "world_w": 1000, "world_h": 1400, "layout": "clusters", "start": [0.2, 0.8], "door": [0.8, 0.2], "time_first": 134, "time_next": 56, "spawn": [{"obj": "crumb", "n": 20}, {"obj": "bead", "n": 12}, {"obj": "cap", "n": 10}, {"obj": "mug", "n": 8}, {"obj": "sock", "n": 8}, {"obj": "ball", "n": 10}, {"obj": "lamp", "n": 5}, {"obj": "boot", "n": 5}, {"obj": "stool", "n": 3}, {"obj": "trolley", "n": 2}, {"obj": "mousetrap", "n": 5}, {"obj": "alarm_mouse", "n": 2}], "boss": "guard_cat", "boss_dist": 180, "mod": "none", "mod_at": 0, "mod_power": 1.0, "palette": {"bg": "#e5ded0", "grid": "#d4c8b0", "accent": "#8a6a3c"}, "clear_bonus": 25}, {"id": "r06", "name": "書房線團迷宮", "order": 6, "intro": "書堆會動，線團到處滾", "world_w": 1350, "world_h": 1750, "layout": "clusters", "start": [0.5, 0.85], "door": [0.5, 0.1], "time_first": 130, "time_next": 55, "spawn": [{"obj": "crumb", "n": 20}, {"obj": "kibble", "n": 10}, {"obj": "leaf", "n": 8}, {"obj": "mug", "n": 6}, {"obj": "bowl", "n": 6}, {"obj": "spool", "n": 8}, {"obj": "cushion", "n": 4}, {"obj": "boot", "n": 4}, {"obj": "hamper", "n": 2}, {"obj": "hairball", "n": 5}, {"obj": "alarm_mouse", "n": 2}], "boss": "landlord", "boss_dist": 200, "mod": "leak", "mod_at": 70, "mod_power": 0.9, "palette": {"bg": "#ede4d6", "grid": "#dccdb0", "accent": "#6b4f2a"}, "clear_bonus": 26}, {"id": "r07", "name": "浴室泡泡巷", "order": 7, "intro": "泡泡濕滑，靴子繞圈走", "world_w": 1050, "world_h": 1400, "layout": "clusters", "start": [0.25, 0.75], "door": [0.7, 0.15], "time_first": 126, "time_next": 54, "spawn": [{"obj": "crumb", "n": 18}, {"obj": "bead", "n": 10}, {"obj": "coin", "n": 10}, {"obj": "slipper", "n": 8}, {"obj": "bowl", "n": 6}, {"obj": "ball", "n": 8}, {"obj": "boot", "n": 5}, {"obj": "vase", "n": 3}, {"obj": "crate", "n": 2}, {"obj": "pin", "n": 6}, {"obj": "alarm_mouse", "n": 3}], "boss": "butler_cat", "boss_dist": 190, "mod": "fog", "mod_at": 50, "mod_power": 0.7, "palette": {"bg": "#e0f4f0", "grid": "#c5e8e0", "accent": "#2a9d8f"}, "clear_bonus": 27}, {"id": "r08", "name": "閣樓月光市集", "order": 8, "intro": "月光市集，貨物藏危機", "world_w": 1450, "world_h": 1900, "layout": "clusters", "start": [0.5, 0.9], "door": [0.5, 0.1], "time_first": 122, "time_next": 53, "spawn": [{"obj": "crumb", "n": 20}, {"obj": "kibble", "n": 12}, {"obj": "cap", "n": 8}, {"obj": "mug", "n": 8}, {"obj": "sock", "n": 8}, {"obj": "spool", "n": 6}, {"obj": "boot", "n": 4}, {"obj": "basket", "n": 4}, {"obj": "trolley", "n": 2}, {"obj": "mousetrap", "n": 6}, {"obj": "alarm_mouse", "n": 2}], "boss": "granny_cat", "boss_dist": 210, "mod": "tide", "mod_at": 40, "mod_power": 1.1, "palette": {"bg": "#2e2a4a", "grid": "#403a66", "accent": "#f0c869"}, "clear_bonus": 28}, {"id": "r09", "name": "地下室濃霧甬道", "order": 9, "intro": "濃霧鎖路，用吞食認路", "world_w": 1000, "world_h": 1450, "layout": "rings", "start": [0.5, 0.88], "door": [0.5, 0.12], "time_first": 118, "time_next": 52, "spawn": [{"obj": "crumb", "n": 23}, {"obj": "bead", "n": 14}, {"obj": "leaf", "n": 10}, {"obj": "coin", "n": 3}, {"obj": "bowl", "n": 8}, {"obj": "sock", "n": 6}, {"obj": "ball", "n": 8}, {"obj": "boot", "n": 4}, {"obj": "cushion", "n": 3}, {"obj": "hamper", "n": 2}, {"obj": "hairball", "n": 4}, {"obj": "pin", "n": 3}, {"obj": "alarm_mouse", "n": 2}], "boss": "chef_cat", "boss_dist": 200, "mod": "fog", "mod_at": 12, "mod_power": 1.3, "palette": {"bg": "#3a3f42", "grid": "#4d5457", "accent": "#9fb3b8"}, "clear_bonus": 29}, {"id": "r10", "name": "頂樓風箏廣場", "order": 10, "intro": "風大浪高，站穩再吞", "world_w": 1500, "world_h": 1950, "layout": "scatter", "start": [0.2, 0.85], "door": [0.8, 0.15], "time_first": 114, "time_next": 51, "spawn": [{"obj": "crumb", "n": 22}, {"obj": "kibble", "n": 12}, {"obj": "cap", "n": 10}, {"obj": "mug", "n": 8}, {"obj": "slipper", "n": 6}, {"obj": "spool", "n": 8}, {"obj": "boot", "n": 5}, {"obj": "vase", "n": 4}, {"obj": "trolley", "n": 3}, {"obj": "mousetrap", "n": 4}, {"obj": "hairball", "n": 3}, {"obj": "alarm_mouse", "n": 3}], "boss": "guard_cat", "boss_dist": 220, "mod": "tide", "mod_at": 13, "mod_power": 1.4, "palette": {"bg": "#cfe8f7", "grid": "#b3d9ee", "accent": "#5aa0d8"}, "clear_bonus": 30}, {"id": "r11", "name": "鐘塔回聲廳", "order": 11, "intro": "回聲騙眼，看清楚再撲", "world_w": 1050, "world_h": 1500, "layout": "clusters", "start": [0.5, 0.85], "door": [0.5, 0.1], "time_first": 112, "time_next": 50, "spawn": [{"obj": "crumb", "n": 30}, {"obj": "bead", "n": 12}, {"obj": "coin", "n": 8}, {"obj": "bowl", "n": 6}, {"obj": "sock", "n": 6}, {"obj": "ball", "n": 8}, {"obj": "boot", "n": 4}, {"obj": "basket", "n": 3}, {"obj": "hamper", "n": 2}, {"obj": "pin", "n": 4}, {"obj": "mousetrap", "n": 3}, {"obj": "alarm_mouse", "n": 2}], "boss": "chef_cat", "boss_dist": 210, "mod": "fog", "mod_at": 10, "mod_power": 1.5, "palette": {"bg": "#332b3d", "grid": "#463c52", "accent": "#c9a0dc"}, "clear_bonus": 31}, {"id": "r12", "name": "淵底大廳", "order": 12, "intro": "這是最後一間，吞光整棟", "world_w": 1550, "world_h": 2050, "layout": "rings", "start": [0.5, 0.92], "door": [0.5, 0.08], "time_first": 110, "time_next": 50, "spawn": [{"obj": "crumb", "n": 27}, {"obj": "kibble", "n": 14}, {"obj": "leaf", "n": 12}, {"obj": "mug", "n": 8}, {"obj": "bowl", "n": 8}, {"obj": "spool", "n": 8}, {"obj": "boot", "n": 5}, {"obj": "vase", "n": 4}, {"obj": "trolley", "n": 3}, {"obj": "crate", "n": 2}, {"obj": "hairball", "n": 4}, {"obj": "pin", "n": 3}, {"obj": "mousetrap", "n": 1}, {"obj": "alarm_mouse", "n": 3}], "boss": "guard_cat", "boss_dist": 240, "mod": "tide", "mod_at": 10, "mod_power": 1.8, "palette": {"bg": "#1a1622", "grid": "#2e2438", "accent": "#d94f4f"}, "clear_bonus": 32}], "objects": [{"id": "crumb", "name": "餅乾屑", "glyph": "🍪", "tier": 1, "size": 10, "gain": 0.9, "points": 2, "refund": 0.15, "move": "static", "speed": 0, "effect": "none", "effect_value": 0, "hazard": false, "boss": false, "color": "#7cc46b", "lore": "貓屋地板的永恆常駐居民。", "taunt": ""}, {"id": "bottlecap", "name": "瓶蓋", "glyph": "🔩", "tier": 1, "size": 9, "gain": 0.8, "points": 2, "refund": 0.15, "move": "static", "speed": 0, "effect": "none", "effect_value": 0, "hazard": false, "boss": false, "color": "#6bbf5e", "lore": "滾到床底的常客。", "taunt": ""}, {"id": "bead", "name": "玻璃珠", "glyph": "🔵", "tier": 1, "size": 11, "gain": 0.95, "points": 3, "refund": 0.15, "move": "wander", "speed": 25, "effect": "none", "effect_value": 0, "hazard": false, "boss": false, "color": "#82c96f", "lore": "踩到會痛的家庭陷阱。", "taunt": ""}, {"id": "moth", "name": "小飛蛾", "glyph": "🦋", "tier": 1, "size": 12, "gain": 1.05, "points": 3, "refund": 0.18, "move": "flee", "speed": 70, "effect": "none", "effect_value": 0, "hazard": false, "boss": false, "color": "#74c95d", "lore": "撲燈撲到懷疑貓生。", "taunt": ""}, {"id": "cobweb", "name": "牆角絨屑", "glyph": "🕸️", "tier": 1, "size": 13, "gain": 1.15, "points": 3, "refund": 0.18, "move": "wander", "speed": 20, "effect": "none", "effect_value": 0, "hazard": false, "boss": false, "color": "#8fd17d", "lore": "掃不完的貓屋特產。", "taunt": ""}, {"id": "sock", "name": "破襪子", "glyph": "🧦", "tier": 1, "size": 14, "gain": 1.2, "points": 4, "refund": 0.2, "move": "static", "speed": 0, "effect": "none", "effect_value": 0, "hazard": false, "boss": false, "color": "#69c76b", "lore": "永遠只剩一隻的謎團。", "taunt": ""}, {"id": "teacup", "name": "小茶杯", "glyph": "🍵", "tier": 2, "size": 18, "gain": 2.0, "points": 6, "refund": 0.3, "move": "static", "speed": 0, "effect": "none", "effect_value": 0, "hazard": false, "boss": false, "color": "#4a90d9", "lore": "主人最愛，貓最愛打翻。", "taunt": ""}, {"id": "hairclip", "name": "髮夾", "glyph": "📎", "tier": 2, "size": 19, "gain": 2.1, "points": 6, "refund": 0.3, "move": "wander", "speed": 28, "effect": "none", "effect_value": 0, "hazard": false, "boss": false, "color": "#5a9ce0", "lore": "沙發縫裡的失蹤人口。", "taunt": ""}, {"id": "marble", "name": "彈珠", "glyph": "🔮", "tier": 2, "size": 20, "gain": 2.2, "points": 7, "refund": 0.3, "move": "wander", "speed": 32, "effect": "none", "effect_value": 0, "hazard": false, "boss": false, "color": "#4285d6", "lore": "滾起來比貓還興奮。", "taunt": ""}, {"id": "yarnball", "name": "毛線球", "glyph": "🧶", "tier": 2, "size": 21, "gain": 2.3, "points": 7, "refund": 0.35, "move": "wander", "speed": 30, "effect": "slow", "effect_value": 1.5, "hazard": false, "boss": false, "color": "#63a6e8", "lore": "越滾越亂，越滾越開心。", "taunt": ""}, {"id": "mouse_toy", "name": "玩具老鼠", "glyph": "🐭", "tier": 2, "size": 22, "gain": 2.5, "points": 8, "refund": 0.35, "move": "flee", "speed": 85, "effect": "none", "effect_value": 0, "hazard": false, "boss": false, "color": "#3f7fc9", "lore": "假老鼠，真的會逃。", "taunt": ""}, {"id": "slipper", "name": "拖鞋", "glyph": "🥿", "tier": 2, "size": 24, "gain": 2.8, "points": 10, "refund": 0.4, "move": "static", "speed": 0, "effect": "none", "effect_value": 0, "hazard": false, "boss": false, "color": "#578fd9", "lore": "咬一口才算真的到家。", "taunt": ""}, {"id": "wakeup_clock", "name": "逃跑鬧鐘", "glyph": "⏰", "tier": 2, "size": 20, "gain": 2.2, "points": 8, "refund": 0, "move": "flee", "speed": 90, "effect": "time", "effect_value": 6, "hazard": false, "boss": false, "color": "#f0c419", "lore": "滴答滴答，快追上牠。", "taunt": ""}, {"id": "teapot", "name": "破陶壺", "glyph": "🏺", "tier": 3, "size": 30, "gain": 3.4, "points": 15, "refund": 0.6, "move": "static", "speed": 0, "effect": "none", "effect_value": 0, "hazard": false, "boss": false, "color": "#9b6bd1", "lore": "泡過茶，也泡過貓毛。", "taunt": ""}, {"id": "fishbowl", "name": "空魚缸", "glyph": "🐠", "tier": 3, "size": 32, "gain": 3.6, "points": 17, "refund": 0.6, "move": "static", "speed": 0, "effect": "none", "effect_value": 0, "hazard": false, "boss": false, "color": "#8f5fc9", "lore": "魚早就被撈去吃了。", "taunt": ""}, {"id": "hairbrush", "name": "大鬃刷", "glyph": "🪮", "tier": 3, "size": 34, "gain": 3.8, "points": 19, "refund": 0.65, "move": "wander", "speed": 20, "effect": "none", "effect_value": 0, "hazard": false, "boss": false, "color": "#a878d6", "lore": "梳毛神器，貓毛剋星。", "taunt": ""}, {"id": "shoebox", "name": "鞋盒", "glyph": "📦", "tier": 3, "size": 36, "gain": 4.0, "points": 22, "refund": 0.7, "move": "patrol", "speed": 25, "effect": "none", "effect_value": 0, "hazard": false, "boss": false, "color": "#935fcf", "lore": "拆封瞬間變貓的城堡。", "taunt": ""}, {"id": "yarn_basket", "name": "針線籃", "glyph": "🧵", "tier": 3, "size": 38, "gain": 4.2, "points": 25, "refund": 0.75, "move": "patrol", "speed": 30, "effect": "none", "effect_value": 0, "hazard": false, "boss": false, "color": "#b285dd", "lore": "一戳全部纏在一起。", "taunt": ""}, {"id": "bookstack", "name": "舊書堆", "glyph": "📚", "tier": 4, "size": 46, "gain": 6.2, "points": 40, "refund": 1.2, "move": "static", "speed": 0, "effect": "none", "effect_value": 0, "hazard": false, "boss": false, "color": "#e08a3c", "lore": "疊起來就是貓的瞭望台。", "taunt": ""}, {"id": "cushion", "name": "大坐墊", "glyph": "🛋️", "tier": 4, "size": 50, "gain": 6.6, "points": 46, "refund": 1.3, "move": "static", "speed": 0, "effect": "none", "effect_value": 0, "hazard": false, "boss": false, "color": "#e69850", "lore": "抓痕都是愛的證明。", "taunt": ""}, {"id": "potted_plant", "name": "盆栽", "glyph": "🪴", "tier": 4, "size": 53, "gain": 7.0, "points": 52, "refund": 1.4, "move": "patrol", "speed": 22, "effect": "none", "effect_value": 0, "hazard": false, "boss": false, "color": "#d97e2e", "lore": "土被挖過八百遍。", "taunt": ""}, {"id": "suitcase", "name": "舊行李箱", "glyph": "🧳", "tier": 4, "size": 56, "gain": 7.6, "points": 60, "refund": 1.5, "move": "patrol", "speed": 24, "effect": "none", "effect_value": 0, "hazard": false, "boss": false, "color": "#eb9d5e", "lore": "貓咪拒絕讓你出門的理由。", "taunt": ""}, {"id": "landlord_fatcat", "name": "胖貓房東", "glyph": "🐱", "tier": 5, "size": 70, "gain": 10, "points": 300, "refund": 5, "move": "static", "speed": 0, "effect": "none", "effect_value": 0, "hazard": false, "boss": true, "color": "#e0b63d", "lore": "開局把你彈開的那位。", "taunt": "就你這點肚量？"}, {"id": "landlord_tabby", "name": "虎斑二房東", "glyph": "🐈", "tier": 5, "size": 74, "gain": 11, "points": 360, "refund": 5, "move": "wander", "speed": 14, "effect": "none", "effect_value": 0, "hazard": false, "boss": true, "color": "#dba43a", "lore": "巡邏地盤的第二把交椅。", "taunt": "還嫩得很！"}, {"id": "landlord_shadow", "name": "黑貓夜巡官", "glyph": "🐈‍⬛", "tier": 5, "size": 78, "gain": 12, "points": 420, "refund": 5.5, "move": "wander", "speed": 15, "effect": "none", "effect_value": 0, "hazard": false, "boss": true, "color": "#d89637", "lore": "夜裡悄悄接管整層樓。", "taunt": "別想溜！"}, {"id": "landlord_grump", "name": "兇臉貓管家", "glyph": "😾", "tier": 5, "size": 82, "gain": 13, "points": 480, "refund": 5.5, "move": "wander", "speed": 16, "effect": "none", "effect_value": 0, "hazard": false, "boss": true, "color": "#d4822f", "lore": "看誰都欠牠三個月房租。", "taunt": "房租先繳！"}, {"id": "landlord_deity", "name": "貓神地下君", "glyph": "🙀", "tier": 5, "size": 88, "gain": 14, "points": 600, "refund": 6, "move": "wander", "speed": 18, "effect": "none", "effect_value": 0, "hazard": false, "boss": true, "color": "#d1602f", "lore": "整棟貓屋真正的地基主。", "taunt": "朕乃地基主。"}, {"id": "mousetrap", "name": "捕鼠夾", "glyph": "🪤", "tier": 1, "size": 12, "gain": -1.5, "points": 0, "refund": 0, "move": "static", "speed": 0, "effect": "none", "effect_value": 0, "hazard": true, "boss": false, "color": "#d94f4f", "lore": "夾到尾巴才知道厲害。", "taunt": ""}, {"id": "rusty_nail", "name": "生鏽鐵釘", "glyph": "📌", "tier": 1, "size": 14, "gain": -2.2, "points": 0, "refund": 0, "move": "static", "speed": 0, "effect": "none", "effect_value": 0, "hazard": true, "boss": false, "color": "#c94444", "lore": "地板縫裡的暗器。", "taunt": ""}, {"id": "soap_puddle", "name": "濕肥皂水", "glyph": "🫧", "tier": 2, "size": 20, "gain": -3.5, "points": 0, "refund": 0, "move": "flee", "speed": 65, "effect": "slow", "effect_value": 2, "hazard": true, "boss": false, "color": "#e0564f", "lore": "滑一跤，貓臉全濕。", "taunt": ""}], "perks": [{"id": "wide_mouth", "name": "大嘴喵", "glyph": "👄", "desc": "吞得下大8%的東西", "rarity": "common", "weight": 8, "min_order": 1, "effects": [{"k": "capture", "v": 0.08}], "max_stack": 2}, {"id": "gale_paws", "name": "疾風貓步", "glyph": "💨", "desc": "移動速度+15%", "rarity": "common", "weight": 8, "min_order": 1, "effects": [{"k": "speed", "v": 0.15}], "max_stack": 2}, {"id": "gluttony_growth", "name": "暴食成長", "glyph": "🍖", "desc": "吞噬成長+20%", "rarity": "common", "weight": 7, "min_order": 1, "effects": [{"k": "gain", "v": 0.2}], "max_stack": 2}, {"id": "unhurried_bite", "name": "從容一口", "glyph": "⏱️", "desc": "連吞窗口+0.3秒", "rarity": "common", "weight": 7, "min_order": 1, "effects": [{"k": "combo_window", "v": 0.3}], "max_stack": 2}, {"id": "sweet_return", "name": "回甘", "glyph": "🍬", "desc": "加時效果+25%", "rarity": "common", "weight": 7, "min_order": 1, "effects": [{"k": "refund", "v": 0.25}], "max_stack": 2}, {"id": "meow_gravity", "name": "喵引力", "glyph": "🧲", "desc": "吸附範圍+25px", "rarity": "common", "weight": 6, "min_order": 2, "effects": [{"k": "magnet", "v": 25}], "max_stack": 2}, {"id": "thick_skin", "name": "厚臉皮", "glyph": "🛡️", "desc": "危險物傷害減30%", "rarity": "common", "weight": 6, "min_order": 2, "effects": [{"k": "hazard_guard", "v": 0.3}], "max_stack": 2}, {"id": "early_breakfast", "name": "早餐已吃", "glyph": "🍳", "desc": "立刻+8px體型", "rarity": "common", "weight": 6, "min_order": 1, "effects": [{"k": "start_size", "v": 8}], "max_stack": 2}, {"id": "score_hunter", "name": "分數獵人", "glyph": "💰", "desc": "得分+15%", "rarity": "common", "weight": 7, "min_order": 1, "effects": [{"k": "points", "v": 0.15}], "max_stack": 2}, {"id": "quick_relief", "name": "急救包", "glyph": "⏰", "desc": "立刻+5秒", "rarity": "common", "weight": 8, "min_order": 1, "effects": [{"k": "time_now", "v": 5}], "max_stack": 1}, {"id": "fat_cat_radar", "name": "肥貓雷達", "glyph": "📡", "desc": "箭頭指向最肥可吞物", "rarity": "common", "weight": 5, "min_order": 1, "effects": [{"k": "radar", "v": 1}], "max_stack": 1}, {"id": "sluggish_wave", "name": "遲緩喵波", "glyph": "🌀", "desc": "移動物減速15%", "rarity": "common", "weight": 6, "min_order": 2, "effects": [{"k": "slow_movers", "v": 0.15}], "max_stack": 2}, {"id": "sprint_overdrive", "name": "衝刺過頭", "glyph": "🏃", "desc": "速度+25%，捕捉範圍-5%", "rarity": "rare", "weight": 4, "min_order": 2, "effects": [{"k": "speed", "v": 0.25}, {"k": "capture", "v": -0.05}], "max_stack": 2}, {"id": "greedy_gulp", "name": "貪心一口", "glyph": "😋", "desc": "成長+35%，連吞窗口-0.2秒", "rarity": "rare", "weight": 4, "min_order": 3, "effects": [{"k": "gain", "v": 0.35}, {"k": "combo_window", "v": -0.2}], "max_stack": 2}, {"id": "time_thief", "name": "偷時鐘", "glyph": "⏳", "desc": "立刻+10秒，連吞窗口-0.2秒", "rarity": "rare", "weight": 4, "min_order": 2, "effects": [{"k": "time_now", "v": 10}, {"k": "combo_window", "v": -0.2}], "max_stack": 1}, {"id": "iron_stomach", "name": "鐵胃", "glyph": "🧱", "desc": "危險物傷害減60%，速度-10%", "rarity": "rare", "weight": 3, "min_order": 4, "effects": [{"k": "hazard_guard", "v": 0.6}, {"k": "speed", "v": -0.1}], "max_stack": 2}, {"id": "big_gulp", "name": "巨口初現", "glyph": "🦈", "desc": "捕捉範圍+11%，成長-10%", "rarity": "rare", "weight": 4, "min_order": 3, "effects": [{"k": "capture", "v": 0.11}, {"k": "gain", "v": -0.1}], "max_stack": 2}, {"id": "score_gambler", "name": "賭分喵", "glyph": "🎲", "desc": "得分+35%，加時-15%", "rarity": "rare", "weight": 4, "min_order": 3, "effects": [{"k": "points", "v": 0.35}, {"k": "refund", "v": -0.15}], "max_stack": 2}, {"id": "magnet_overload", "name": "強力吸附", "glyph": "🧲", "desc": "吸附+55px，速度-8%", "rarity": "rare", "weight": 3, "min_order": 4, "effects": [{"k": "magnet", "v": 55}, {"k": "speed", "v": -0.08}], "max_stack": 2}, {"id": "head_start", "name": "搶跑一步", "glyph": "🏁", "desc": "立刻+18px體型，捕捉範圍-4%", "rarity": "rare", "weight": 3, "min_order": 3, "effects": [{"k": "start_size", "v": 18}, {"k": "capture", "v": -0.04}], "max_stack": 1}, {"id": "apex_predator", "name": "頂級掠食者", "glyph": "👑", "desc": "成長+30%、得分+20%", "rarity": "epic", "weight": 2, "min_order": 5, "effects": [{"k": "gain", "v": 0.3}, {"k": "points", "v": 0.2}], "max_stack": 1}, {"id": "ghost_paws", "name": "幻影貓爪", "glyph": "👻", "desc": "速度+25%、捕捉+8%", "rarity": "epic", "weight": 2, "min_order": 4, "effects": [{"k": "speed", "v": 0.25}, {"k": "capture", "v": 0.08}], "max_stack": 1}, {"id": "abyss_ward", "name": "淵界庇護", "glyph": "🌙", "desc": "危險物傷害減80%、連吞窗口+0.4秒", "rarity": "epic", "weight": 1, "min_order": 6, "effects": [{"k": "hazard_guard", "v": 0.8}, {"k": "combo_window", "v": 0.4}], "max_stack": 1}, {"id": "fortune_cat", "name": "招財貓魂", "glyph": "🐾", "desc": "得分+30%、加時+35%", "rarity": "epic", "weight": 2, "min_order": 5, "effects": [{"k": "points", "v": 0.3}, {"k": "refund", "v": 0.35}], "max_stack": 1}], "feats": [{"id": "first_bite", "name": "初嚐禁果", "glyph": "🍽️", "desc": "累計吞下 30 個物件", "stat": "objects_total", "op": "gte", "value": 30, "reward_type": "title", "reward_value": "貪吃新星", "secret": false}, {"id": "first_revenge", "name": "第一筆帳", "glyph": "🧾", "desc": "吞下任何一隻房東貓", "stat": "bosses_total", "op": "gte", "value": 1, "reward_type": "title", "reward_value": "報仇者", "secret": false}, {"id": "maiden_voyage", "name": "初次啟程", "glyph": "🚪", "desc": "完成一趟遊戲", "stat": "runs", "op": "gte", "value": 1, "reward_type": "title", "reward_value": "貓道新手", "secret": false}, {"id": "bottomless_pit", "name": "無底洞", "glyph": "🕳️", "desc": "累計吞下 800 個物件", "stat": "objects_total", "op": "gte", "value": 800, "reward_type": "palette", "reward_value": "#0f3d3d,#2dd4bf", "secret": false}, {"id": "landlord_nightmare", "name": "房東的惡夢", "glyph": "😾", "desc": "累計吞下 20 隻房東貓", "stat": "bosses_total", "op": "gte", "value": 20, "reward_type": "palette", "reward_value": "#3d0f2e,#f472b6", "secret": false}, {"id": "chain_15", "name": "十五連吞", "glyph": "🔗", "desc": "單次連吞達到 15", "stat": "max_combo", "op": "gte", "value": 15, "reward_type": "title", "reward_value": "連鎖新手", "secret": false}, {"id": "chain_35", "name": "三十五連吞", "glyph": "🌪️", "desc": "單次連吞達到 35", "stat": "max_combo", "op": "gte", "value": 35, "reward_type": "palette", "reward_value": "#1a1033,#a78bfa", "secret": false}, {"id": "iron_stomach", "name": "鐵胃", "glyph": "🤢", "desc": "累計吞下 25 顆危險物", "stat": "hazards_total", "op": "gte", "value": 25, "reward_type": "title", "reward_value": "鐵胃", "secret": false}, {"id": "hazard_gourmet", "name": "百毒不侵", "glyph": "☠️", "desc": "累計吞下 70 顆危險物", "stat": "hazards_total", "op": "gte", "value": 70, "reward_type": "title", "reward_value": "百毒不侵", "secret": false}, {"id": "dex_apprentice", "name": "圖鑑見習", "glyph": "📖", "desc": "點亮 15 種圖鑑", "stat": "dex_count", "op": "gte", "value": 15, "reward_type": "title", "reward_value": "見習學者", "secret": false}, {"id": "dex_master", "name": "全貓圖鑑", "glyph": "🐾", "desc": "點亮全部 30 種圖鑑", "stat": "dex_count", "op": "gte", "value": 30, "reward_type": "palette", "reward_value": "#0f1a3d,#818cf8", "secret": false}, {"id": "tidy_up", "name": "清潔工上工", "glyph": "🧹", "desc": "完成一次 100% 清房", "stat": "full_clears", "op": "gte", "value": 1, "reward_type": "title", "reward_value": "清潔工", "secret": false}, {"id": "clean_freak", "name": "潔癖成癮", "glyph": "✨", "desc": "累計 100% 清房 6 次", "stat": "full_clears", "op": "gte", "value": 6, "reward_type": "palette", "reward_value": "#1e293b,#94a3b8", "secret": false}, {"id": "score_hunter", "name": "分數獵人", "glyph": "💰", "desc": "單局最高分達到 1000", "stat": "best_score", "op": "gte", "value": 1000, "reward_type": "title", "reward_value": "分數獵人", "secret": false}, {"id": "room_chainer", "name": "連房高手", "glyph": "🏠", "desc": "單趟串滿 4 間房", "stat": "best_rooms_run", "op": "gte", "value": 4, "reward_type": "title", "reward_value": "連房高手", "secret": false}, {"id": "clock_smasher", "name": "鬧鐘剋星", "glyph": "⏰", "desc": "累計吞下 15 個鬧鐘", "stat": "clocks_total", "op": "gte", "value": 15, "reward_type": "title", "reward_value": "鬧鐘剋星", "secret": false}, {"id": "speed_demon", "name": "閃電初房", "glyph": "⚡", "desc": "首房通關時間 50 秒內", "stat": "fastest_first_room", "op": "lte", "value": 50, "reward_type": "title", "reward_value": "速吞高手", "secret": true}, {"id": "spotless_streak", "name": "一塵不染", "glyph": "🌟", "desc": "連續兩間房零危險物通過", "stat": "clean_rooms_run", "op": "gte", "value": 2, "reward_type": "title", "reward_value": "潔淨旅者", "secret": true}, {"id": "star_collector", "name": "星辰收藏家", "glyph": "⭐", "desc": "累計獲得 20 顆星星", "stat": "stars_total", "op": "gte", "value": 20, "reward_type": "palette", "reward_value": "#3d0f2a,#ec4899", "secret": false}, {"id": "daily_devotee", "name": "每日報到", "glyph": "📅", "desc": "連續登入挑戰 5 天", "stat": "daily_days", "op": "gte", "value": 5, "reward_type": "title", "reward_value": "忠實貓奴", "secret": false}]};</script>
+<script>
+(function(){
+'use strict';
+// ===== 常數與工具 =====
+const W=400,H=600,R0=16,CAP=0.92,COMBO_WIN=1.3,SAFE=260,DOOR_R=40,SINK_T=0.3,NEAR=1.15,LOW_T=20,STEP=1/120;
+const clamp=(v,a,b)=>Math.min(b,Math.max(a,v));
+const lerp=(a,b,t)=>a+(b-a)*t;
+const num=(v,d,a,b)=>{v=+v;if(!isFinite(v))v=d;return clamp(v,a,b);};
+const str=(v,d)=>(typeof v==='string'&&v.trim())?v:d;
+const bool=(v,d)=>v==null?d:!!v;
+const oneOf=(v,list,d)=>list.includes(v)?v:d;
+const hex=(v,d)=>(typeof v==='string'&&/^#[0-9a-fA-F]{6}$/.test(v))?v:d;
+const dist=(ax,ay,bx,by)=>Math.hypot(ax-bx,ay-by);
+const hash=s=>{let h=2166136261;s=String(s);for(let i=0;i<s.length;i++){h^=s.charCodeAt(i);h=Math.imul(h,16777619);}return h>>>0;};
+const $=id=>document.getElementById(id);
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const stars=n=>'★'.repeat(n)+'☆'.repeat(3-n);
+const TAU=Math.PI*2;
+// mulberry32 種子亂數
+function RNG(seed){let s=seed>>>0;const r={next(){s=(s+0x6D2B79F5)|0;let t=Math.imul(s^(s>>>15),1|s);t=(t+Math.imul(t^(t>>>7),61|t))^t;return((t^(t>>>14))>>>0)/4294967296;},range(a,b){return a+(b-a)*r.next();},int(a,b){return Math.floor(r.range(a,b+1));},pick(arr){return arr[Math.floor(r.next()*arr.length)];},shuffle(a){for(let i=a.length-1;i>0;i--){const j=Math.floor(r.next()*(i+1));const t=a[i];a[i]=a[j];a[j]=t;}return a;}};return r;}
+
+// ===== 內容載入與驗證 =====
+const TIER_COLOR=['#888','#6fc06a','#4d8fe0','#9b5fe0','#ee8f3a','#e0b63d'];
+const DEF_BOSS={id:'_boss',name:'胖貓房東',glyph:'🐱',tier:5,size:74,gain:12,points:400,refund:5,move:'static',speed:0,effect:'none',effect_value:0,hazard:false,boss:true,color:'#e0b63d',lore:'記住這筆帳。',taunt:'就你這點肚量？'};
+const DEF_FOOD={id:'_crumb',name:'餅乾屑',glyph:'🍪',tier:1,size:11,gain:0.9,points:2,refund:0.15,move:'static',speed:0,effect:'none',effect_value:0,hazard:false,boss:false,color:'#7cc46b',lore:'地板常客。',taunt:''};
+const PERK_KEYS=['speed','capture','gain','combo_window','refund','magnet','hazard_guard','start_size','points','time_now','radar','slow_movers'];
+const STAT_KEYS=['objects_total','bosses_total','max_combo','best_score','best_rooms_run','runs','full_clears','clocks_total','hazards_total','dex_count','fastest_first_room','clean_rooms_run','stars_total','daily_days'];
+const RAR={common:'普通',rare:'稀有',epic:'史詩'};
+const C={scenes:[],objects:[],perks:[],feats:[],byId:{},warnings:[]};
+function normObj(o,i){ // 物件欄位 clamp
+  o=o||{};const tier=Math.round(num(o.tier,1,1,5));const boss=bool(o.boss,false)||tier===5;const hazard=!boss&&bool(o.hazard,false);
+  let gain=num(o.gain,[0,1,2.4,3.8,6.8,12][tier],-6,20);if(hazard&&gain>0)gain=-gain;if(!hazard&&gain<0)gain=-gain;
+  return{id:str(o.id,'obj'+i),name:str(o.name,'雜物'+(i+1)),glyph:str(o.glyph,'●'),tier,boss,hazard,size:Math.round(num(o.size,[0,11,20,34,50,76][tier],6,120)),gain,
+    points:Math.round(num(o.points,[0,3,8,20,50,400][tier],0,2000)),refund:hazard?0:num(o.refund,[0,.15,.3,.6,1.2,5][tier],0,10),
+    move:oneOf(o.move,['static','wander','flee','patrol'],'static'),speed:num(o.speed,0,0,160),
+    effect:(hazard&&o.effect==='time')?'none':oneOf(o.effect,['none','slow','time'],'none'),effect_value:num(o.effect_value,0,0,15),
+    color:hex(o.color,hazard?'#e04848':TIER_COLOR[tier]),lore:str(o.lore,''),taunt:str(o.taunt,'')};
+}
+function normScene(s,i,bosses){ // 房間欄位 clamp
+  s=s||{};const boss=(C.byId[s.boss]&&C.byId[s.boss].boss)?s.boss:(bosses[0]?bosses[0].id:'_boss');
+  const spawn=[];let total=0;
+  (Array.isArray(s.spawn)?s.spawn:[]).forEach(e=>{const o=e&&C.byId[e.obj];if(!o||o.boss)return;const n=Math.round(num(e.n,1,1,60));if(total+n>160)return;total+=n;spawn.push({obj:o.id,n});});
+  if(!spawn.length){const f=C.objects.find(o=>!o.boss&&!o.hazard)||DEF_FOOD;spawn.push({obj:f.id,n:30});}
+  const pal=s.palette||{};const v2=(a,d)=>Array.isArray(a)&&a.length>=2?[num(a[0],d[0],0.05,0.95),num(a[1],d[1],0.05,0.95)]:d;
+  return{id:str(s.id,'r'+i),name:str(s.name,'雜物間'+(i+1)),order:num(s.order,i+1,1,999),intro:str(s.intro,'先吃小的，再回來報仇'),
+    world_w:Math.round(num(s.world_w,1000,800,1600)),world_h:Math.round(num(s.world_h,1400,1000,2200)),layout:oneOf(s.layout,['rings','clusters','scatter'],'scatter'),
+    start:v2(s.start,[0.5,0.8]),door:v2(s.door,[0.5,0.1]),time_first:Math.round(num(s.time_first,120,60,240)),time_next:Math.round(num(s.time_next,55,20,120)),spawn,boss,
+    boss_dist:Math.round(num(s.boss_dist,180,100,320)),mod:oneOf(s.mod,['none','leak','fog','tide'],'none'),mod_at:num(s.mod_at,60,0,300),mod_power:num(s.mod_power,1,0.3,3),
+    palette:{bg:hex(pal.bg,'#f3e7d3'),grid:hex(pal.grid,'#e6d5b8'),accent:hex(pal.accent,'#c9743a')},clear_bonus:Math.round(num(s.clear_bonus,20,0,60))};
+}
+function normPerk(p,i){p=p||{};const effects=(Array.isArray(p.effects)?p.effects:[]).filter(e=>e&&PERK_KEYS.includes(e.k)).map(e=>({k:e.k,v:num(e.v,0,-60,60)}));
+  const rarity=oneOf(p.rarity,['common','rare','epic'],'common');
+  return{id:str(p.id,'perk'+i),name:str(p.name,'貪吃卡'),glyph:str(p.glyph,'🎴'),desc:str(p.desc,''),rarity,weight:Math.round(num(p.weight,5,1,10)),min_order:Math.round(num(p.min_order,1,1,99)),effects,max_stack:(rarity==='epic'||effects.some(e=>e.k==='time_now'))?1:Math.round(num(p.max_stack,1,1,3))};}
+function normFeat(f,i){f=f||{};if(!STAT_KEYS.includes(f.stat))return null;const rt=oneOf(f.reward_type,['palette','title','none'],'none');
+  return{id:str(f.id,'feat'+i),name:str(f.name,'功勳'),glyph:str(f.glyph,'🏅'),desc:str(f.desc,''),stat:f.stat,op:oneOf(f.op,['gte','lte'],'gte'),value:num(f.value,1,0,1e9),reward_type:rt,reward_value:str(f.reward_value,''),secret:bool(f.secret,false)};}
+function loadContent(){
+  const src=window.SC_CONTENT||{};const arr=k=>Array.isArray(src[k])?src[k]:[];
+  C.objects=arr('objects').map(normObj);
+  if(!C.objects.some(o=>!o.boss))C.objects.push(DEF_FOOD);
+  if(!C.objects.some(o=>o.boss))C.objects.push(DEF_BOSS);
+  C.objects.forEach(o=>{C.byId[o.id]=o;});
+  const bosses=C.objects.filter(o=>o.boss);
+  C.scenes=arr('scenes').map((s,i)=>normScene(s,i,bosses));
+  if(!C.scenes.length)C.scenes.push(normScene({},0,bosses));
+  C.scenes.sort((a,b)=>a.order-b.order).forEach((s,i)=>{s.order=i+1;});
+  C.perks=arr('perks').map(normPerk).filter(p=>p.effects.length);
+  C.feats=arr('feats').map(normFeat).filter(f=>f);
+}
+
+// ===== 存檔進度 =====
+const KEY='sc_meow_abyss_v1';
+const SV={best_score:0,runs:0,unlocked:1,rooms:{},dex:{},feats:[],stats:{},daily:{date:'',best:0,prev_date:'',prev_best:0,streak:0,days:0},tips:[],palette:'',title:'',muted:false};
+STAT_KEYS.forEach(k=>{SV.stats[k]=0;});SV.stats.fastest_first_room=9999;
+function loadSave(){try{const j=JSON.parse(localStorage.getItem(KEY)||'{}');Object.keys(SV).forEach(k=>{if(j[k]!=null&&typeof j[k]===typeof SV[k]&&Array.isArray(j[k])===Array.isArray(SV[k]))SV[k]=j[k];});
+  STAT_KEYS.forEach(k=>{if(typeof SV.stats[k]!=='number')SV.stats[k]=k==='fastest_first_room'?9999:0;});if(typeof SV.daily.streak!=='number')SV.daily.streak=0;}catch(e){}}
+function persist(){try{localStorage.setItem(KEY,JSON.stringify(SV));}catch(e){}}
+function todayStr(d){d=d||new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
+function dailyInfo(){ // 每日一房：日期種子、房序＝日序 % 房數
+  const t=todayStr(),y=todayStr(new Date(Date.now()-864e5)),d=SV.daily;
+  const dayIdx=Math.floor((Date.now()-new Date().getTimezoneOffset()*6e4)/864e5);
+  return{seed:hash('daily-'+t),order:((dayIdx%C.scenes.length)+C.scenes.length)%C.scenes.length+1,todayBest:d.date===t?d.best:0,yBest:d.date===y?d.best:(d.prev_date===y?d.prev_best:0),streak:(d.date===t||d.date===y)?d.streak:0};
+}
+function evalFeats(){const st=SV.stats,out=[];C.feats.forEach(f=>{if(SV.feats.includes(f.id))return;const v=st[f.stat];const ok=f.op==='lte'?v<=f.value:v>=f.value;if(!ok)return;SV.feats.push(f.id);out.push(f);
+  if(f.reward_type==='palette'&&f.reward_value)SV.palette=f.reward_value;else if(f.reward_type==='title'&&f.reward_value)SV.title=f.reward_value;});return out;}
+function commit(S){ // 一趟結束寫入進度
+  const st=SV.stats;SV.runs++;st.runs=SV.runs;
+  st.objects_total+=S.objects;st.bosses_total+=S.bosses;st.max_combo=Math.max(st.max_combo,S.maxCombo);st.clocks_total+=S.clocks;st.hazards_total+=S.hazards;st.full_clears+=S.fullClears;
+  st.best_rooms_run=Math.max(st.best_rooms_run,S.roomsCleared);st.clean_rooms_run=Math.max(st.clean_rooms_run,S.cleanRooms);
+  if(S.firstBossTime!=null)st.fastest_first_room=Math.min(st.fastest_first_room,Math.round(S.firstBossTime*10)/10);
+  if(S.mode==='chain'){S.prevBest=SV.best_score;if(S.score>SV.best_score){S.newRecord=true;SV.best_score=S.score;}st.best_score=SV.best_score;}
+  else{const t=todayStr(),y=todayStr(new Date(Date.now()-864e5)),d=SV.daily;
+    if(d.date!==t){d.streak=(d.date===y)?d.streak+1:1;d.prev_date=d.date;d.prev_best=d.best;d.date=t;d.best=0;d.days=(d.days||0)+1;}
+    S.prevBest=d.best;if(S.score>d.best){d.best=S.score;S.newRecord=true;}st.daily_days=Math.max(st.daily_days,d.streak);}
+  const before=SV.unlocked;
+  S.roomResults.forEach(r=>{const rm=SV.rooms[r.order]||(SV.rooms[r.order]={best_pct:0,stars:0,best_clear_sec:0});rm.best_pct=Math.max(rm.best_pct,r.pct);rm.stars=Math.max(rm.stars,r.stars);
+    if(r.entered&&(!rm.best_clear_sec||r.sec<rm.best_clear_sec))rm.best_clear_sec=r.sec;if(r.entered&&S.mode==='chain')SV.unlocked=Math.max(SV.unlocked,Math.min(C.scenes.length,r.order+1));});
+  if(SV.unlocked>before)S.unlockedNew=SV.unlocked;
+  st.stars_total=Object.keys(SV.rooms).reduce((a,k)=>a+(SV.rooms[k].stars||0),0);
+  S.dexNew=[];Object.keys(S.eaten).forEach(id=>{if(!SV.dex[id])S.dexNew.push(id);SV.dex[id]=(SV.dex[id]||0)+S.eaten[id];});
+  st.dex_count=Object.keys(SV.dex).length;S.featsNew=evalFeats();persist();
+}
+function tip(id,text){if(SV.tips.includes(id))return;SV.tips.push(id);persist();FX.banner(text,'tip',3.2);}
+
+// ===== 核心狀態 =====
+const G={phase:'title',mode:'chain',chain:[],roomIdx:0,runSeed:0,timeScale:1,score:0,dispScore:0,best:0,recHit:false,S:null,startOrder:1,sel:1,now:0,runElapsed:0,lastPerk:null,pending:null};
+let R=null; // 目前房間
+const P={x:0,y:0,vx:0,vy:0,r:R0,targetR:R0,speedMul:1,captureRatio:CAP,gainMul:1,magnet:0,hazardMul:1,slowUntil:0,pointsMul:1,refundMul:1,comboWindow:COMBO_WIN,radar:0,moveMul:1,squash:0};
+const T={t:0};
+const cv=$('cv'),cx=cv.getContext('2d');let scale=1,dpr=1;
+
+// ===== 佈局生成（純函式）=====
+function mk(d,x,y){return{def:d,id:d.id,x,y,bx:x,by:y,size:d.size,tier:d.tier,boss:d.boss,hazard:d.hazard,eaten:false,sink:0,sx:x,sy:y,seen:false,t:0,ang:0,pd:1,hitT:-9};}
+function buildLayout(sc,seed,r0){
+  const rng=RNG(seed),w=sc.world_w,h=sc.world_h;
+  const start={x:sc.start[0]*w,y:sc.start[1]*h},door={x:sc.door[0]*w,y:sc.door[1]*h};
+  const bdef=C.byId[sc.boss]||DEF_BOSS;const ang=Math.atan2(door.y-start.y,door.x-start.x);
+  const boss=mk(bdef,clamp(start.x+Math.cos(ang)*sc.boss_dist,bdef.size+10,w-bdef.size-10),clamp(start.y+Math.sin(ang)*sc.boss_dist,bdef.size+10,h-bdef.size-10));
+  const objs=[boss],list=[];
+  sc.spawn.forEach(e=>{const d=C.byId[e.obj];if(!d)return;for(let i=0;i<e.n;i++)list.push(d);});
+  list.sort((a,b)=>(a.tier-b.tier)||((a.hazard?1:0)-(b.hazard?1:0))); // T1 食物優先填安全圈
+  const maxD=Math.hypot(w,h);let centers=[];
+  if(sc.layout==='clusters'){const n=6+rng.int(0,3);for(let i=0;i<n;i++){let cx0,cy0,tries=0;do{cx0=rng.range(80,w-80);cy0=rng.range(80,h-80);tries++;}while(tries<40&&(dist(cx0,cy0,start.x,start.y)<SAFE+80||centers.some(c=>dist(c.x,c.y,cx0,cy0)<240)));centers.push({x:cx0,y:cy0,d:dist(cx0,cy0,start.x,start.y)});}centers.sort((a,b)=>a.d-b.d);}
+  let safeCount=0;
+  list.forEach(d=>{
+    const safeOK=d.tier===1&&!d.hazard;let x=0,y=0,ok=false;
+    for(let t=0;t<16&&!ok;t++){
+      if(safeOK&&safeCount<14){const a=rng.next()*TAU,rr=rng.range(45,SAFE-30);x=start.x+Math.cos(a)*rr;y=start.y+Math.sin(a)*rr;}
+      else if(sc.layout==='rings'){const band=[[60,320],[240,560],[420,820],[620,1200],[800,1600]][clamp(d.tier,1,5)-1];const a=rng.next()*TAU,rr=rng.range(band[0],Math.min(band[1],maxD));x=start.x+Math.cos(a)*rr;y=start.y+Math.sin(a)*rr;}
+      else if(sc.layout==='clusters'&&centers.length){let ci=Math.round((d.tier-1)/4*(centers.length-1)+rng.range(-1,1));const c=centers[clamp(ci,0,centers.length-1)];const a=rng.next()*TAU,rr=rng.range(0,110+d.tier*15);x=c.x+Math.cos(a)*rr;y=c.y+Math.sin(a)*rr;}
+      else{x=rng.range(0,w);y=rng.range(0,h);const minD=Math.min(maxD*0.55,[0,0,220,380,540,0][d.tier]);if(dist(x,y,start.x,start.y)<minD)continue;}
+      const m=d.size+8;x=clamp(x,m,w-m);y=clamp(y,m,h-m);const ds=dist(x,y,start.x,start.y);
+      if(!safeOK&&ds<SAFE)continue;if(ds<d.size+r0+30)continue;if(dist(x,y,door.x,door.y)<DOOR_R+d.size)continue;
+      if(objs.some(o=>dist(o.x,o.y,x,y)<o.size+d.size+6))continue;ok=true;
+    }
+    if(!ok)return;if(safeOK&&dist(x,y,start.x,start.y)<SAFE)safeCount++;objs.push(mk(d,x,y));
+  });
+  return{objects:objs,boss,door,start,bounds:{w,h},rng};
+}
+
+// ===== 一趟流程 =====
+function startRun(order,mode){
+  mode=mode||'chain';const n=C.scenes.length;order=clamp(Math.round(order)||1,1,n);
+  G.mode=mode;G.startOrder=order;G.chain=[];
+  if(mode==='daily'){const d=dailyInfo();G.chain=[C.scenes[d.order-1]];G.runSeed=d.seed;G.best=d.todayBest;}
+  else{for(let i=0;i<4&&order-1+i<n;i++)G.chain.push(C.scenes[order-1+i]);G.runSeed=(hash(G.chain[0].id)+SV.runs*7)>>>0;G.best=SV.best_score;}
+  G.roomIdx=0;G.score=0;G.dispScore=0;G.recHit=false;G.runElapsed=0;G.timeScale=1;G.lastPerk=null;G.pending=null;
+  G.S={mode,startOrder:order,score:0,objects:0,bosses:0,maxCombo:0,hazards:0,clocks:0,fullClears:0,roomsCleared:0,cleanRooms:0,firstBossTime:null,roomResults:[],eaten:{},perks:[],won:false,reason:'',prevBest:G.best,newRecord:false,dexNew:[],featsNew:[]};
+  Object.assign(P,{r:R0,targetR:R0,vx:0,vy:0,speedMul:1,captureRatio:CAP,gainMul:1,magnet:0,hazardMul:1,slowUntil:0,pointsMul:1,refundMul:1,comboWindow:COMBO_WIN,radar:0,moveMul:1,squash:0});
+  PK.taken={};cam.slow.t=0;cam.shakeT=0;AU.beatT=0;IN.reset();
+  T.t=mode==='daily'?100:G.chain[0].time_first;
+  enterRoom();UI.hide();
+}
+function enterRoom(){
+  const sc=G.chain[G.roomIdx];const L=buildLayout(sc,(G.runSeed+G.roomIdx*7919)>>>0,P.r);
+  R={scene:sc,objs:L.objects,boss:L.boss,door:L.door,bounds:L.bounds,rng:L.rng,roomT:0,intro:1.3,combo:0,comboT:0,lastEat:-9,bossEaten:false,doorOpen:false,
+    mod:{type:sc.mod,active:false,pos:0,fogR:9999,axis:'y',dir:-1},eaten:0,total:L.objects.filter(o=>!o.boss&&!o.hazard).length,washed:0,hazardsHere:0,nearHi:null,taunt:null,pips:[],milestones:{}};
+  const m=R.mod,dx=R.door.x-L.start.x,dy=R.door.y-L.start.y;
+  if(Math.abs(dy)>=Math.abs(dx)){m.axis='y';m.dir=dy>0?1:-1;m.pos=m.dir<0?R.bounds.h:0;}else{m.axis='x';m.dir=dx>0?1:-1;m.pos=m.dir<0?R.bounds.w:0;}
+  P.x=L.start.x;P.y=L.start.y;P.vx=P.vy=0;cam.x=P.x;cam.y=P.y;cam.zoom=zoomFor(P.r);
+  initPips();FX.clear();G.phase='run';
+}
+function roomStats(){const tot=R.total;return{pct:tot?clamp(R.eaten/tot,0,1):1,eaten:R.eaten,total:tot,bossEaten:R.bossEaten};}
+function nearMissN(o){const need=o.size/P.captureRatio-P.r;const ed=R.objs.filter(x=>!x.eaten&&!x.hazard&&!x.boss&&x.size<=P.r*P.captureRatio);
+  const avg=ed.length?ed.reduce((a,x)=>a+x.def.gain,0)/ed.length*P.gainMul:1;return Math.max(1,Math.ceil(need/Math.max(0.3,avg)));}
+function initPips(){R.pips=[];const cap=P.r*P.captureRatio;for(let t=1;t<=5;t++){let best=null;R.objs.forEach(o=>{if(o.tier===t&&!o.hazard&&(!best||o.size>best.size))best=o;});if(best)R.pips.push({tier:t,glyph:best.def.glyph,size:best.size,name:best.def.name,lit:best.size<=cap,flash:0});}}
+function updatePips(){const cap=P.r*P.captureRatio;R.pips.forEach(p=>{if(p.flash>0)p.flash-=STEP;if(!p.lit&&p.size<=cap){p.lit=true;p.flash=1;FX.banner('吞得下 '+p.glyph+' '+p.name+' 了！','tier',1.5);AU.tierUp();}});}
+function tickRun(rdt){
+  cam.slow.t-=rdt;G.timeScale=cam.slow.t>0?cam.slow.scale:1;
+  if(R.intro>0){R.intro-=rdt;if(R.intro<=0&&G.lastPerk){FX.float('🎴 '+G.lastPerk.desc,P.x,P.y-P.r-24,'perk');G.lastPerk=null;}cam.follow(rdt);return;}
+  const dt=rdt*G.timeScale;R.roomT+=dt;G.runElapsed+=dt;
+  T.t-=dt;if(T.t<=0){T.t=0;endRun('time');return;}
+  movePit(dt);updateObjects(dt);updateMods(dt);checkOverlaps();
+  if(R.combo>0){R.comboT-=dt;if(R.comboT<=0)breakCombo();}
+  if(R.nearHi&&(R.nearHi.t-=dt)<=0)R.nearHi=null;if(R.taunt&&(R.taunt.t-=dt)<=0)R.taunt=null;
+  updatePips();
+  if(R.doorOpen&&dist(P.x,P.y,R.door.x,R.door.y)<=DOOR_R){doorEnter();return;}
+  if(!G.recHit&&G.best>0&&G.score>G.best){G.recHit=true;FX.banner('🎉 新紀錄！','rec',2);AU.record();}
+  if(T.t<LOW_T){AU.beatT-=dt;if(AU.beatT<=0){AU.beat();AU.beatT=0.95-(LOW_T-T.t)/LOW_T*0.45;}}
+  cam.follow(dt);FX.update(dt);
+}
+function inTide(x,y){const m=R.mod;if(m.type!=='tide'||!m.active)return false;const v=m.axis==='y'?y:x;return m.dir<0?v>m.pos:v<m.pos;}
+function movePit(dt){
+  const a=IN.axis();let sp=190*P.speedMul*(1-0.15*clamp((P.r-R0)/80,0,1));
+  if(G.now<P.slowUntil||inTide(P.x,P.y))sp*=0.5;
+  const k=a.mag>0?1-Math.exp(-dt*18):1-Math.exp(-dt*20);
+  P.vx=lerp(P.vx,a.x*a.mag*sp,k);P.vy=lerp(P.vy,a.y*a.mag*sp,k);
+  P.x=clamp(P.x+P.vx*dt,P.r*0.5,R.bounds.w-P.r*0.5);P.y=clamp(P.y+P.vy*dt,P.r*0.5,R.bounds.h-P.r*0.5);
+  if(R.mod.type==='leak'&&R.mod.active)P.targetR=Math.max(R0,P.targetR-0.35*R.scene.mod_power*dt);
+  P.r+=(P.targetR-P.r)*Math.min(1,dt*8);if(P.squash>0)P.squash-=dt;
+}
+function updateObjects(dt){
+  const b=R.bounds,cap=P.r*P.captureRatio;
+  for(const o of R.objs){
+    if(o.eaten){o.sink+=dt;continue;}
+    const d=dist(o.x,o.y,P.x,P.y);
+    if(P.magnet>0&&!o.boss&&o.size<=cap&&d<P.r+P.magnet&&d>1){o.x+=(P.x-o.x)/d*90*dt;o.y+=(P.y-o.y)/d*90*dt;}
+    const mv=o.def.move;if(mv==='static'||!o.def.speed)continue;
+    const sp=o.def.speed*(o.boss?1:P.moveMul);
+    if(mv==='wander'){o.t-=dt;if(o.t<=0){o.t=1+R.rng.next();o.ang=R.rng.next()*TAU;}o.x+=Math.cos(o.ang)*sp*dt;o.y+=Math.sin(o.ang)*sp*dt;}
+    else if(mv==='flee'){if(d<170+P.r){o.ang=Math.atan2(o.y-P.y,o.x-P.x);o.x+=Math.cos(o.ang)*sp*dt;o.y+=Math.sin(o.ang)*sp*dt;}}
+    else if(mv==='patrol'){if(b.w>b.h){o.x+=o.pd*sp*dt;if(o.x-o.bx>160)o.pd=-1;else if(o.bx-o.x>160)o.pd=1;}else{o.y+=o.pd*sp*dt;if(o.y-o.by>160)o.pd=-1;else if(o.by-o.y>160)o.pd=1;}}
+    const m=o.size;
+    if(o.x<m){o.x=m;o.ang=Math.PI-o.ang;o.pd=1;}else if(o.x>b.w-m){o.x=b.w-m;o.ang=Math.PI-o.ang;o.pd=-1;}
+    if(o.y<m){o.y=m;o.ang=-o.ang;o.pd=1;}else if(o.y>b.h-m){o.y=b.h-m;o.ang=-o.ang;o.pd=-1;}
+  }
+  R.objs=R.objs.filter(o=>!o.eaten||o.sink<SINK_T);
+}
+function updateMods(dt){
+  const m=R.mod,sc=R.scene;if(m.type==='none')return;
+  if(!m.active&&R.roomT>=sc.mod_at){m.active=true;AU.ui('mod');FX.banner({leak:'⬇ 漏淵開始！不吃就會縮小',fog:'🌫 濃霧來了！記住路線',tide:'🌊 潮水來了！別被沖走'}[m.type],'mod',2.2);}
+  if(!m.active)return;
+  if(m.type==='fog')m.fogR=260/sc.mod_power+P.r;
+  else if(m.type==='tide'){m.pos+=m.dir*18*sc.mod_power*dt;m.pos=clamp(m.pos,0,m.axis==='y'?R.bounds.h:R.bounds.w);
+    R.objs.forEach(o=>{if(o.eaten||o.boss)return;if(inTide(o.x,o.y)){o.eaten=true;o.sink=SINK_T;R.washed++;FX.burst(o.x,o.y,'#8fd0ff',4);}});}
+}
+function checkOverlaps(){
+  const cap=P.r*P.captureRatio,fog=R.mod.type==='fog'&&R.mod.active;
+  for(const o of R.objs){
+    if(o.eaten)continue;const d=dist(o.x,o.y,P.x,P.y);
+    if(fog&&d<R.mod.fogR)o.seen=true;
+    if(o.size<=cap){if(d<=P.r+o.size*0.25)eat(o);continue;}
+    const lim=P.r+o.size*0.75;if(d>=lim)continue;
+    const nx=(P.x-o.x)/(d||1),ny=(P.y-o.y)/(d||1),ov=lim-d; // 實體彈開
+    P.x+=nx*ov*1.6;P.y+=ny*ov*1.6;const dot=P.vx*nx+P.vy*ny;P.vx=(P.vx-2*dot*nx)*0.5;P.vy=(P.vy-2*dot*ny)*0.5;
+    if(G.now-o.hitT>0.45){o.hitT=G.now;cam.shake(6,0.2);AU.thud();breakCombo();FX.burst(P.x+nx*P.r,P.y+ny*P.r,'#ffffff',6);
+      if(o.size<=cap*NEAR){R.nearHi={o,t:0.9,n:nearMissN(o)};FX.float('再吞 '+R.nearHi.n+' 個',o.x,o.y-o.size-10,'near');}
+      if(o.boss){R.taunt={t:1.8,text:o.def.taunt||'還早呢！'};tip('bounce','太大了！先吃小的變大再回來');}}
+  }
+}
+function breakCombo(){if(R.combo>=3)AU.drop();R.combo=0;R.comboT=0;R.milestones={};}
+function eat(o){
+  o.eaten=true;o.sink=0;o.sx=o.x;o.sy=o.y;const def=o.def;G.S.eaten[def.id]=(G.S.eaten[def.id]||0)+1;
+  if(def.hazard){P.targetR=Math.max(R0,P.targetR+def.gain*P.hazardMul);breakCombo();R.hazardsHere++;G.S.hazards++;
+    if(def.effect==='slow')P.slowUntil=G.now+def.effect_value;AU.hazard();cam.shake(5,0.25);FX.burst(o.x,o.y,'#e04848',14);FX.float('好痛！縮小了',o.x,o.y-o.size,'bad');return;}
+  if(R.roomT-R.lastEat<=P.comboWindow)R.combo++;else R.combo=1;R.lastEat=R.roomT;R.comboT=P.comboWindow;
+  G.S.maxCombo=Math.max(G.S.maxCombo,R.combo);
+  const mult=1+0.1*Math.min(R.combo,20),pts=Math.round(def.points*mult*P.pointsMul);
+  G.score+=pts;T.t+=def.refund*P.refundMul;
+  if(def.effect==='time'){T.t+=def.effect_value;G.S.clocks++;FX.float('⏰ +'+def.effect_value+' 秒',o.x,o.y-o.size-16,'time');}
+  if(def.effect==='slow')P.slowUntil=G.now+def.effect_value;
+  P.targetR+=def.gain*P.gainMul;P.squash=0.12;if(!def.boss)R.eaten++;G.S.objects++;
+  AU.eat(def.tier,R.combo);FX.burst(o.x,o.y,def.color,4+def.tier*3);FX.float('+'+pts,o.x,o.y-o.size,def.tier>=3?'big':'');
+  [10,20,30].forEach((m,i)=>{if(R.combo===m&&!R.milestones[m]){R.milestones[m]=1;const add=[3,5,8][i];T.t+=add;FX.banner(m+' 連吞！⏱ +'+add+' 秒','gold',1.6);AU.milestone(i);}});
+  if(def.boss){R.bossEaten=true;R.doorOpen=true;G.S.bosses++;if(G.roomIdx===0&&G.S.firstBossTime==null)G.S.firstBossTime=R.roomT;
+    cam.slowmo(0.6,0.35);cam.shake(10,0.4);AU.boss();FX.banner('報仇！吞掉了 '+def.name,'boss',2);FX.burst(o.x,o.y,'#ffd35a',40);tip('door','報仇成功！貓門開了 →');}
+}
+function doorEnter(){
+  const st=roomStats(),stars3=st.pct>=1?3:st.pct>=0.85?2:1,clearPts=Math.round(st.pct*200),addT=R.scene.time_next+Math.round(R.scene.clear_bonus*st.pct);
+  G.score+=clearPts;G.S.roomResults.push({order:R.scene.order,pct:Math.round(st.pct*100),stars:stars3,sec:Math.round(R.roomT*10)/10,entered:true});
+  G.S.roomsCleared++;if(st.pct>=1)G.S.fullClears++;if(R.hazardsHere===0)G.S.cleanRooms++;AU.door();
+  if(G.roomIdx>=G.chain.length-1){endRun('win');return;}
+  T.t+=addT;G.pending={pct:Math.round(st.pct*100),stars:stars3,addT,clearPts};
+  const offer=PK.draw(G.chain[G.roomIdx+1].order);
+  if(!offer.length){nextRoom();return;}
+  G.phase='perk';IN.reset();UI.perkCards(offer);
+}
+function nextRoom(){G.roomIdx++;enterRoom();UI.hide();}
+function endRun(reason){
+  if(G.phase==='result')return;const S=G.S;S.reason=reason;
+  if(reason==='win'){S.won=true;S.timeBonus=Math.round(T.t*5);G.score+=S.timeBonus;}
+  else if(R.bossEaten){const st=roomStats();S.roomResults.push({order:R.scene.order,pct:Math.round(st.pct*100),stars:st.pct>=1?3:st.pct>=0.85?2:1,sec:0,entered:false});}
+  if(!R.bossEaten&&R.boss)S.bossMiss={name:R.boss.def.name,n:nearMissN(R.boss)};
+  S.score=G.score;S.roomsEntered=G.roomIdx+1;S.lastScene=R.scene.name;
+  commit(S);G.phase='result';IN.reset();if(S.newRecord)AU.record();UI.result(S);
+  try{if(window.SC&&typeof window.SC.over==='function')window.SC.over(G.score);}catch(e){}
+}
+function pause(){if(G.phase!=='run')return;G.phase='pause';IN.reset();$('b-mute2').textContent=AU.muted?'🔇':'🔊';UI.show('pause');}
+function resume(){if(G.phase!=='pause')return;G.phase='run';IN.reset();UI.hide();}
+
+// ===== 貪吃卡 =====
+const PK={taken:{},offer:[],
+  draw(order){const pool=C.perks.filter(p=>order>=p.min_order&&(PK.taken[p.id]||0)<p.max_stack);const rng=RNG((G.runSeed+order*101+G.roomIdx*7)>>>0);const out=[];
+    while(out.length<3&&pool.length){const tot=pool.reduce((a,p)=>a+p.weight,0);let x=rng.next()*tot,i=0;for(;i<pool.length-1;i++){x-=pool[i].weight;if(x<0)break;}out.push(pool.splice(i,1)[0]);}
+    PK.offer=out;return out;},
+  choose(i){const p=PK.offer[i];if(!p)return;PK.taken[p.id]=(PK.taken[p.id]||0)+1;applyEffects(p.effects);G.S.perks.push(p.name);G.lastPerk=p;AU.ui('pick');nextRoom();}
+};
+function applyEffects(effs){effs.forEach(e=>{const v=e.v;switch(e.k){
+  case'speed':P.speedMul=clamp(P.speedMul+v,0.4,2.5);break;case'capture':P.captureRatio=clamp(P.captureRatio+v,0.5,1.3);break;
+  case'gain':P.gainMul=clamp(P.gainMul+v,0.3,3);break;case'combo_window':P.comboWindow=clamp(P.comboWindow+v,0.5,4);break;
+  case'refund':P.refundMul=clamp(P.refundMul+v,0.3,3);break;case'magnet':P.magnet=clamp(P.magnet+v,0,200);break;
+  case'hazard_guard':P.hazardMul=clamp(P.hazardMul-v,0,1);break;case'start_size':P.targetR+=v<=1?R0*v:v;break;
+  case'points':P.pointsMul=clamp(P.pointsMul+v,0.3,3);break;case'time_now':T.t=Math.max(0,T.t+v);break;
+  case'radar':P.radar+=v;break;case'slow_movers':P.moveMul=clamp(P.moveMul*(1-v),0.2,1.5);break;}});}
+
+// ===== 鏡頭 =====
+const zoomFor=r=>clamp(1.12-r/150,0.5,1);
+const cam={x:0,y:0,zoom:1,shakeT:0,shakeDur:1,shakeAmp:0,ox:0,oy:0,slow:{t:0,scale:1},
+  follow(dt){cam.zoom+=(zoomFor(P.r)-cam.zoom)*Math.min(1,dt*4);cam.x+=(P.x-cam.x)*Math.min(1,dt*10);cam.y+=(P.y-cam.y)*Math.min(1,dt*10);
+    const vw=W/cam.zoom,vh=H/cam.zoom,b=R.bounds;cam.x=vw<b.w?clamp(cam.x,vw/2,b.w-vw/2):b.w/2;cam.y=vh<b.h?clamp(cam.y,vh/2,b.h-vh/2):b.h/2;
+    if(cam.shakeT>0){cam.shakeT-=dt;const a=cam.shakeAmp*Math.max(0,cam.shakeT/cam.shakeDur);cam.ox=(Math.random()*2-1)*a;cam.oy=(Math.random()*2-1)*a;}else{cam.ox=cam.oy=0;}},
+  shake(px,dur){cam.shakeAmp=px;cam.shakeT=dur;cam.shakeDur=dur;},slowmo(dur,s){cam.slow.t=dur;cam.slow.scale=s;},
+  w2s(x,y){return{x:(x-cam.x)*cam.zoom+W/2+cam.ox,y:(y-cam.y)*cam.zoom+H/2+cam.oy};}
+};
+
+// ===== 特效 =====
+const FX={p:[],f:[],b:[],clear(){FX.p=[];FX.f=[];FX.b=[];},
+  burst(x,y,color,n){for(let i=0;i<n;i++){if(FX.p.length>=300)FX.p.shift();const a=Math.random()*TAU,s=40+Math.random()*120;FX.p.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,t:0,life:0.35+Math.random()*0.4,c:color,s:2+Math.random()*3});}},
+  float(text,x,y,style){if(FX.f.length>40)FX.f.shift();FX.f.push({text,x,y,t:0,life:1.1,style:style||''});},
+  banner(text,style,dur){FX.b.push({text,style:style||'',t:0,life:dur||1.6});},
+  update(dt){FX.p=FX.p.filter(p=>(p.t+=dt)<p.life);FX.p.forEach(p=>{p.x+=p.vx*dt;p.y+=p.vy*dt;p.vx*=0.94;p.vy*=0.94;});
+    FX.f=FX.f.filter(f=>(f.t+=dt)<f.life);FX.f.forEach(f=>{f.y-=40*dt;});FX.b=FX.b.filter(b=>(b.t+=dt)<b.life);},
+  drawWorld(ctx){FX.p.forEach(p=>{ctx.globalAlpha=1-p.t/p.life;ctx.fillStyle=p.c;ctx.beginPath();ctx.arc(p.x,p.y,p.s,0,TAU);ctx.fill();});ctx.globalAlpha=1;},
+  drawScreen(ctx){
+    FX.f.forEach(f=>{const s=cam.w2s(f.x,f.y);const k=f.t/f.life;ctx.globalAlpha=1-k*k;const big=f.style==='big'||f.style==='perk';ctx.font=(big?'bold 20px':'bold 15px')+' sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';
+      ctx.lineWidth=3;ctx.strokeStyle='rgba(0,0,0,0.6)';ctx.strokeText(f.text,s.x,s.y);ctx.fillStyle={big:'#ffd35a',bad:'#ff6b6b',time:'#7ef0ff',near:'#ffe14d',perk:'#ffd35a'}[f.style]||'#fff';ctx.fillText(f.text,s.x,s.y);});ctx.globalAlpha=1;
+    FX.b.forEach((b,i)=>{const k=b.t/b.life,sc=b.t<0.15?0.6+0.4*(b.t/0.15):1;ctx.globalAlpha=k>0.8?(1-k)/0.2:1;ctx.save();ctx.translate(W/2,200+i*38);ctx.scale(sc,sc);
+      const col={tier:'#7ef0a0',boss:'#ff8c5a',gold:'#ffd35a',tip:'#ffffff',mod:'#8fd0ff',rec:'#ffe14d'}[b.style]||'#fff';ctx.font=(b.style==='boss'||b.style==='rec'?'bold 24px':'bold 17px')+' sans-serif';
+      const tw=ctx.measureText(b.text).width+28;ctx.fillStyle='rgba(20,14,30,0.75)';ctx.fillRect(-tw/2,-18,tw,36);ctx.fillStyle=col;ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(b.text,0,1);ctx.restore();});ctx.globalAlpha=1;}
+};
+
+// ===== 音效（WebAudio 合成）=====
+const AU={ctx:null,master:null,muted:false,beatT:0,
+  init(){if(AU.ctx)return;try{const A=window.AudioContext||window.webkitAudioContext;if(!A)return;AU.ctx=new A();AU.master=AU.ctx.createGain();AU.master.gain.value=AU.muted?0:0.5;AU.master.connect(AU.ctx.destination);}catch(e){}},
+  resume(){try{if(AU.ctx&&AU.ctx.state==='suspended')AU.ctx.resume().catch(()=>{});}catch(e){}},
+  tone(f,type,dur,vol,t0,slide){if(!AU.ctx)return;try{const c=AU.ctx,t=c.currentTime+(t0||0),o=c.createOscillator(),g=c.createGain();o.type=type;o.frequency.setValueAtTime(f,t);
+    if(slide)o.frequency.exponentialRampToValueAtTime(Math.max(20,slide),t+dur);g.gain.setValueAtTime(0.0001,t);g.gain.exponentialRampToValueAtTime(vol,t+0.01);g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
+    o.connect(g);g.connect(AU.master);o.start(t);o.stop(t+dur+0.02);}catch(e){}},
+  noise(dur,vol,t0){if(!AU.ctx)return;try{const c=AU.ctx,n=Math.floor(c.sampleRate*dur),buf=c.createBuffer(1,n,c.sampleRate),d=buf.getChannelData(0);for(let i=0;i<n;i++)d[i]=(Math.random()*2-1)*(1-i/n);
+    const s=c.createBufferSource(),g=c.createGain();s.buffer=buf;g.gain.value=vol;s.connect(g);g.connect(AU.master);s.start(c.currentTime+(t0||0));}catch(e){}},
+  eat(tier,combo){const f=220*Math.pow(2,Math.min(combo,24)/12)*Math.pow(2,(tier-1)*0.5);AU.tone(f,'triangle',0.12,0.25);AU.tone(f*2,'sine',0.08,0.08);if(tier>=3)AU.tone(f/2,'square',0.18,0.1);},
+  thud(){AU.tone(120,'sine',0.18,0.4,0,45);AU.noise(0.08,0.15);},
+  drop(){AU.tone(330,'sawtooth',0.25,0.12,0,110);},
+  hazard(){AU.tone(180,'square',0.25,0.18,0,90);AU.tone(190,'sawtooth',0.25,0.1,0,80);},
+  tierUp(){AU.tone(523,'sine',0.12,0.22);AU.tone(784,'sine',0.22,0.22,0.1);},
+  boss(){[262,330,392,523].forEach((f,i)=>AU.tone(f,'sawtooth',0.7,0.1,i*0.05));AU.noise(0.3,0.2);},
+  milestone(i){[0,4,7,12].forEach((s,k)=>AU.tone(440*Math.pow(2,(s+i*3)/12),'triangle',0.15,0.2,k*0.07));},
+  door(){[392,494,587,784].forEach((f,i)=>AU.tone(f,'sine',0.25,0.2,i*0.08));},
+  beat(){AU.tone(60,'sine',0.12,0.5,0,40);AU.tone(55,'sine',0.12,0.4,0.18,38);},
+  record(){[523,659,784,1047,784,1047].forEach((f,i)=>AU.tone(f,'square',0.18,0.1,i*0.1));},
+  ui(k){if(k==='mod')AU.tone(200,'sawtooth',0.4,0.12,0,120);else if(k==='pick')AU.tone(880,'sine',0.1,0.12);else AU.tone(660,'sine',0.06,0.1);},
+  toggleMute(){AU.muted=!AU.muted;SV.muted=AU.muted;persist();if(AU.master)AU.master.gain.value=AU.muted?0:0.5;$('b-mute').textContent=AU.muted?'🔇':'🔊';$('b-mute2').textContent=AU.muted?'🔇':'🔊';}
+};
+
+// ===== 輸入（浮動搖桿／鍵盤）=====
+const IN={active:false,pid:null,ax:0,ay:0,vx:0,vy:0,keys:{},moved:false,
+  pos(e){const r=cv.getBoundingClientRect();return{x:(e.clientX-r.left)*W/r.width,y:(e.clientY-r.top)*H/r.height};},
+  axis(){if(IN.active){const len=Math.hypot(IN.vx,IN.vy);if(len<1)return{x:0,y:0,mag:0};return{x:IN.vx/len,y:IN.vy/len,mag:Math.min(1,len/60)};}
+    let x=0,y=0;const k=IN.keys;if(k.ArrowLeft||k.KeyA)x-=1;if(k.ArrowRight||k.KeyD)x+=1;if(k.ArrowUp||k.KeyW)y-=1;if(k.ArrowDown||k.KeyS)y+=1;const l=Math.hypot(x,y);return l?{x:x/l,y:y/l,mag:1}:{x:0,y:0,mag:0};},
+  reset(){IN.active=false;IN.pid=null;IN.vx=IN.vy=0;IN.keys={};},
+  markMoved(){if(!IN.moved){IN.moved=true;if(!SV.tips.includes('move')){SV.tips.push('move');persist();}}}
+};
+cv.addEventListener('pointerdown',e=>{e.preventDefault();AU.init();AU.resume();if(G.phase!=='run')return;const p=IN.pos(e);
+  if(R&&R.intro<=0&&p.x>W-60&&p.y<52){pause();return;}
+  IN.active=true;IN.pid=e.pointerId;IN.ax=p.x;IN.ay=p.y;IN.vx=IN.vy=0;IN.markMoved();try{cv.setPointerCapture(e.pointerId);}catch(err){}});
+cv.addEventListener('pointermove',e=>{if(!IN.active||e.pointerId!==IN.pid)return;e.preventDefault();const p=IN.pos(e);IN.vx=p.x-IN.ax;IN.vy=p.y-IN.ay;const len=Math.hypot(IN.vx,IN.vy);
+  if(len>60){IN.ax=p.x-IN.vx/len*60;IN.ay=p.y-IN.vy/len*60;IN.vx=p.x-IN.ax;IN.vy=p.y-IN.ay;}});
+const endPtr=e=>{if(IN.pid!==null&&e.pointerId!==IN.pid)return;IN.active=false;IN.pid=null;IN.vx=IN.vy=0;};
+['pointerup','pointercancel','lostpointercapture'].forEach(n=>cv.addEventListener(n,endPtr));
+cv.addEventListener('contextmenu',e=>e.preventDefault());
+window.addEventListener('blur',()=>{IN.reset();if(G.phase==='run')pause();});
+document.addEventListener('visibilitychange',()=>{if(document.hidden){IN.reset();if(G.phase==='run')pause();}});
+window.addEventListener('keydown',e=>{const c=e.code;if(['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(c))e.preventDefault();if(e.repeat)return;AU.init();AU.resume();
+  if(c==='KeyM'){AU.toggleMute();return;}
+  if(G.phase==='run'){if(c==='KeyP'||c==='Escape'){pause();return;}IN.keys[c]=true;if(/^(Arrow|KeyW|KeyA|KeyS|KeyD)/.test(c))IN.markMoved();}
+  else if(G.phase==='pause'){if(c==='KeyP'||c==='Escape'||c==='Space'||c==='Enter')resume();}
+  else if(G.phase==='perk'){const m=/^(Digit|Numpad)([1-3])$/.exec(c);if(m)PK.choose(+m[2]-1);}
+  else if(G.phase==='title'){if(c==='Space'||c==='Enter')startRun(G.sel,'chain');}
+  else if(G.phase==='result'){if(c==='Space'||c==='Enter')startRun(G.startOrder,G.mode);}});
+window.addEventListener('keyup',e=>{delete IN.keys[e.code];});
+
+// ===== DOM 畫面 =====
+const UI={
+  show(name){document.querySelectorAll('.scr').forEach(s=>s.classList.toggle('on',s.id==='s-'+name));},
+  hide(){document.querySelectorAll('.scr').forEach(s=>s.classList.remove('on'));},
+  title(){const n=C.scenes.length;G.sel=clamp(G.sel||1,1,Math.min(SV.unlocked,n));
+    $('t-stats').innerHTML='最高分 <b>'+SV.best_score+'</b> ・ 圖鑑 <b>'+Object.keys(SV.dex).length+'/'+C.objects.length+'</b> ・ 功勳 <b>'+SV.feats.length+'/'+C.feats.length+'</b> ・ 趟數 <b>'+SV.runs+'</b>'+(SV.title?'<br>稱號「<b>'+esc(SV.title)+'</b>」':'');
+    $('rooms').innerHTML=C.scenes.map(s=>{const rm=SV.rooms[s.order],lock=s.order>SV.unlocked;return'<div class="rc'+(s.order===G.sel?' sel':'')+(lock?' lock':'')+'" data-act="room" data-order="'+s.order+'">'+(lock?'🔒 '+s.order:'第'+s.order+'房')+'<br>'+stars(rm?rm.stars:0)+'<br>'+(rm?rm.best_pct+'%':'--')+'</div>';}).join('');
+    const sel=$('rooms').querySelector('.rc.sel');if(sel&&sel.scrollIntoView)try{sel.scrollIntoView({inline:'center',block:'nearest'});}catch(e){}
+    $('b-start').textContent='▶ 開始（第 '+G.sel+' 房 '+esc(C.scenes[G.sel-1].name)+'）';
+    const d=dailyInfo();$('t-daily').innerHTML='📅 每日一房＝第 '+d.order+' 房「'+esc(C.scenes[d.order-1].name)+'」・今日最佳 <b>'+d.todayBest+'</b> ・昨日 '+d.yBest+' ・連續 <b>'+d.streak+'</b> 天';
+    $('b-mute').textContent=AU.muted?'🔇':'🔊';G.phase='title';UI.show('title');},
+  dex(){$('dex-n').textContent=Object.keys(SV.dex).length+'/'+C.objects.length;
+    $('dex-grid').innerHTML=C.objects.map((o,i)=>{const c=SV.dex[o.id];return'<div class="cell'+(c?'':' off')+'" data-act="dexi" data-i="'+i+'"><div class="g">'+(c?o.glyph:'❓')+'</div>'+(c?esc(o.name):'???')+'</div>';}).join('');
+    $('dex-info').textContent='點一格看說明';UI.show('dex');},
+  dexInfo(i){const o=C.objects[i];if(!o)return;const c=SV.dex[o.id];$('dex-info').innerHTML=c?'<b>'+o.glyph+' '+esc(o.name)+'</b> T'+o.tier+(o.hazard?' 危險物':'')+(o.boss?' 房東':'')+' ・ 半徑 '+o.size+' ・ 吞過 '+c+' 次<br>'+esc(o.lore||'（無說明）'):'???（尚未吞過，半徑 '+o.size+'）';},
+  feats(){$('feat-n').textContent=SV.feats.length+'/'+C.feats.length;
+    $('feat-list').innerHTML=C.feats.map(f=>{const got=SV.feats.includes(f.id),hid=f.secret&&!got;const rw=f.reward_type==='title'?' ・ 稱號「'+esc(f.reward_value)+'」':f.reward_type==='palette'?' ・ 淵色':'';
+      return'<div class="ft'+(got?'':' off')+'"><div class="g">'+(hid?'❓':f.glyph)+'</div><div><b>'+(hid?'???':esc(f.name))+'</b><br>'+(hid?'？？？（自然玩就會解開）':esc(f.desc)+rw)+'</div></div>';}).join('')||'<div class="ft">（本版尚無功勳）</div>';UI.show('feats');},
+  perkCards(offer){const pd=G.pending;$('perk-sum').innerHTML=pd?'清房 <b>'+pd.pct+'%</b> '+stars(pd.stars)+' ・ 清房分 +'+pd.clearPts+' ・ ⏱ +'+pd.addT+' 秒 ・ 下一房：'+esc(G.chain[G.roomIdx+1].name):'';
+    $('cards').innerHTML=offer.map((p,i)=>'<div class="card '+p.rarity+'" data-act="perk" data-i="'+i+'"><div class="cg">'+p.glyph+'</div><div class="ct"><b>'+esc(p.name)+'</b><span class="rr">'+(RAR[p.rarity]||'')+'</span><p>'+esc(p.desc)+'</p></div><div class="ck">按 '+(i+1)+'</div></div>').join('');UI.show('perk');},
+  result(S){
+    const rec=S.newRecord?'<div class="rec">🎉 新紀錄！'+S.score+' 分</div>':'<div class="nm">差 '+Math.max(1,S.prevBest-S.score)+' 分破紀錄（紀錄 '+S.prevBest+'）</div>';
+    const miss=S.bossMiss?'<div class="nm">差 '+S.bossMiss.n+' 件就能吞下【'+esc(S.bossMiss.name)+'】</div>':'';
+    const rooms=S.roomResults.map(r=>'第'+r.order+'房 '+r.pct+'% '+stars(r.stars)).join('　')||'（尚未吞下房東）';
+    const news=[];S.dexNew.forEach(id=>{const o=C.byId[id];if(o)news.push('📖 新圖鑑 '+o.glyph+esc(o.name));});S.featsNew.forEach(f=>news.push('🏅 新功勳 '+f.glyph+esc(f.name)));if(S.unlockedNew)news.push('🔓 解鎖第 '+S.unlockedNew+' 房起點！');
+    const hook=S.mode==='daily'?'📅 每日一房連續 '+dailyInfo().streak+' 天，明天再來守住！':(S.unlockedNew?'':'🔥 明天回來：圖鑑 '+Object.keys(SV.dex).length+'/'+C.objects.length+'，功勳 '+SV.feats.length+'/'+C.feats.length);
+    $('res-body').innerHTML='<div class="t2">'+(S.won?(S.mode==='daily'?'🏆 每日一房達成！':'🏆 整趟吞光！')+'':'⏰ 時間到')+'</div>'+rec+miss+
+      '<div class="res">串了 <b>'+S.roomsEntered+'</b> 房 ・ 吞了 <b>'+S.objects+'</b> 件 ・ 最高連吞 <b>'+S.maxCombo+'</b><br>'+rooms+'<br>分數 <b>'+S.score+'</b>'+(S.won?'（剩餘秒 ×5：+'+S.timeBonus+'）':'')+(S.perks.length?'<br>卡片：'+esc(S.perks.join('、')):'')+'</div>'+
+      (news.length?'<div class="new">'+news.join('<br>')+'</div>':'')+(hook?'<div class="small">'+hook+'</div>':'');
+    UI.show('result');}
+};
+$('ui').addEventListener('click',e=>{const el=e.target.closest('[data-act]');if(!el)return;AU.init();AU.resume();const act=el.dataset.act;
+  if(act==='start')startRun(G.sel,'chain');else if(act==='daily')startRun(dailyInfo().order,'daily');else if(act==='dex')UI.dex();else if(act==='feats')UI.feats();
+  else if(act==='mute')AU.toggleMute();else if(act==='back')UI.title();else if(act==='room'){const o=+el.dataset.order;if(o<=SV.unlocked){G.sel=o;AU.ui();UI.title();}}
+  else if(act==='dexi')UI.dexInfo(+el.dataset.i);else if(act==='perk')PK.choose(+el.dataset.i);else if(act==='resume')resume();else if(act==='title')UI.title();
+  else if(act==='retry')startRun(G.startOrder,G.mode);});
+
+// ===== 繪製 =====
+function pitColors(){const m=/^(#[0-9a-fA-F]{6}),(#[0-9a-fA-F]{6})$/.exec(SV.palette||'');return m?[m[1],m[2]]:['#2a1b3d','#6b4fbf'];}
+function fmtT(t){if(t<10)return t.toFixed(1);const s=Math.ceil(t);return s>=60?Math.floor(s/60)+':'+String(s%60).padStart(2,'0'):String(s);}
+function drawArrow(ctx,x,y,ang,color,label){ctx.save();ctx.translate(x,y);ctx.fillStyle='rgba(20,14,30,0.6)';ctx.beginPath();ctx.arc(0,0,22,0,TAU);ctx.fill();ctx.rotate(ang);ctx.fillStyle=color;ctx.beginPath();ctx.moveTo(14,0);ctx.lineTo(-8,-9);ctx.lineTo(-4,0);ctx.lineTo(-8,9);ctx.fill();ctx.restore();
+  ctx.font='11px sans-serif';ctx.fillStyle=color;ctx.textAlign='center';ctx.textBaseline='top';ctx.fillText(label,x,y+24);}
+function drawTide(ctx){const m=R.mod,b=R.bounds;const wave=(i)=>6*Math.sin(i*0.15+G.now*4);ctx.save();
+  let rx=0,ry=0,rw=b.w,rh=b.h,g;
+  if(m.axis==='y'){if(m.dir<0){ry=m.pos;rh=b.h-m.pos;g=ctx.createLinearGradient(0,m.pos,0,m.pos-60);}else{rh=m.pos;g=ctx.createLinearGradient(0,m.pos,0,m.pos+60);}}
+  else{if(m.dir<0){rx=m.pos;rw=b.w-m.pos;g=ctx.createLinearGradient(m.pos,0,m.pos-60,0);}else{rw=m.pos;g=ctx.createLinearGradient(m.pos,0,m.pos+60,0);}}
+  ctx.fillStyle='rgba(80,160,220,0.45)';ctx.fillRect(rx,ry,rw,rh);
+  g.addColorStop(0,'rgba(80,160,220,0.35)');g.addColorStop(1,'rgba(80,160,220,0)');ctx.fillStyle=g;
+  if(m.axis==='y')ctx.fillRect(0,m.dir<0?m.pos-60:m.pos,b.w,60);else ctx.fillRect(m.dir<0?m.pos-60:m.pos,0,60,b.h);
+  ctx.strokeStyle='#ffffff';ctx.lineWidth=5;ctx.beginPath();
+  if(m.axis==='y'){for(let x=0;x<=b.w;x+=20){const y=m.pos+wave(x);x?ctx.lineTo(x,y):ctx.moveTo(x,y);}}else{for(let y=0;y<=b.h;y+=20){const x=m.pos+wave(y);y?ctx.lineTo(x,y):ctx.moveTo(x,y);}}
+  ctx.stroke();ctx.restore();}
+function drawDoor(ctx){const d=R.door,open=R.doorOpen;ctx.save();ctx.translate(d.x,d.y);
+  if(open){const pul=0.6+0.4*Math.sin(G.now*5);ctx.fillStyle='rgba(255,215,90,'+(0.3*pul).toFixed(3)+')';ctx.beginPath();ctx.arc(0,0,DOOR_R*1.9,0,TAU);ctx.fill();}
+  ctx.fillStyle=open?'#ffd35a':'rgba(0,0,0,0.15)';ctx.beginPath();ctx.arc(0,0,DOOR_R,0,TAU);ctx.fill();ctx.strokeStyle=open?'#b8860b':'rgba(0,0,0,0.3)';ctx.lineWidth=4;ctx.stroke();
+  ctx.font='40px sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';ctx.globalAlpha=open?1:0.45;ctx.fillText(open?'🚪':'🔒',0,3);ctx.restore();}
+function drawObj(ctx,o){
+  const d=o.def;let s=o.size,x=o.x,y=o.y,rot=0,alpha=1;
+  if(o.eaten){const k=Math.min(1,o.sink/SINK_T);s=o.size*(1-k*0.9);x=lerp(o.sx,P.x,k*k);y=lerp(o.sy,P.y,k*k);rot=k*5;alpha=1-k*0.6;}
+  const edible=o.size<=P.r*P.captureRatio;ctx.save();ctx.translate(x,y);ctx.rotate(rot);ctx.globalAlpha=alpha;
+  ctx.beginPath();ctx.arc(0,0,s,0,TAU);ctx.fillStyle=d.hazard?'rgba(230,70,70,'+(0.35+0.25*Math.sin(G.now*8)).toFixed(3)+')':(edible?'rgba(255,255,255,0.6)':'rgba(0,0,0,0.14)');ctx.fill();
+  ctx.lineWidth=Math.max(2,s*0.12);ctx.strokeStyle=d.color;ctx.stroke();
+  if(R.nearHi&&R.nearHi.o===o){ctx.lineWidth=4;ctx.strokeStyle='#ffe14d';ctx.beginPath();ctx.arc(0,0,s+6,0,TAU);ctx.stroke();}
+  if(d.boss){ctx.fillStyle=d.color;ctx.beginPath();ctx.moveTo(-s*0.7,-s*0.5);ctx.lineTo(-s*0.5,-s*1.15);ctx.lineTo(-s*0.15,-s*0.8);ctx.fill();ctx.beginPath();ctx.moveTo(s*0.7,-s*0.5);ctx.lineTo(s*0.5,-s*1.15);ctx.lineTo(s*0.15,-s*0.8);ctx.fill();}
+  ctx.font=Math.round(s*1.35)+'px sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillStyle='#333';ctx.fillText(d.glyph,0,s*0.06);ctx.restore();
+}
+function drawPit(ctx){
+  const r=P.r*(P.squash>0?1.06:1),c=pitColors();ctx.save();ctx.translate(P.x,P.y);
+  const g=ctx.createRadialGradient(0,0,r*0.15,0,0,r*1.15);g.addColorStop(0,c[1]);g.addColorStop(0.55,c[0]);g.addColorStop(1,'rgba(0,0,0,0)');ctx.fillStyle=g;ctx.beginPath();ctx.arc(0,0,r*1.15,0,TAU);ctx.fill();
+  ctx.strokeStyle='rgba(255,255,255,0.35)';ctx.lineWidth=Math.max(1.5,r*0.06);ctx.beginPath();const t=G.now*3;
+  for(let i=0;i<3;i++){const a0=t+i*2.094;for(let k=0;k<=12;k++){const rr=r*(0.15+0.75*k/12),a=a0+k*0.35;const px=Math.cos(a)*rr,py=Math.sin(a)*rr;k?ctx.lineTo(px,py):ctx.moveTo(px,py);}}ctx.stroke();
+  ctx.fillStyle=c[0];[-1,1].forEach(sg=>{ctx.beginPath();ctx.moveTo(sg*r*0.75,-r*0.45);ctx.lineTo(sg*r*0.55,-r*1.2);ctx.lineTo(sg*r*0.15,-r*0.85);ctx.fill();}); // 貓耳
+  const sp=Math.hypot(P.vx,P.vy),ex=sp>5?P.vx/sp*r*0.06:0,ey=sp>5?P.vy/sp*r*0.06:0;
+  ctx.fillStyle='#fff';ctx.beginPath();ctx.arc(-r*0.3,-r*0.15,r*0.15,0,TAU);ctx.arc(r*0.3,-r*0.15,r*0.15,0,TAU);ctx.fill();
+  ctx.fillStyle='#111';ctx.beginPath();ctx.arc(-r*0.3+ex,-r*0.15+ey,r*0.07,0,TAU);ctx.arc(r*0.3+ex,-r*0.15+ey,r*0.07,0,TAU);ctx.fill();
+  if(R.combo>0&&R.comboT>0){ctx.strokeStyle='#ffd35a';ctx.lineWidth=Math.max(2,r*0.08);ctx.beginPath();ctx.arc(0,0,r+8,-Math.PI/2,-Math.PI/2+TAU*(R.comboT/P.comboWindow));ctx.stroke();} // 連吞窗口環
+  ctx.restore();
+}
+function drawWorld(ctx){
+  const pal=R.scene.palette,b=R.bounds,z=cam.zoom,fog=R.mod.type==='fog'&&R.mod.active;
+  ctx.fillStyle='#1d1626';ctx.fillRect(0,0,W,H);
+  ctx.save();ctx.translate(W/2+cam.ox,H/2+cam.oy);ctx.scale(z,z);ctx.translate(-cam.x,-cam.y);
+  const vx0=cam.x-W/2/z,vy0=cam.y-H/2/z,vx1=cam.x+W/2/z,vy1=cam.y+H/2/z;
+  ctx.fillStyle=pal.bg;ctx.fillRect(0,0,b.w,b.h);
+  ctx.strokeStyle=pal.grid;ctx.lineWidth=1;ctx.beginPath();for(let x=0;x<=b.w;x+=80){ctx.moveTo(x,0);ctx.lineTo(x,b.h);}for(let y=0;y<=b.h;y+=80){ctx.moveTo(0,y);ctx.lineTo(b.w,y);}ctx.stroke();
+  ctx.strokeStyle=pal.accent;ctx.lineWidth=6;ctx.strokeRect(0,0,b.w,b.h);
+  if(R.mod.type==='tide'&&R.mod.active)drawTide(ctx);
+  drawDoor(ctx);
+  for(const o of R.objs){if(o.x<vx0-o.size||o.x>vx1+o.size||o.y<vy0-o.size||o.y>vy1+o.size)continue;if(!fog)o.seen=true;else if(!o.seen&&!o.eaten)continue;drawObj(ctx,o);}
+  drawPit(ctx);FX.drawWorld(ctx);
+  if(fog){const fr=R.mod.fogR;const g=ctx.createRadialGradient(P.x,P.y,fr*0.6,P.x,P.y,fr);g.addColorStop(0,'rgba(20,14,30,0)');g.addColorStop(1,'rgba(20,14,30,0.78)');ctx.fillStyle=g;ctx.fillRect(vx0-10,vy0-10,vx1-vx0+20,vy1-vy0+20);}
+  ctx.restore();
+}
+function drawHUD(ctx){
+  const acc=R.scene.palette.accent,st=roomStats();
+  ctx.fillStyle='rgba(20,14,30,0.72)';ctx.fillRect(0,0,W,52);
+  G.dispScore+=(G.score-G.dispScore)*0.2;if(Math.abs(G.score-G.dispScore)<1)G.dispScore=G.score;
+  ctx.fillStyle='#fff';ctx.font='bold 20px sans-serif';ctx.textAlign='left';ctx.textBaseline='top';ctx.fillText(String(Math.round(G.dispScore)),10,6);
+  const recT=G.best<=0?'首趟・立下紀錄':(G.score>G.best?'新紀錄！':'距紀錄 −'+(G.best-G.score));
+  ctx.font='11px sans-serif';ctx.fillStyle=G.score>G.best&&G.best>0?'#ffd35a':'#cbbfd6';ctx.fillText(recT,10,32);
+  const low=T.t<LOW_T;ctx.textAlign='center';ctx.font='bold 28px sans-serif';ctx.fillStyle=low&&Math.sin(G.now*10)>0?'#ff5a5a':'#fff';ctx.fillText(fmtT(T.t),W/2,10);
+  ctx.textAlign='right';ctx.font='12px sans-serif';ctx.fillStyle='#e8dcc8';ctx.fillText('第'+R.scene.order+'房 '+R.scene.name,W-42,8);
+  ctx.font='11px sans-serif';ctx.fillStyle='#bbb';ctx.fillText(G.mode==='daily'?'每日一房':'串 '+(G.roomIdx+1)+'/'+G.chain.length,W-42,27);
+  ctx.font='20px sans-serif';ctx.textAlign='center';ctx.fillStyle='#fff';ctx.fillText('⏸',W-20,14);
+  ctx.fillStyle='rgba(0,0,0,0.35)';ctx.fillRect(10,58,W-50,12);ctx.fillStyle=acc;ctx.fillRect(10,58,(W-50)*st.pct,12); // 清房進度條
+  ctx.fillStyle='#fff';ctx.font='bold 10px sans-serif';ctx.textAlign='left';ctx.fillText('清房 '+Math.round(st.pct*100)+'%'+(R.washed?'（沖走 '+R.washed+'）':''),14,59);
+  ctx.font='18px sans-serif';ctx.textAlign='center';ctx.fillText(R.bossEaten?'✔':(R.boss?R.boss.def.glyph:'🐱'),W-24,55);
+  R.pips.forEach((p,i)=>{const x=10+i*38,y=H-46,fl=p.flash>0?1+0.3*Math.sin(p.flash*Math.PI):1;ctx.save();ctx.translate(x+16,y+16);ctx.scale(fl,fl); // 吞得下燈
+    ctx.fillStyle=p.lit?TIER_COLOR[p.tier]:'rgba(20,14,30,0.6)';ctx.beginPath();ctx.arc(0,0,16,0,TAU);ctx.fill();ctx.globalAlpha=p.lit?1:0.35;ctx.font='18px sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(p.glyph,0,1);ctx.restore();});
+  ctx.font='10px sans-serif';ctx.fillStyle='#e8dcc8';ctx.textAlign='left';ctx.textBaseline='top';ctx.fillText('吞得下 ＝ 亮燈',10,H-60);
+  const m=R.mod;if(m.type!=='none'){const nm={leak:'⬇ 漏淵',fog:'🌫 濃霧',tide:'🌊 潮水'}[m.type];let txt='';if(m.active)txt=nm+(m.type==='leak'?' 中（半徑流失）':' 中');else if(R.scene.mod_at-R.roomT<=8)txt=nm+' '+Math.ceil(R.scene.mod_at-R.roomT)+' 秒後';
+    if(txt){ctx.font='bold 12px sans-serif';ctx.fillStyle=m.active&&Math.sin(G.now*4)>0?'#ff8c5a':'#ffd35a';ctx.fillText(txt,10,H-76);}}
+  if(P.magnet||P.speedMul!==1||P.captureRatio!==CAP){ctx.font='10px sans-serif';ctx.fillStyle='#bfb3cc';ctx.fillText('🎴 卡 ×'+G.S.perks.length,10,H-90);}
+  if(R.doorOpen){drawArrow(ctx,W-40,H-52,Math.atan2(R.door.y-P.y,R.door.x-P.x),'#ffd35a','貓門');}
+  else if(P.radar>0){let best=null;const cap=P.r*P.captureRatio;R.objs.forEach(o=>{if(!o.eaten&&!o.hazard&&o.size<=cap&&(!best||o.def.gain>best.def.gain))best=o;});if(best)drawArrow(ctx,W-40,H-52,Math.atan2(best.y-P.y,best.x-P.x),'#7ef0ff','雷達');}
+  else if(!R.bossEaten&&R.boss){drawArrow(ctx,W-40,H-52,Math.atan2(R.boss.y-P.y,R.boss.x-P.x),'rgba(255,255,255,0.55)','房東');}
+  if(R.combo>=2){const s=cam.w2s(P.x,P.y);ctx.font='bold 18px sans-serif';ctx.textAlign='left';ctx.textBaseline='middle';ctx.lineWidth=3;ctx.strokeStyle='rgba(0,0,0,0.6)';const tx='×'+R.combo,px=s.x+P.r*cam.zoom+12,py=s.y-P.r*cam.zoom-6;ctx.strokeText(tx,px,py);ctx.fillStyle='#ffd35a';ctx.fillText(tx,px,py);}
+  if(R.taunt&&R.boss){const s=cam.w2s(R.boss.x,R.boss.y-R.boss.size*1.3);ctx.font='bold 13px sans-serif';const tw=ctx.measureText(R.taunt.text).width+20;ctx.fillStyle='#fff';ctx.beginPath();ctx.roundRect?ctx.roundRect(s.x-tw/2,s.y-28,tw,26,8):ctx.rect(s.x-tw/2,s.y-28,tw,26);ctx.fill();
+    ctx.fillStyle='#333';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(R.taunt.text,s.x,s.y-15);}
+  if(IN.active){ctx.strokeStyle='rgba(255,255,255,0.35)';ctx.lineWidth=2;ctx.beginPath();ctx.arc(IN.ax,IN.ay,60,0,TAU);ctx.stroke();ctx.fillStyle='rgba(255,255,255,0.4)';ctx.beginPath();ctx.arc(IN.ax+IN.vx,IN.ay+IN.vy,16,0,TAU);ctx.fill();}
+  if(T.t<LOW_T&&R.intro<=0){const g=ctx.createRadialGradient(W/2,H/2,H*0.35,W/2,H/2,H*0.75);g.addColorStop(0,'rgba(255,40,40,0)');g.addColorStop(1,'rgba(255,40,40,'+(0.3+0.2*Math.sin(G.now*6)).toFixed(3)+')');ctx.fillStyle=g;ctx.fillRect(0,0,W,H);}
+  FX.drawScreen(ctx);
+  if(!IN.moved&&!SV.tips.includes('move')&&R.intro<=0){const a=G.now*2;ctx.font='30px sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText('👆',W/2+Math.cos(a)*36,H*0.72+Math.sin(a)*36);
+    ctx.font='bold 14px sans-serif';ctx.lineWidth=3;ctx.strokeStyle='rgba(0,0,0,0.6)';ctx.strokeText('按住任何地方拖曳移動喵淵',W/2,H*0.72+60);ctx.fillStyle='#fff';ctx.fillText('按住任何地方拖曳移動喵淵',W/2,H*0.72+60);}
+  if(R.intro>0){ctx.fillStyle='rgba(20,14,30,'+Math.min(0.7,R.intro).toFixed(3)+')';ctx.fillRect(0,0,W,H);ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillStyle='#ffd58a';ctx.font='bold 28px sans-serif';ctx.fillText('第 '+R.scene.order+' 房 '+R.scene.name,W/2,H/2-30);
+    ctx.fillStyle='#fff';ctx.font='16px sans-serif';ctx.fillText(R.scene.intro,W/2,H/2+10);ctx.font='13px sans-serif';ctx.fillStyle='#cbbfd6';ctx.fillText('吞下房東 '+(R.boss?R.boss.def.glyph+' '+R.boss.def.name:'')+' 才能開門',W/2,H/2+40);}
+}
+function render(){cx.setTransform(scale*dpr,0,0,scale*dpr,0,0);if(!R){cx.fillStyle='#2a2033';cx.fillRect(0,0,W,H);return;}drawWorld(cx);drawHUD(cx);}
+function resize(){const vw=window.innerWidth,vh=window.innerHeight;scale=Math.min(vw/W,vh/H);dpr=Math.min(3,window.devicePixelRatio||1);
+  cv.width=Math.round(W*scale*dpr);cv.height=Math.round(H*scale*dpr);cv.style.width=W*scale+'px';cv.style.height=H*scale+'px';
+  const wrap=$('wrap');wrap.style.width=W*scale+'px';wrap.style.height=H*scale+'px';wrap.style.left=Math.floor((vw-W*scale)/2)+'px';wrap.style.top=Math.floor((vh-H*scale)/2)+'px';$('ui').style.transform='scale('+scale+')';}
+window.addEventListener('resize',resize);
+
+// ===== 主迴圈（固定步長累積）=====
+let last=0,acc=0;
+function frame(now){requestAnimationFrame(frame);let dt=(now-last)/1000;last=now;if(!(dt>0))dt=0;if(dt>0.05)dt=0.05;G.now+=dt;
+  try{if(G.phase==='run'){acc+=dt;let n=0;while(acc>=STEP&&n<8&&G.phase==='run'){tickRun(STEP);acc-=STEP;n++;}if(n>=8)acc=0;}else acc=0;render();}catch(e){acc=0;}}
+
+// ===== 品管掛鉤 =====
+window.SC_HOOKS={start(){startRun(G.sel||1,'chain');},snapshot(){const st=R?roomStats():null;return{phase:G.phase,mode:G.mode,scene:R?R.scene.id:null,level:R?R.scene.order:0,room:G.roomIdx+1,rooms:G.chain.length,score:G.score,elapsed:Math.round(G.runElapsed*10)/10,
+  time:Math.round(T.t*10)/10,radius:Math.round(P.r*10)/10,combo:R?R.combo:0,pct:st?Math.round(st.pct*100):0,bossEaten:!!(R&&R.bossEaten),doorOpen:!!(R&&R.doorOpen),mod:R?R.mod.type:null,modActive:!!(R&&R.mod.active),objects:R?R.objs.length:0,best:SV.best_score,unlocked:SV.unlocked,runs:SV.runs};}};
+
+// ===== 啟動 =====
+function boot(){loadContent();loadSave();AU.muted=!!SV.muted;resize();G.sel=Math.max(1,Math.min(SV.unlocked,C.scenes.length));UI.title();last=performance.now();requestAnimationFrame(frame);}
+boot();
+})();
+</script>
+<script src="../../sc_config.js"></script>
+<script src="../../stats.js"></script>
+</body>
+</html>
