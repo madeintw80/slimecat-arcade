@@ -1,48 +1,48 @@
 # CHECKPOINT
 
-Updated: 2026-09-05 16:10 Asia/Taipei
+Updated: 2026-09-05 19:05 Asia/Taipei
 Task Lead: Batnini
-Status: complete（Phase 0）；Phase 1／2 待新 session 開工
+Status: complete（Phase 1／2 落地＋首款 v3 試產上線＋排程已切 v3）；Phase 3 旗艦化待 Boss 開工
 Branch: main
-Last verified commit: 本次 Phase 0 commit（見 git log 最新一筆）；前次基線＝8/9 三天一產改制 `ed8eb8d`（9/3 健檢）
+Last verified commit: 本次 Phase 1／2 程式 commit（見 git log 最新一筆）；工廠自動 commit＝《喵淵吞吞樂》上架＋內容包重生＋打磨；前次基線＝Phase 0 `c983a4b`／`ddf2d03`
 
-## Boss requested（2026-09-05 拍板，完整清單見 DECISIONS.md 同日條目）
+## Boss requested（2026-09-05 拍板，完整清單見 DECISIONS.md 同日兩條）
 
-一週一款（週六 02:00）、v3 多階段生產線（分 Phase）、美術自由、TG 兩則介紹、做大靠手動、Steam 榜＋解構指令、
-大廳真實數據排序、檢討會與打磨重整；小修照建議自決。本 checkpoint 只涵蓋 Phase 0。
+Phase 1：v3 多階段生產線（Claude-only）＋Steam 榜靈感＋「解構 <遊戲名>」指令；Phase 2：Echo 接獨立評審＋整合稽核＋每階段用量對帳。
+Kickoff 決策：1A 全鏈試產並上架→成功切排程、2A 靈感一榜合併策劃自己挑、3C 規模由企劃書自訂（上限＝大型）；其餘照建議自決。
 
-## Completed（Phase 0）
+## Completed（Phase 1／2）
 
-- `factory/make_game.py` v2.2：`run_claude` 改 `--output-format stream-json --verbose` 收齊所有文字塊（8/30 停產根因）、記用量 `usage.jsonl`、偵測額度（`QuotaError`＋`rate_limit_event.resetsAt`）；`schedule_retry` 撞額度建一次性 schtasks 補跑（同日最多 2 次，`retry_state.json`）；評審半分四捨五入、讀碼上限 160k、多交 `howto/design_choices/pressure_3min/scale_up`；打磨只修第一條缺陷、品管過就採用；`GENRES` 固定 14 類＋`normalize_genre`；美術自由；`recent_lessons` 餵料分流（近 42 天、跳過檢討會行）；`notify_release` 兩則介紹推 `studio_chat.json` 群組（沒設＝Boss 私訊）；`effort` 參數預留。
-- `factory/weekly_review.py` v2.2：近 21 天教訓＋整併聖經＋DECISIONS.md＋樣本數守則；輸出 LEARN／PROCESS（→`process_notes.md`）／PRINCIPLE（→聖經第六節累積，>20 條自動整併）／SUMMARY；撞額度補跑。
-- `factory/knowledge/fun_principles.md`：17 節「檢討修訂」整併為第六節（12 條設計條文）＋第七節數據判讀守則；流程／產能條文移出。
-- `index.html`（7A）：`popScore` 真實數據排序、首屏＝第一名、精選＝2~4 名＋本週新作保底、拿掉「品質 N/50」、`GENRE_MAP` 固定分類、文案改週更。`factory/rebuild.py` 併 `stats` 進 games.js。`daily_feedback.py` 每天順便拉數據＋重建＋部署。
-- `games.json`：59 款 genre 遷移到固定清單（20 款改寫，原字串存 `genre_raw`）。
-- 排程：`SlimeCat Factory Daily` → 每週六 02:00（`setup_schedule.py` 同時是 `run_factory.bat` 的唯一來源，含心跳＋log 輪轉）；`SlimeCat Weekly Review` → 每週日 18:00；`_common/heartbeat.py` SlimeCat Factory 門檻 80h→186h。
-- 新工具 `factory/studio_setup.py`（--discover／<chat_id>／--status／--clear）。
-- 文件：PROJECT／AGENTS／TASKS／DECISIONS／README／DESIGN／skills/slimecat 分冊 PM→Boss、週更。
+- `factory/v3/`：`pipeline.py`（`produce_v3`＝企劃書→引擎→內容包→組裝→品管→評審→打磨→上架；`regen_content` 重生內容包；`polish_released` 再打磨）、`stages.py`（各階段 prompt／解析／驗證、模型與 effort、`CAPS`、`BUDGET_USD`、跨包引用 `ref_fields`／`order_packs`／`find_bad_refs`）、`echo_review.py`（Echo 委派、模型退路、fail-open）、`qa.py`（煙霧＋壓力 12 秒＋SC_CONTENT 檢查）、`patch.py`（SEARCH/REPLACE 整行錨定＋去尾空白退路）、`run.py`（`factory/runs/<id>/` 落檔、`run.json`、續跑指標）。
+- 入口 `factory/make_game_v3.py`（`--pick`／`--decon`／`--resume`／`--regen … --packs`／`--polish`／`--no-publish`／`--no-echo`）；`decon_now.py`（解構不生產）；`usage_report.py`（用量對帳）；`tests/test_v3.py`（離線 60+ 項＋`--live` haiku 探針）。
+- `make_game.py`：`run_claude` 加 `CLAUDE_CODE_MAX_OUTPUT_TOKENS=128000`＋`--max-budget-usd`＋`OutputLimitError`；`stage_deconstruct(pick=)` 兩榜合併＋`ORIGIN:`；`trend_chart`／`save_decon`（md＋.json 側檔）；`notify_release(extra=)`。`fetch_trends.py` 加 Steam（熱銷 10＋新品 15、appdetails 補簡介類型、濾 DLC／成人／工具）。
+- 切換：`setup_schedule.py` `ENTRY=make_game_v3.py`（已重跑，下次 9/12 02:00）；`produce_batch.py`（`ENTRY`、單款上限 2.5h）；`produce_now.py` 文案；`original_mode.py` 走 `pipeline.produce_v3`。
+- Telegram：skills/slimecat 分冊加「解構 <遊戲名>」「遊戲用量」；CLAUDE.md 意圖列＋Registry 更新；menus.md SlimeCat 區塊更新；bridge 分冊關鍵字加「解構」「用量」（下次重啟生效）。
+- 文件：README／DESIGN v3 八階段／PROJECT／AGENTS／TASKS／DECISIONS；memory `project_slimecat_arcade`＋`feedback_codex_cli_model_fallback`＋`feedback_claude_p_output_cap_budget`；brain/lessons 兩條；handoff `2026-09-05-1705-batnini-to-echo-slimecat-v3-echo-review.md`；checkpoint `slimecat-v3-kickoff.md`。
 
 ## Verification
 
-- `py_compile` 9 支 PASS；回歸測試 `test_phase0.py` 26 項 PASS（genre 遷移對照、餵料分流、section 抽取、額度文字解析、評審半分／新欄位、weekly 解析與聖經累積、**真 haiku 呼叫** stream-json 收文字＋用量、補跑排程建→查→上限→刪）。
-- `schtasks /Query`：Factory 下次 2026/9/12 02:00（每週六；9/5 本身是週六、12:00 那款已出）、Weekly Review 下次 2026/9/6 18:00（每週日）、Daily Feedback 不變。
-- 大廳：本機預覽 1280×720／390×844 首屏、精選、分類、評分彈窗、console 無錯誤（見 session 截圖）。
-- ⚠️ 完整生產鏈（stream-json 收整份遊戲、兩則介紹、打磨新判準）尚未實跑——**9/12（六）02:00 首航即驗證**（或 Boss 喊「生一個新遊戲」提前試產）；檢討會新版 **9/6（日）18:00** 先跑；工廠備註會附本次用量。
+- 離線回歸 `factory/tests/test_v3.py`：全部通過（合約解析含髒 JSON／別名鍵、內容包驗證、跨包引用、組裝跳脫、patch、評審解析、Run 續跑、Playwright 壓力測試好壞引擎、GAMEMETA 標頭）；`--live` haiku 企劃書＋內容包探針通過。
+- Echo smoke（喵鉤撈撈樂）：61 秒、42/50、稽核抓到真 bug（UTC 換日）；模型退路 gpt-6-astra→gpt-5.6-sol 實測觸發。
+- **首款 v3《喵淵吞吞樂》run `v3-20260905-165201`（靈感 Hole Stars: 謎題挑戰，App Store）**：企劃書合約（16 模組、內容包 房間 12／圖鑑 30／貪吃卡 24／功勳 20、驗收 12 條）→ 引擎 640 行／60k 字元（fable high、85k 輸出 tokens、953 秒、$4.86）→ 四包內容過驗證 → 品管過 → Echo 27/50（稽核：房間包引用 24 個不存在的圖鑑 id → 首房軟鎖）→ 打磨 patch 沒套上（模型去改內容 JSON）→ 照「不設出貨門檻」上架＋部署＋兩則介紹（第 60 款）→ `--regen scenes`（跨包引用驗證後一次過、品管過、Echo 再評 38/50）覆蓋上線＋更新日誌 → `--polish`（引擎 4 個邏輯 bug）進行中（結果看 factory.log／games.json changelog）。
+- 排程：`schtasks /Query` Factory 下次 2026/9/12 02:00（每週六）、`run_factory.bat` 指向 `make_game_v3.py`；Weekly Review 9/6 18:00、Daily Feedback 不變。
 
 ## Decisions and assumptions
 
-- Phase 0 跑的仍是「解構→實作→品管→自評→打磨」單線；v3 多階段（企劃書／引擎／內容包）留 Phase 1，**請在新模組開發、完成後才切換 bat／排程**，避免週六 02:00 跑到半成品。
-- 群組推播要 Boss 先建群（TASKS.md 有步驟）；設好前一切照舊推私訊。
-- 補跑排程回 0（失敗已被接手），補跑那輪自己有結果碼；補跑任務名 `SlimeCat Retry <kind>` 心跳自動涵蓋。
+- 首航踩雷全部改成護欄（DECISIONS 9/5 第二條末段）：輸出上限 128k＋花費保險絲；企劃書 max→high（1050 秒／$5.16 截斷）；引擎 xhigh→high、2,600→2,000 行（緊縮 1,400／medium）；合約 JSON 只認最外層；內容包依引用排序＋可用 id 清單＋跨包驗證；patch 不動內容包區塊。
+- 首航總花費約 $32（含 $15 失敗引擎、企劃書兩次 $8.5、續跑 $7.9、重生＋再評＋打磨約 $3）；護欄後估一款 $8～10。
+- 內容包「rules」是散文、沒有機械驗證（再評指出 r01 有 wander 物件、房東尺寸未隨房序上升）：靠評審稽核＋打磨，或之後把可驗證的規則寫進 schema。
 
 ## Next actions
 
-1. 9/6（日）18:00 檢討會新版首跑看 factory.log（LEARN 是否只談設計、PROCESS 是否分流）；9/12（六）02:00 生產首航看：stream-json 是否收齊整份、兩則介紹是否正常、打磨採用與否、用量行。
-2. Boss 建 SlimeCat Studio 群組 → `studio_setup.py`。
-3. 新 session 開工 Phase 1／2（checkpoint `agent-workspace/checkpoints/slimecat-v3-kickoff.md` 有完整脈絡）。
+1. 9/6（日）18:00 檢討會新版首跑；9/12（六）02:00 v3 排程首航看 factory.log（企劃書合約、引擎行數與 tokens、內容包引用驗證、Echo 評審、用量行）。
+2. 跑三～四款後 `python factory/usage_report.py --runs` 對帳，定 effort／模型（`v3/stages.py` 常數）。
+3. Boss：建群「SlimeCat Studio」→ `studio_setup.py`；Bridge 重啟吃分冊關鍵字；Echo：評估升級 codex CLI。
+4. Phase 3 旗艦化「做大 <名>」＝手動開 session。
 
 ## Risks / blockers
 
-- stream-json 事件格式若隨 CLI 版本變動，`run_claude` 有 result 欄／原文兩層退路，但 GAMEMETA 仍可能漏；救援機制（rescue_meta／failed_outputs）保留。
-- 打磨「品管過就採用」只擋壞掉、不擋手感變差；靠玩家留言與 7 天複查兜底。
-- 大廳 stats 來自 gitignored 的 analytics_summary.json：本機沒跑過 analytics_pull 時 rebuild 不帶 stats（大廳退回新作優先），排程機上每天會有。
+- Echo 評審讀 60k 字元原始碼約 2～3 分鐘、gpt-5.6-sol；Echo 若整個不可用→sonnet（分數口徑會不同，對帳時分開看 `reviewer`）。
+- 引擎 640 行卻 60k 字元（長行）：patch 的 SEARCH 段要對到整行，模型改長行容易對不上；再打磨若失敗會維持現版。
+- 品管壓力測試只保證「不炸＋內容載入」，不保證可通關；可通關性靠 Echo 稽核＋玩家留言。
+- `factory/runs/` gitignored：本機才有完整落檔；企劃書副本在 `knowledge/plans/`（公開 repo）。

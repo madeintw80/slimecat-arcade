@@ -13,7 +13,7 @@ set LOGF=C:\Users\User\projects\SlimeCatArcade\factory\factory.log
 if exist "%LOGF%" for %%A in ("%LOGF%") do if %%~zA GTR 2097152 move /y "%LOGF%" "%LOGF%.old" >nul
 set HB=C:\Users\User\projects\SlimeCatArcade\factory\factory_heartbeat.txt
 > "%HB%" echo %date% %time% start
-"C:\Users\User\AppData\Local\Python\pythoncore-3.14-64\python.exe" "C:\Users\User\projects\SlimeCatArcade\factory\make_game.py" >> "%LOGF%" 2>&1
+"C:\Users\User\AppData\Local\Python\pythoncore-3.14-64\python.exe" "C:\Users\User\projects\SlimeCatArcade\factory\make_game_v3.py" >> "%LOGF%" 2>&1
 set RC=%ERRORLEVEL%
 >> "%HB%" echo %date% %time% exit %RC%
 exit /b %RC%

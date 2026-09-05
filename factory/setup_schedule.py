@@ -9,6 +9,7 @@
 
 任務名稱保留 "SlimeCat Factory Daily"（produce_now.py 引用它觸發加產，改名會牽連）。
 沿革：每日 12:00（7/4）→ 每 3 天 12:00（8/9）→ 每週六 02:00（9/5 Boss 拍板 1C，一週一款做大做好）。
+入口：2026-09-05 v3 試產成功後改跑 make_game_v3.py（多階段生產線）；要退回 v2.2 把 ENTRY 改回 make_game.py 重跑本腳本。
 """
 import subprocess
 import sys
@@ -21,12 +22,13 @@ BAT = ROOT / "run_factory.bat"
 TASK_NAME = "SlimeCat Factory Daily"
 RUN_DAY = "SAT"      # 每週幾生產（schtasks /D 代碼：MON..SUN）
 RUN_AT = "02:00"     # 凌晨跑：撞額度也有一整天可以自動補跑，白天不跟 Boss 搶額度
+ENTRY = "make_game_v3.py"   # 排程跑哪支（v3 多階段；退路 make_game.py）
 
 PYTHON = sys.executable  # 真實 python 絕對路徑（不能用 WindowsApps 假捷徑）
 
 
 def write_bat() -> None:
-    make_game = ROOT / "factory" / "make_game.py"
+    make_game = ROOT / "factory" / ENTRY
     logf = ROOT / "factory" / "factory.log"
     hb = ROOT / "factory" / "factory_heartbeat.txt"
     lines = [

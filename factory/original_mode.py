@@ -8,7 +8,7 @@
 
 用法：
     python original_mode.py propose            # 抽 3 組合＋一句話企劃（約 1 分鐘），等用戶挑
-    python original_mode.py build 2            # 把第 2 案展開成企劃書 → 走生產管線（20~40 分鐘）
+    python original_mode.py build 2            # 把第 2 案展開成企劃書 → 走 v3 生產線（40~90 分鐘）
     python original_mode.py build 2 --spawn    # 背景開工立刻返回（Telegram listen 用）
 
 抽選規則：
@@ -189,7 +189,7 @@ CONCEPT2: ...（依此類推到 3）
             lines.append(f"    亮點：{p['hook']}")
         lines.append("")
     lines += ["─" * 14,
-              "回「原創 1」/「原創 2」/「原創 3」開工（約 20~40 分鐘，出爐自動推通知）",
+              "回「原創 1」/「原創 2」/「原創 3」開工（v3 生產線約 40~90 分鐘，出爐自動推通知）",
               "都不喜歡 → 再打「生原創遊戲」重抽"]
     print("\n".join(lines))
     return 0
@@ -241,6 +241,7 @@ SOURCE: 原創組合：{'×'.join(p['names'])}
         "source": f"原創組合：{'×'.join(p['names'])}",
         "title": (ttl.group(1).strip() if ttl else ""),
         "genre": p["genre"],
+        "origin": "original",
         "doc": doc.strip(),
     }
 
@@ -250,7 +251,9 @@ SOURCE: 原創組合：{'×'.join(p['names'])}
     plan_file.write_text(decon["doc"], encoding="utf-8")
     log(f"📖 原創企劃書完成 → {plan_file.name}")
 
-    rc = make_game.produce_from_decon(decon)
+    # 2026-09-05 起走 v3 多階段生產線（原創企劃當解構筆記餵進去，企劃書階段會展開成合約）
+    from v3 import pipeline
+    rc = pipeline.produce_v3(decon)
     if rc == 0:
         PENDING_FILE.unlink(missing_ok=True)  # 開工成功才清掉，失敗可重試
     return rc
@@ -258,13 +261,13 @@ SOURCE: 原創組合：{'×'.join(p['names'])}
 
 # ---------------------------------------------------------------- 入口
 def spawn_detached(argv_rest: list) -> None:
-    """背景開工立刻返回（Telegram listen 的 Bash 有時限，build 要 20~40 分鐘）。"""
+    """背景開工立刻返回（Telegram listen 的 Bash 有時限，build 走 v3 要 40~90 分鐘）。"""
     args = [sys.executable, str(Path(__file__).resolve())] + argv_rest
     flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
     logf = (HERE / "factory.log").open("a", encoding="utf-8")
     subprocess.Popen(args, creationflags=flags, stdout=logf, stderr=subprocess.STDOUT)
-    print("🧪 原創遊戲已在背景開工（約 20~40 分鐘）！")
-    print("   流程：企劃書 → 實作 → Playwright 品管 → 自評 → 上架，出爐自動推 Telegram。")
+    print("🧪 原創遊戲已在背景開工（v3 生產線，約 40~90 分鐘）！")
+    print("   流程：原創企劃 → 企劃書合約 → 引擎 → 內容包 → 組裝 → 品管 → 評審 → 打磨 → 上架，出爐自動推 Telegram。")
     print("   進度看 factory/factory.log")
 
 

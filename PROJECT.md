@@ -12,7 +12,8 @@ SlimeCat 遊戲區是一個公開靜態小遊戲樂園；大廳展示工廠產�
 - `games/<id>/index.html`：各款獨立遊戲。
 - `stats.js`：匿名開啟／活躍時間分析；未設定端點時自動休眠。
 - `sc_config.js`：分析設定載入點，UI 改造不得碰。
-- `factory/`：自動生產（每週六 02:00）、品管、低分打磨（只修評審第一條缺陷、品管通過就採用）、留言迴圈（每天 11:30）、檢討會（每週日 18:00）與發佈流程，屬保護範圍。
+- `factory/`：自動生產（每週六 02:00，**v3 多階段生產線** `make_game_v3.py`＋`factory/v3/`：靈感榜 App Store＋Steam → 解構 → 企劃書合約 → 引擎單檔 → 內容包 → 組裝 → Playwright 煙霧＋壓力品管 → Echo 獨立評審＋整合稽核（不可用回 sonnet）→ patch 打磨 → 上架；每輪落檔 `factory/runs/<run_id>/`（gitignored）、撞額度自動補跑並從斷點續跑；v2.2 單線 `make_game.py` 保留退路）、留言迴圈（每天 11:30）、檢討會（每週日 18:00）與發佈流程，屬保護範圍。
+- `factory/knowledge/plans/`：每款的企劃書＋模組合約（公開，跟解構筆記一樣是工作室累積的功力）。
 - `factory/studio_chat.json`（gitignored）：SlimeCat Studio 群組 chat_id，新品兩則介紹推這裡；沒設就推 Boss 私訊。用 `factory/studio_setup.py` 設定。
 
 ## Run locally

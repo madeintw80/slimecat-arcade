@@ -6,6 +6,7 @@
 - 任一 agent 修改前先讀 `PROJECT.md → CHECKPOINT.md → TASKS.md → DECISIONS.md`，再跑 `git status` 與 `git log -5`。
 - 同一時間只有一位 Task Lead 可寫；發現不明 working tree 變更或另一位 agent 標記 `in_progress` 時停手回報 Boss。
 - Echo 預設唯讀；只有 Boss 對該次具體工作明確授權時可修改。push、deploy、排程、對外通知仍需 Boss 明確授權。
+- Echo 在本專案的常態角色（2026-09-05 起）＝生產線第⑥階段的獨立評審＋整合稽核：由 `factory/v3/echo_review.py` 自動委派（codex exec read-only、prompt 在 `factory/runs/<run_id>/echo_prompt.txt`），回 `REVIEW: {json}` 即可，不需要也不可寫入 repo。
 
 ## Protected areas
 

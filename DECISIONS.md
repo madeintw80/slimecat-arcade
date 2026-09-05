@@ -33,3 +33,14 @@
 - **8A 檢討會與打磨迴圈重整**：餵料分流（開發者只看近六週非檢討會教訓；檢討會只看近三週）、檢討會讀 `DECISIONS.md`、樣本數守則、聖經 17 節修訂整併成第六節（超過 20 條自動整併）、流程建議另存 `process_notes.md` 不餵開發者；打磨改「只修第一條缺陷、品管過就採用」（不再拿分數當裁判，觸發門檻 `POLISH_BAR=40` 不變）。
 - **照建議自行決定**：撞額度自動補跑（`schedule_retry`，同日最多 2 次）、評審半分四捨五入、`claude -p` 改 `--output-format stream-json` 收全段（8/30 停產根因＝多則訊息只回最後一則）、genre 固定 14 類（既有 59 款已遷移、原字串存 `genre_raw`）、評審讀碼上限 45k→160k 字、文件 PM→Boss、heartbeat 門檻 80h→186h、推播群組＝同一 Batnini bot 送 `studio_chat.json` 的群組（Boss 建群後用 `studio_setup.py` 設）。
 - **維持不變**：不設出貨門檻、不凍結新作、不自動下架（8/9 決議續用）；模型 opus/fable/sonnet 三段（全 fable 分級 effort 留 Phase 2 對帳後定）。
+
+## 2026-09-05 — v3 Phase 1／2：多階段生產線＋Steam 靈感＋解構指令＋Echo 評審（Boss 拍板 1A／2A／3C，Batnini 落地）
+
+- **1A 試產範圍**：v3 做完立刻全鏈試產一款並上架（含 push＋兩則介紹，沿用「不設出貨門檻」），成功即把 `setup_schedule.py` 的 `ENTRY` 指向 `make_game_v3.py` 重跑（9/12 02:00 首航＝v3）；`produce_now`／`produce_batch`／`original_mode` 一併切 v3。
+- **2A 靈感混榜**：App Store 台灣 Top 40＋Steam 熱銷 Top 10／新品熱門 Top 15 一榜合併給策劃自己挑（`fetch_trends.py` 抓 featuredcategories＋appdetails 補簡介類型、濾 DLC／成人／純工具）；Steam 條目標「PC 大作要濃縮成一個核心迴圈」；解構筆記多 `ORIGIN:` 標頭。
+- **3C 大型化規模**：由企劃書依機制自訂，硬上限＝大型（內容包最多 4 種×30 筆、引擎 2,600 行、單局 3～10 分鐘，`v3/stages.py` 的 `CAPS`）。
+- **Echo 角色（Phase 2）**：獨立評審（五維＋改進點＋工廠備註素材）＋整合稽核（`audit.contract_issues`／`audit.bugs`）；稽核缺陷一律 patch 修（bug 優先最多 2＋合約缺陷 1）、都沒有才看 `POLISH_BAR` 40 修評審第一條；Echo 不可用 fail-open 回 sonnet、生產不停；不改 BRAIN.md 白名單（SlimeCat 保護模式、Echo 唯讀）。Echo 模型＝先讀 `~/.codex/config.toml` 現役再退 `gpt-5.6-sol`（codex-cli 0.144.1 跑不了 gpt-6-astra，升級交 Echo 決定，handoff 9/5）。
+- **照建議自決**：模型／effort 首輪配置＝企劃書 fable `high`（原定 `max`，首航第 1 次實測 1050 秒／66k 輸出 tokens／$5.16 且合約 JSON 壞掉→當場改 high＋篇幅上限）／引擎 fable `xhigh`／內容包 sonnet／評審 Echo high／打磨 fable `high`，**跑三～四款後用 `usage_report.py --runs` 對帳再定案**；「解構 <遊戲名>」帶參數走模型路由、不做鍵盤按鈕（bridge 分冊關鍵字加「解構」「用量」即可）；打磨與品管修復改 SEARCH/REPLACE patch 交稿（套不上整包放棄、沿用原版）；每輪產出落 `factory/runs/`（gitignored）、企劃書永久存 `knowledge/plans/`（公開）；撞額度續跑指標 `v3_resume.json`；成品 GAMEMETA 由合約組、不再靠模型交標頭；games.json 新欄 `pipeline`／`packs`／`reviewer`。
+- **首航當場加的護欄（Batnini 自決）**：`claude -p` 預設輸出上限 64k tokens（思考也算）把 xhigh 引擎截斷、CLI 自動重試燒到 $15 → `run_claude` 子程序設 `CLAUDE_CODE_MAX_OUTPUT_TOKENS=128000`（fable 實測接受）＋每階段 `--max-budget-usd` 保險絲（企劃書 4／引擎 9／內容包 1.5／評審 1.5／打磨 4）；引擎 effort xhigh→`high`、行數上限 2,600→2,000（緊縮重試 1,400／medium）；企劃書 effort max→`high`＋篇幅 3～5k 字；合約 JSON 只認最外層、壞掉存 `failed_outputs/`。
+- **維持不變**：不設出貨門檻、不凍結新作、不自動下架；v2.2 單線 `make_game.py` 保留當退路（`ENTRY` 改回即可）；留言 11:30／檢討會週日 18:00 不動。
+

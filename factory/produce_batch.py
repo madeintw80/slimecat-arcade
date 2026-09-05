@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""批量生產：串行連生 N 款遊戲（每款完整走 解構→設計→品管→自評→上架→部署→推播）。
+"""批量生產：串行連生 N 款遊戲（每款完整走 v3：解構→企劃書→引擎→內容包→組裝→品管→評審→打磨→上架→部署→推播）。
 
 用法：
     python produce_batch.py [N]          # 串行生 N 款（預設 3），前景跑
@@ -27,7 +27,8 @@ try:
 except Exception:
     tg = None
 
-PER_GAME_TIMEOUT = 7200  # 單款上限（兩次嘗試 45 分鐘 + 品管自評的餘裕）
+PER_GAME_TIMEOUT = 9000  # 單款上限 2.5 小時（v3 多階段：企劃書＋引擎兩次嘗試＋內容包＋評審＋打磨的餘裕）
+ENTRY = "make_game_v3.py"  # 每款跑哪支（v3 多階段；退路 make_game.py）
 
 
 def log(msg: str) -> None:
@@ -36,7 +37,7 @@ def log(msg: str) -> None:
 
 
 def factory_running() -> bool:
-    """看系統上有沒有別的 make_game.py 程序在跑（避免並行撞 games.json）。"""
+    """看系統上有沒有別的 make_game*.py（v2.2 或 v3）程序在跑（避免並行撞 games.json）。"""
     try:
         import psutil
     except ImportError:
@@ -45,7 +46,7 @@ def factory_running() -> bool:
     for p in psutil.process_iter(["cmdline"]):
         try:
             cmd = " ".join(p.info["cmdline"] or [])
-            if "make_game.py" in cmd and me not in cmd:
+            if "make_game" in cmd and me not in cmd and " -c " not in cmd:
                 return True
         except Exception:
             pass
@@ -58,8 +59,8 @@ def spawn_detached(n: int) -> None:
     flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
     logf = (HERE / "factory.log").open("a", encoding="utf-8")
     subprocess.Popen(args, creationflags=flags, stdout=logf, stderr=subprocess.STDOUT)
-    print(f"🏭 批量生產已在背景開工：目標 {n} 款、串行生產")
-    print(f"   每款約 20~45 分鐘，每款出爐都會推 Telegram，全部收工再推總結")
+    print(f"🏭 批量生產已在背景開工：目標 {n} 款、串行生產（v3 生產線）")
+    print(f"   每款約 40~90 分鐘，每款出爐都會推 Telegram，全部收工再推總結")
     print(f"   ⚠️ 批量期間別再按「生一個新遊戲」（會撞車）；進度看 factory/factory.log")
 
 
@@ -97,7 +98,7 @@ def main() -> int:
         log(f"────── 批量進度 {i}/{n} ──────")
         try:
             # capture 再轉印：make_game 的詳細過程才會進 factory.log（失敗時好查原因）
-            r = subprocess.run([sys.executable, str(HERE / "make_game.py")],
+            r = subprocess.run([sys.executable, str(HERE / ENTRY)],
                                capture_output=True, text=True, encoding="utf-8",
                                errors="replace", timeout=PER_GAME_TIMEOUT)
             print(r.stdout, end="", flush=True)

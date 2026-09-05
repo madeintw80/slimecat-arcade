@@ -29,6 +29,7 @@
 import datetime
 import json
 import math
+import os
 import re
 import shutil
 import subprocess
@@ -93,6 +94,10 @@ MAX_ATTEMPTS = 2          # 實作 + 驗證最多試幾次
 POLISH_BAR = 40           # 自評低於這分數就觸發「打磨一輪」（0=關閉打磨、50=每款必磨）
 MAX_QUOTA_RETRY = 2       # 撞額度時同一天最多自動補跑幾次（防無限迴圈燒額度）
 CRITIC_HTML_CAP = 160000  # 評審讀多少字的原始碼（舊值 45000 只看得到大型遊戲的前 1/3）
+# claude -p 單次回覆的輸出上限（預設 64,000，**思考 tokens 也算在內**）。2026-09-05 v3 首航：fable xhigh 寫 2,200 行
+# 引擎在 64k 被截斷，CLI 還自己重試到 256k tokens／$15 才放棄；企劃書 max 也是 66k 被截斷才合約壞掉。
+# 128,000 實測 fable 接受（超過模型上限 API 會直接拒絕，改這裡前先用小 prompt 試）。
+MAX_OUTPUT_TOKENS = 128000
 
 # 類型固定清單（2026-09-05）：以前讓模型自由填，59 款長出 33 種寫法
 # （「益智（邏輯推理）」「街機／駕駛跑酷」…），大廳分類靠正則猜、猜錯就掉錯格。
@@ -139,9 +144,14 @@ class QuotaError(RuntimeError):
         self.resets_at = resets_at
 
 
+class OutputLimitError(RuntimeError):
+    """單次回覆超過輸出 tokens 上限（含思考）——交稿被截斷。呼叫端可用更緊的篇幅／effort 再試一次。"""
+
+
 # 額度錯誤的文字特徵（9/2 實例：「You've hit your session limit · resets 3:40pm (Asia/Taipei)」）
 _QUOTA_RE = re.compile(r"hit your .{0,24}limit|usage limit|rate.?limit|limit reached", re.I)
 _RESET_TXT_RE = re.compile(r"resets?\s*(?:at\s*)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)", re.I)
+_OUTLIMIT_RE = re.compile(r"exceeded the (\d+) output token maximum", re.I)
 
 USAGE: list = []   # 本次程序內每次 claude -p 的用量（工廠備註要附本次 run 總用量）
 
@@ -202,7 +212,7 @@ def usage_summary(recs=None) -> str:
 
 
 def run_claude(prompt: str, timeout: int, model: str = MODEL_BUILD,
-               effort: str = "", stage: str = "") -> str:
+               effort: str = "", stage: str = "", max_budget_usd: float = 0) -> str:
     """呼叫 claude -p，回傳模型印出的全部文字。
 
     2026-09-05 改走 --output-format stream-json：以前用預設 text 格式，模型分兩則訊息交稿時
@@ -210,7 +220,10 @@ def run_claude(prompt: str, timeout: int, model: str = MODEL_BUILD,
     2,154 bytes，有 </html> 沒 DOCTYPE）。stream-json 會把每一則 assistant 文字塊都吐出來，
     這裡照順序接起來；result 事件順便帶 usage／cost（記進 usage.jsonl），
     rate_limit_event 帶額度重置時間（撞額度時交給 schedule_retry 算補跑時刻）。
-    effort：可選 low/medium/high/xhigh/max（v3 Phase 2 分級用；空字串＝CLI 預設）。
+    effort：可選 low/medium/high/xhigh/max（空字串＝CLI 預設）。
+    max_budget_usd：這一次呼叫最多花幾美元（CLI `--max-budget-usd`，0＝不設）——花費保險絲：
+    截斷後 CLI 會自己重試，沒保險絲一次引擎可以燒到 $15（9/5 首航）。
+    輸出上限走環境變數 CLAUDE_CODE_MAX_OUTPUT_TOKENS＝MAX_OUTPUT_TOKENS（預設 64k 不夠 v3 引擎用）。
     """
     # 子 Claude 是「純文字交稿」：禁用全部工具，防止它自作主張直接寫檔案
     # （2026-07-04 事故：開發者把遊戲直接寫進專案、stdout 沒交稿 → 驗收誤判失敗）
@@ -220,10 +233,14 @@ def run_claude(prompt: str, timeout: int, model: str = MODEL_BUILD,
            "--output-format", "stream-json", "--verbose"]
     if effort:
         cmd += ["--effort", effort]
+    if max_budget_usd and max_budget_usd > 0:
+        cmd += ["--max-budget-usd", f"{max_budget_usd:g}"]
+    env = dict(os.environ)
+    env["CLAUDE_CODE_MAX_OUTPUT_TOKENS"] = str(MAX_OUTPUT_TOKENS)
     t0 = time.time()
     proc = subprocess.run(cmd, input=prompt, capture_output=True,
                           text=True, encoding="utf-8", errors="replace",
-                          timeout=timeout, cwd=str(LLM_CWD))
+                          timeout=timeout, cwd=str(LLM_CWD), env=env)
 
     texts, result, reset_at = [], None, None
     for line in (proc.stdout or "").splitlines():
@@ -270,6 +287,9 @@ def run_claude(prompt: str, timeout: int, model: str = MODEL_BUILD,
         if reset_at or _QUOTA_RE.search(err):
             raise QuotaError(f"claude -p 撞額度：{err.strip()[:200]}",
                              reset_at or _parse_reset_text(err))
+        m = _OUTLIMIT_RE.search(err)
+        if m:
+            raise OutputLimitError(f"單次回覆超過 {m.group(1)} tokens 輸出上限（思考也算）：{err.strip()[:160]}")
         raise RuntimeError(f"claude -p 失敗 (code {proc.returncode})：{err}")
     if not text.strip():
         raise RuntimeError("claude -p 回傳空白（stream-json 裡沒有任何文字塊）")
@@ -324,32 +344,60 @@ def normalize_genre(text: str) -> str:
 
 
 # ---------------------------------------------------------------- 解構
-def stage_deconstruct(trends: dict, history: dict, past_games: list) -> dict:
-    """挑一款熱門遊戲並解構其上癮機制。回傳 {source,title,genre,doc}。"""
-    chart = []
-    for g in trends["games"][:40]:
-        s = f"{g['rank']}. {g['name']}（{g['artist']}）"
+def trend_chart(trends: dict) -> str:
+    """把 App Store 榜＋Steam 榜排成策劃看的清單文字（2026-09-05 v3 Phase 1：一榜合併、策劃自己挑）。"""
+    lines = [f"【App Store 台灣免費遊戲榜】（來源 {trends.get('source', '?')}）"]
+    for g in (trends.get("games") or [])[:40]:
+        s = f"{g['rank']}. {g['name']}（{g.get('artist', '')}）"
         if g.get("summary"):
             s += f"：{g['summary'][:100]}"
-        chart.append(s)
+        lines.append(s)
+    steam = (trends.get("steam") or {}).get("games") or []
+    if steam:
+        lines.append("")
+        lines.append("【Steam 榜：熱銷＋新品熱門】（PC 大型遊戲——挑它時要把「一套系統」濃縮成一個核心迴圈；"
+                     "避開 3A 敘事、連線對戰、純模擬器）")
+        for g in steam:
+            s = f"S{g['rank']}. [{g.get('list', '')}] {g['name']}"
+            if g.get("genres"):
+                s += f"｜{'/'.join(g['genres'][:4])}"
+            if g.get("summary"):
+                s += f"：{g['summary'][:100]}"
+            lines.append(s)
+    return "\n".join(lines)
+
+
+def stage_deconstruct(trends: dict, history: dict, past_games: list, pick: str = "") -> dict:
+    """挑一款熱門遊戲並解構其上癮機制。回傳 {source,title,genre,origin,doc}。
+
+    pick：Boss 點名（「解構 <遊戲名>」指令）時直接解構那一款，不看榜單（trends 可為 None）。
+    origin：appstore／steam／named（Boss 點名）——工廠備註與筆記會標來源，方便之後對帳哪種靈感做得好。
+    """
     used = [u["inspiration"] for u in history["used"]]
     past = [f"《{g['title']}》({g.get('genre','')})：{g.get('desc','')}" for g in past_games]
+    if pick:
+        chart_block = (f"Boss 點名要解構的遊戲：《{pick}》（不論它在不在榜上；手遊／PC／主機皆可，"
+                       f"用你對這款遊戲的了解來拆；若是大型遊戲，挑「一套最上癮的系統」濃縮成核心迴圈）")
+        task_line = f"任務：解構《{pick}》"
+    else:
+        chart_block = trend_chart(trends)
+        task_line = ("任務：從兩份榜單挑一款「核心玩法能濃縮成 30 秒上手網頁小遊戲」的遊戲\n"
+                     "（避開：博弈/賭場、需連線帳號、重度 RPG/卡牌收集、純 IP 授權作、成人內容）")
 
     prompt = f"""你是「SlimeCat 遊戲工作室」的首席遊戲策劃。今天是 {datetime.date.today().isoformat()}。
 
-App Store 台灣免費遊戲排行榜（來源 {trends['source']}）：
-{chr(10).join(chart)}
+{chart_block}
 
 已用過的靈感（避開）：{json.dumps(used, ensure_ascii=False)}
 本站已有的遊戲（新遊戲的核心機制不可跟它們重複，多樣性也是留存）：
 {chr(10).join(past) if past else "（還沒有）"}
 
-任務：從榜單挑一款「核心玩法能濃縮成 30 秒上手網頁小遊戲」的遊戲
-（避開：博弈/賭場、需連線帳號、重度 RPG/卡牌收集、純 IP 授權作），
+{task_line}，
 然後寫一份**解構筆記**：不是描述它有什麼功能，而是拆解「為什麼會好玩、為什麼讓人上癮」。
 
-輸出格式（嚴格遵守，前三行是標頭，之後是筆記本體；直接印出文字、不要使用任何工具）：
+輸出格式（嚴格遵守，前四行是標頭，之後是筆記本體；直接印出文字、不要使用任何工具）：
 SOURCE: <原作名稱>
+ORIGIN: <appstore 或 steam（它在哪份榜單上；Boss 點名的寫 named）>
 TITLE: <我們的變形版建議中文名（全新命名；不可含原作名，也不可與原作名音近/形近/直譯——商標紅線）>
 GENRE: <只能從這個清單挑一個：{'/'.join(GENRES)}>
 
@@ -363,18 +411,42 @@ GENRE: <只能從這個清單挑一個：{'/'.join(GENRES)}>
 """
     out = run_claude(prompt, SMALL_TIMEOUT, model=MODEL_DECON, stage="decon")
     src = re.search(r"^SOURCE:\s*(.+)$", out, re.M)
+    org = re.search(r"^ORIGIN:\s*(.+)$", out, re.M)
     ttl = re.search(r"^TITLE:\s*(.+)$", out, re.M)
     gnr = re.search(r"^GENRE:\s*(.+)$", out, re.M)
     if not src:
         raise ValueError("解構輸出缺 SOURCE 標頭")
     doc_start = out.find("# 解構")
     doc = out[doc_start:] if doc_start >= 0 else out
+    origin = (org.group(1).strip().lower() if org else "")
+    if pick:
+        origin = "named"
+    elif origin not in ("appstore", "steam"):
+        origin = "appstore"
     return {
         "source": src.group(1).strip(),
         "title": (ttl.group(1).strip() if ttl else ""),
         "genre": normalize_genre(gnr.group(1) if gnr else ""),
+        "origin": origin,
         "doc": doc.strip(),
     }
+
+
+def save_decon(decon: dict) -> Path:
+    """把解構筆記存進 knowledge/deconstructions/：<日期>-<原作 slug>.md（正文）＋同名 .json 側檔（標頭）。
+
+    側檔讓 make_game_v3.py --decon <筆記> 能拿回 source／title／genre／origin；
+    正文格式跟以前完全一樣（檢討會、section() 都照舊讀）。
+    """
+    DECON_DIR.mkdir(parents=True, exist_ok=True)
+    today = datetime.date.today().isoformat()
+    slug = re.sub(r"[^\w一-鿿-]+", "_", decon["source"])[:40]
+    path = DECON_DIR / f"{today}-{slug}.md"
+    path.write_text(decon["doc"], encoding="utf-8")
+    side = {k: decon.get(k, "") for k in ("source", "title", "genre", "origin")}
+    side["date"] = today
+    path.with_suffix(".json").write_text(json.dumps(side, ensure_ascii=False, indent=2), encoding="utf-8")
+    return path
 
 
 # ---------------------------------------------------------------- 設計 + 實作
@@ -708,8 +780,11 @@ def send_public(text: str, photo: Path = None) -> bool:
         return False
 
 
-def notify_release(entry: dict, crit, decon: dict, polish_note: str = "") -> None:
-    """新品出爐推兩則（2026-09-05 4B）：①給玩家看的介紹 ②工廠備註（設計決策／壓力源／評審／值不值得做大／用量）。"""
+def notify_release(entry: dict, crit, decon: dict, polish_note: str = "", extra: str = "") -> None:
+    """新品出爐推兩則（2026-09-05 4B）：①給玩家看的介紹 ②工廠備註（設計決策／壓力源／評審／值不值得做大／用量）。
+
+    extra：v3 生產線多交代的幾行（內容包規模／評審是誰／稽核結果），接在工廠備註「用量」之後。
+    """
     if not (tg and tg.available()):
         return
     doc = decon.get("doc", "")
@@ -738,10 +813,12 @@ def notify_release(entry: dict, crit, decon: dict, polish_note: str = "") -> Non
                  f"打磨：{polish}\n"
                  f"值不值得做大：{worth} — {su.get('why', '')}\n"
                  f"用量：{usage_summary()}\n"
-                 f"要做大就說「做大 {entry['title']}」")
+                 + (extra.rstrip() + "\n" if extra else "")
+                 + f"要做大就說「做大 {entry['title']}」")
     else:
         notes = (f"🏭 工廠備註《{entry['title']}》\n評審這次沒交卷（自評失敗，不擋出貨）。\n"
-                 f"用量：{usage_summary()}")
+                 f"用量：{usage_summary()}"
+                 + (("\n" + extra.rstrip()) if extra else ""))
     shot = HERE / "shots" / f"{entry['id']}.png"
     send_public(intro, photo=shot)
     send_public(notes)
@@ -976,10 +1053,7 @@ def main() -> int:
     try:
         log("🔍 策劃解構中（挑一款熱門遊戲、拆解上癮機制）…")
         decon = stage_deconstruct(trends, history, data["games"])
-        DECON_DIR.mkdir(parents=True, exist_ok=True)
-        slug = re.sub(r"[^\w一-鿿-]+", "_", decon["source"])[:40]
-        decon_file = DECON_DIR / f"{today}-{slug}.md"
-        decon_file.write_text(decon["doc"], encoding="utf-8")
+        decon_file = save_decon(decon)
         log(f"📖 解構完成：{decon['source']} → {decon_file.name}")
     except QuotaError as e:
         log(f"⏳ 解構撞額度：{e}")
