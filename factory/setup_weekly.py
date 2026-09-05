@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
-"""建立「每週三＋週日 18:00 檢討」排程（run_weekly.bat + schtasks，冪等可重跑）。
+"""建立「每週日 18:00 檢討」排程（run_weekly.bat + schtasks，冪等可重跑）。
 
+沿革：週日一場（7/4）→ 週三＋週日（7/4 晚加開）→ 只剩週日（2026-09-05 Boss 拍板 1C：
+一週一款、週六出、週日檢討一次就夠；週三那場在 39 台裝置的樣本上只會重複抱怨）。
 想隨時手動開檢討會 → python factory/review_now.py（或 Telegram 打「立即檢討」）。
 """
 import subprocess
@@ -12,6 +14,8 @@ sys.stdout.reconfigure(encoding="utf-8")
 ROOT = Path(__file__).resolve().parent.parent
 BAT = ROOT / "run_weekly.bat"
 TASK_NAME = "SlimeCat Weekly Review"
+RUN_DAYS = "SUN"     # schtasks /D 代碼，逗號可列多天（例 "WED,SUN"）
+RUN_AT = "18:00"
 
 PYTHON = sys.executable  # 真實 python 絕對路徑（不能用 WindowsApps 假捷徑）
 
@@ -32,11 +36,11 @@ def write_bat() -> None:
 def create_task() -> int:
     # WEEKLY 的 /D 可以逗號列多天（MONTHLY 才有單日限制）
     cmd = ["schtasks", "/Create", "/TN", TASK_NAME, "/TR", str(BAT),
-           "/SC", "WEEKLY", "/D", "WED,SUN", "/ST", "18:00", "/F"]
+           "/SC", "WEEKLY", "/D", RUN_DAYS, "/ST", RUN_AT, "/F"]
     proc = subprocess.run(cmd, capture_output=True)
     print((proc.stdout + proc.stderr).decode("cp950", errors="replace").strip())
     if proc.returncode == 0:
-        print(f"✅ 排程「{TASK_NAME}」已建立：每週三＋週日 18:00 檢討")
+        print(f"✅ 排程「{TASK_NAME}」已建立：每週 {RUN_DAYS} {RUN_AT} 檢討")
     return proc.returncode
 
 

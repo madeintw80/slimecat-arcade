@@ -2,16 +2,17 @@
 
 ## Project mode
 
-- `SlimeCatArcade` 是公開網站加自動生產排程（每三天一款）的生產專案，採保護模式。
+- `SlimeCatArcade` 是公開網站加自動生產排程（每週六 02:00 一款）的生產專案，採保護模式。
 - 任一 agent 修改前先讀 `PROJECT.md → CHECKPOINT.md → TASKS.md → DECISIONS.md`，再跑 `git status` 與 `git log -5`。
-- 同一時間只有一位 Task Lead 可寫；發現不明 working tree 變更或另一位 agent 標記 `in_progress` 時停手回報 PM。
-- Echo 預設唯讀；只有 PM 對該次具體工作明確授權時可修改。push、deploy、排程、對外通知仍需 PM 明確授權。
+- 同一時間只有一位 Task Lead 可寫；發現不明 working tree 變更或另一位 agent 標記 `in_progress` 時停手回報 Boss。
+- Echo 預設唯讀；只有 Boss 對該次具體工作明確授權時可修改。push、deploy、排程、對外通知仍需 Boss 明確授權。
 
 ## Protected areas
 
 - UI 工作不得順便更動 `factory/`、`apps_script/`、排程、分析端點、遊戲規則或遊戲內容。
 - `games.json` 是遊戲名錄 SSOT；`games.js` 由工廠重建，禁止手改。
-- 禁讀禁寫 `.env`、auth、token、secret、credential、password 類檔案。
+- `run_factory.bat`／`run_weekly.bat`／`run_feedback.bat` 由 `factory/setup_*.py` 產生，改排程改腳本再重跑，別直接改 bat。
+- 禁讀禁寫 `.env`、auth、token、secret、credential、password 類檔案；`factory/studio_chat.json`（群組 id）不進 repo。
 - 禁止在 repo、log、handoff 或對話輸出放入任何機密。
 
 ## UI verification
@@ -23,4 +24,4 @@
 ## Completion
 
 - 完成後更新 `CHECKPOINT.md`、`TASKS.md`、必要時 `DECISIONS.md`。
-- 建立語意清楚的 commit；只有 PM 明確授權時才 push。
+- 建立語意清楚的 commit；只有 Boss 明確授權時才 push。

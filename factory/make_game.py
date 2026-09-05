@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""SlimeCat 遊戲工作室 v2 — 會學習的遊戲生產線。
+"""SlimeCat 遊戲工作室 v2.2 — 會學習的遊戲生產線（2026-09-05 起每週六 02:00 一款）。
 
 跟 v1（單純模仿）的差別：完整的學習迴圈——
   解構為什麼好玩 → 帶著設計理論做 → 出廠自評 → 玩家回饋餵回 → 下一款更好。
@@ -11,22 +11,29 @@
   3. 【設計+實作】claude 帶著三份資料生成遊戲：
      - knowledge/fun_principles.md（設計聖經：核心迴圈/near-miss/juice/難度曲線…）
      - 這次的解構筆記
-     - knowledge/learnings.md 最新教訓（玩家評分 + 歷次 AI 自評）
+     - knowledge/learnings.md 近六週的「設計類」教訓（玩家留言/修復根因/自評改進點；
+       檢討會的流程建議不餵開發者——2026-09-05 餵料分流，見 recent_lessons）
   4. 【品管】Playwright 煙霧測試（噴錯不上架，重生一次）
   5. 【自評】claude 評審按五維量表打分（上手/juice/目標/難度/再一局，滿分 50），
-     分數與改進點記進 learnings，餵給下一款
-  6. 【打磨】自評低於 POLISH_BAR 的作品：評審改進點餵回開發者修一版，
-     重跑品管＋評分、分數有變高才換版（2026-08-09 三天一產改制新增）
-  7. 上架 games.json + games.js，Telegram 推新品（含自評分）
+     順便交出「怎麼玩／設計決策／第 3 分鐘壓力源／值不值得做大」給工廠備註用
+  6. 【打磨】自評低於 POLISH_BAR 的作品：只修評審點名的「第一條缺陷」，
+     修訂版品管通過就採用（2026-09-05 改制：不再拿自評分數當裁判——分數是雜訊）
+  7. 上架 games.json + games.js，Telegram 推兩則介紹到 SlimeCat Studio 群組
+     （①靈感/機制/變形/怎麼玩 ②工廠備註；沒設群組就推 Boss 私訊）
+
+額度：claude -p 撞到訂閱額度時不是停產，而是照額度重置時間建一次性排程自動補跑
+（同一天最多 MAX_QUOTA_RETRY 次），細節見 schedule_retry。
 
 玩家回饋入口：python rate_game.py <遊戲名> <1-10> [評語] —— 玩家評分 > AI 自評 > 理論。
 """
 import datetime
 import json
+import math
 import re
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 sys.stdout.reconfigure(encoding="utf-8")
@@ -43,6 +50,10 @@ KB_FILE = KNOW / "fun_principles.md"
 LEARN_FILE = KNOW / "learnings.md"
 DECON_DIR = KNOW / "deconstructions"
 FAILED_DIR = HERE / "failed_outputs"   # 交稿解析失敗的原始輸出（驗屍用，最多留 10 份）
+STUDIO_CFG = HERE / "studio_chat.json"  # SlimeCat Studio 群組 chat_id（gitignored；用 studio_setup.py 設）
+USAGE_LOG = HERE / "usage.jsonl"        # 每次 claude -p 的用量流水（gitignored；Phase 2 對帳用）
+RETRY_STATE = HERE / "retry_state.json"  # 撞額度自動補跑的當日計數（gitignored）
+SITE_URL = "https://madeintw80.github.io/slimecat-arcade/"
 
 sys.path.insert(0, str(HERE))
 import fetch_trends                  # noqa: E402
@@ -72,6 +83,7 @@ LLM_CWD.mkdir(parents=True, exist_ok=True)
 #   自評＝sonnet：評得更準、改進點更有料——它同時是打磨迴圈的觸發依據
 # run_claude 的 model 參數預設 MODEL_BUILD(fable) → fix_game / daily_feedback /
 # weekly_review / original_mode 這些沒指定 model 的呼叫端同步升級（全鏈一致）。
+# 2026-09-05 註：「全 fable 分級 effort」是 v3 Phase 2 的題目，跑三款對帳後再定；這裡先不動。
 MODEL_DECON = "opus"      # 解構熱門遊戲
 MODEL_BUILD = "fable"     # 設計＋實作遊戲（品質關鍵）
 MODEL_CRITIC = "sonnet"   # 出廠五維自評
@@ -79,6 +91,38 @@ GEN_TIMEOUT = 3600        # 實作一整款遊戲的時間上限（fable 思考�
 SMALL_TIMEOUT = 900       # 解構 / 評審這類小任務的上限
 MAX_ATTEMPTS = 2          # 實作 + 驗證最多試幾次
 POLISH_BAR = 40           # 自評低於這分數就觸發「打磨一輪」（0=關閉打磨、50=每款必磨）
+MAX_QUOTA_RETRY = 2       # 撞額度時同一天最多自動補跑幾次（防無限迴圈燒額度）
+CRITIC_HTML_CAP = 160000  # 評審讀多少字的原始碼（舊值 45000 只看得到大型遊戲的前 1/3）
+
+# 類型固定清單（2026-09-05）：以前讓模型自由填，59 款長出 33 種寫法
+# （「益智（邏輯推理）」「街機／駕駛跑酷」…），大廳分類靠正則猜、猜錯就掉錯格。
+# 現在只准這 14 個；模型亂填由 normalize_genre 對回來，大廳 index.html 的分類表跟這裡一致。
+GENRES = ["益智", "消除", "合成", "觀察", "策略", "經營", "塔防", "放置",
+          "動作", "街機", "反應", "跑酷", "生存", "放鬆"]
+# 自由文字 → 固定類型的關鍵字對照。順序就是優先序（前面的比較專門，先比對）。
+_GENRE_HINTS = [
+    ("塔防", r"塔防|防守|防禦|守城"),
+    ("策略", r"策略|抉擇|選擇|roguelite|路徑|回合|骰"),
+    ("經營", r"經營|模擬|餐廳|開店|養成"),
+    ("放置", r"放置|掛機"),
+    ("益智", r"解謎|數獨|接龍|拼詞|文字|邏輯|推理|配對|記憶"),
+    ("觀察", r"觀察|找碴|找不同|尋物|搜查"),
+    ("合成", r"合成|配方|融合|合併"),
+    ("消除", r"消除|三消|方塊|疊層"),
+    ("跑酷", r"跑酷|駕駛|衝刺"),
+    ("生存", r"生存|射擊|割草|防衛"),
+    ("反應", r"反應|節奏|拍點|時機"),
+    ("街機", r"街機|彈射|彈跳|投籃"),
+    ("動作", r"動作|格鬥|閃避|物理"),
+    ("放鬆", r"放鬆|解壓|療癒|休閒"),
+    ("益智", r"益智|拼"),
+]
+
+# 開發者要看的教訓：近六週、最多 40 行、跳過「檢討會」開頭的行
+# （2026-09-05 餵料分流：檢討會 85 行裡 2/3 是產能/流程抱怨，餵給開發者只會把它帶偏）
+LESSON_DAYS = 42
+LESSON_MAX = 40
+LESSON_SKIP = ("檢討會",)
 
 
 def log(msg: str) -> None:
@@ -86,33 +130,197 @@ def log(msg: str) -> None:
     print(f"[{ts}] {msg}", flush=True)
 
 
-def run_claude(prompt: str, timeout: int, model: str = MODEL_BUILD) -> str:
-    """呼叫 claude -p。空 MCP config 跳過冷啟動；model 不指定＝MODEL_BUILD(opus)。"""
+# ---------------------------------------------------------------- claude -p 包裝
+class QuotaError(RuntimeError):
+    """claude -p 撞到訂閱額度（session／週額度）。resets_at＝額度重置的 epoch 秒（不明就 None）。"""
+
+    def __init__(self, msg: str, resets_at=None):
+        super().__init__(msg)
+        self.resets_at = resets_at
+
+
+# 額度錯誤的文字特徵（9/2 實例：「You've hit your session limit · resets 3:40pm (Asia/Taipei)」）
+_QUOTA_RE = re.compile(r"hit your .{0,24}limit|usage limit|rate.?limit|limit reached", re.I)
+_RESET_TXT_RE = re.compile(r"resets?\s*(?:at\s*)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)", re.I)
+
+USAGE: list = []   # 本次程序內每次 claude -p 的用量（工廠備註要附本次 run 總用量）
+
+
+def _parse_reset_text(text: str):
+    """從「resets 3:40pm」這種文字推回 epoch（今天該時刻；已經過了就算明天）。"""
+    m = _RESET_TXT_RE.search(text or "")
+    if not m:
+        return None
+    hour, minute, ap = int(m.group(1)), int(m.group(2) or 0), m.group(3).lower()
+    if ap == "pm" and hour != 12:
+        hour += 12
+    if ap == "am" and hour == 12:
+        hour = 0
+    now = datetime.datetime.now()
+    t = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    if t <= now:
+        t += datetime.timedelta(days=1)
+    return t.timestamp()
+
+
+def _record_usage(stage: str, model: str, effort, result, secs: float) -> None:
+    """把這次呼叫的 token／費用（CLI result 事件自帶）記進 USAGE 與 usage.jsonl。"""
+    u = (result or {}).get("usage") or {}
+    rec = {
+        "ts": datetime.datetime.now().isoformat(timespec="seconds"),
+        "stage": stage, "model": model, "effort": effort or "",
+        "in": int(u.get("input_tokens") or 0),
+        "cache_w": int(u.get("cache_creation_input_tokens") or 0),
+        "cache_r": int(u.get("cache_read_input_tokens") or 0),
+        "out": int(u.get("output_tokens") or 0),
+        "cost_usd": round(float((result or {}).get("total_cost_usd") or 0), 4),
+        "turns": (result or {}).get("num_turns"),
+        "secs": round(secs),
+    }
+    USAGE.append(rec)
+    try:
+        with USAGE_LOG.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    except OSError:
+        pass
+
+
+def usage_summary(recs=None) -> str:
+    """本次 run 的用量一行（in＝輸入＋快取寫入、cache＝快取讀取、out＝輸出；$＝CLI 依牌價估）。"""
+    recs = USAGE if recs is None else recs
+    if not recs:
+        return "（無紀錄）"
+
+    def k(n):
+        return f"{n/1000:.0f}k" if n >= 1000 else str(n)
+
+    tin = sum(r["in"] + r["cache_w"] for r in recs)
+    tcr = sum(r["cache_r"] for r in recs)
+    tout = sum(r["out"] for r in recs)
+    cost = sum(r["cost_usd"] for r in recs)
+    return f"in {k(tin)}／cache {k(tcr)}／out {k(tout)} ≈ ${cost:.2f}（{len(recs)} 次呼叫）"
+
+
+def run_claude(prompt: str, timeout: int, model: str = MODEL_BUILD,
+               effort: str = "", stage: str = "") -> str:
+    """呼叫 claude -p，回傳模型印出的全部文字。
+
+    2026-09-05 改走 --output-format stream-json：以前用預設 text 格式，模型分兩則訊息交稿時
+    stdout 只印「最後一則」→ GAMEMETA 跟前半段遊戲一起消失（8/30 驗屍檔＝完整遊戲的最後
+    2,154 bytes，有 </html> 沒 DOCTYPE）。stream-json 會把每一則 assistant 文字塊都吐出來，
+    這裡照順序接起來；result 事件順便帶 usage／cost（記進 usage.jsonl），
+    rate_limit_event 帶額度重置時間（撞額度時交給 schedule_retry 算補跑時刻）。
+    effort：可選 low/medium/high/xhigh/max（v3 Phase 2 分級用；空字串＝CLI 預設）。
+    """
     # 子 Claude 是「純文字交稿」：禁用全部工具，防止它自作主張直接寫檔案
     # （2026-07-04 事故：開發者把遊戲直接寫進專案、stdout 沒交稿 → 驗收誤判失敗）
     deny = "Bash,Edit,Write,NotebookEdit,Read,Glob,Grep,WebFetch,WebSearch,Task,TodoWrite"
     cmd = [CLAUDE, "-p", "--model", model, "--disallowedTools", deny,
-           "--strict-mcp-config", "--mcp-config", str(EMPTY_MCP)]
+           "--strict-mcp-config", "--mcp-config", str(EMPTY_MCP),
+           "--output-format", "stream-json", "--verbose"]
+    if effort:
+        cmd += ["--effort", effort]
+    t0 = time.time()
     proc = subprocess.run(cmd, input=prompt, capture_output=True,
                           text=True, encoding="utf-8", errors="replace",
                           timeout=timeout, cwd=str(LLM_CWD))
-    if proc.returncode != 0:
-        err = (proc.stderr or "")[-500:]
+
+    texts, result, reset_at = [], None, None
+    for line in (proc.stdout or "").splitlines():
+        line = line.strip()
+        if not line.startswith("{"):
+            continue
+        try:
+            ev = json.loads(line)
+        except ValueError:
+            continue
+        kind = ev.get("type")
+        if kind == "assistant":
+            for block in (ev.get("message") or {}).get("content") or []:
+                if block.get("type") == "text" and block.get("text"):
+                    texts.append(block["text"])
+        elif kind == "result":
+            result = ev
+        elif kind == "rate_limit_event":
+            info = ev.get("rate_limit_info") or {}
+            status = str(info.get("status") or "").lower()
+            if status not in ("", "allowed", "allowed_warning") and info.get("resetsAt"):
+                reset_at = float(info["resetsAt"])
+    text = "\n".join(texts)
+    if not text and result and isinstance(result.get("result"), str):
+        text = result["result"]           # 沒抓到 assistant 事件（CLI 格式變了？）就退回 result 欄
+    if not text and proc.returncode == 0 and (proc.stdout or "").strip() \
+            and not proc.stdout.lstrip().startswith("{"):
+        text = proc.stdout                # 完全不是 JSON（未知格式）→ 原文照收，別把成品丟掉
+    _record_usage(stage or model, model, effort, result, time.time() - t0)
+
+    failed = proc.returncode != 0 or bool(result and result.get("is_error"))
+    if failed:
+        err = ""
+        if result and isinstance(result.get("result"), str):
+            err = result["result"][-500:]
+        if not err.strip():
+            err = (proc.stderr or "")[-500:]
         if not err.strip():
             # claude -p 的錯誤（額度上限/API error）常印在 stdout、stderr 反而全空，
             # 只看 stderr 會把真正原因丟掉（2026-08-21 停產事故：log 只剩「code 1：」）
             err = (proc.stdout or "")[-500:]
         if "401" in err or "unauthorized" in err.lower():
             raise RuntimeError("claude CLI 401：token 過期，請跑 scripts/claude_relogin.bat 重登")
+        if reset_at or _QUOTA_RE.search(err):
+            raise QuotaError(f"claude -p 撞額度：{err.strip()[:200]}",
+                             reset_at or _parse_reset_text(err))
         raise RuntimeError(f"claude -p 失敗 (code {proc.returncode})：{err}")
-    return proc.stdout
+    if not text.strip():
+        raise RuntimeError("claude -p 回傳空白（stream-json 裡沒有任何文字塊）")
+    return text
 
 
 def tail(path: Path, lines: int = 60) -> str:
-    """讀檔案最後 N 行（learnings 只餵最新的）。"""
+    """讀檔案最後 N 行（保留給舊呼叫端；開發者餵料改用 recent_lessons）。"""
     if not path.exists():
         return ""
     return "\n".join(path.read_text(encoding="utf-8").splitlines()[-lines:])
+
+
+def recent_lessons(days: int = LESSON_DAYS, max_lines: int = LESSON_MAX,
+                   skip=LESSON_SKIP) -> str:
+    """learnings.md 裡近 days 天、跳過 skip 類型（預設跳「檢討會」）的教訓，最多 max_lines 行。
+
+    每行格式「- YYYY-MM-DD 類型《…》…」，類型＝日期後第一個詞（AI 自評／玩家留言／修復／打磨／檢討會）。
+    """
+    if not LEARN_FILE.exists():
+        return ""
+    cutoff = (datetime.date.today() - datetime.timedelta(days=days)).isoformat()
+    keep = []
+    for line in LEARN_FILE.read_text(encoding="utf-8").splitlines():
+        m = re.match(r"- (\d{4}-\d{2}-\d{2}) (\S+)", line)
+        if not m or m.group(1) < cutoff:
+            continue
+        if any(m.group(2).startswith(s) for s in skip):
+            continue
+        keep.append(line)
+    return "\n".join(keep[-max_lines:])
+
+
+def section(doc: str, key: str, limit: int = 160) -> str:
+    """從解構筆記／企劃書抓「## 標題含 key」那一節的正文，壓成一段、截 limit 字（介紹推播用）。"""
+    m = re.search(rf"^##[^\n]*{re.escape(key)}[^\n]*\n(.*?)(?=^## |\Z)", doc or "", re.S | re.M)
+    if not m:
+        return ""
+    body = re.sub(r"\s+", " ", m.group(1)).strip(" -*")
+    return body[:limit].rstrip() + "…" if len(body) > limit else body
+
+
+def normalize_genre(text: str) -> str:
+    """把模型自由填的類型對回 GENRES 固定清單（對不到一律「益智」）。"""
+    t = str(text or "").strip()
+    if t in GENRES:
+        return t
+    for name, pat in _GENRE_HINTS:
+        if re.search(pat, t, re.I):
+            return name
+    return "益智"
 
 
 # ---------------------------------------------------------------- 解構
@@ -143,7 +351,7 @@ App Store 台灣免費遊戲排行榜（來源 {trends['source']}）：
 輸出格式（嚴格遵守，前三行是標頭，之後是筆記本體；直接印出文字、不要使用任何工具）：
 SOURCE: <原作名稱>
 TITLE: <我們的變形版建議中文名（全新命名；不可含原作名，也不可與原作名音近/形近/直譯——商標紅線）>
-GENRE: <類型一詞（街機/益智/反應/跑酷/消除…）>
+GENRE: <只能從這個清單挑一個：{'/'.join(GENRES)}>
 
 # 解構：<原作名>
 ## 核心迴圈（一圈幾秒？操作→回饋→獎勵怎麼轉？）
@@ -151,9 +359,9 @@ GENRE: <類型一詞（街機/益智/反應/跑酷/消除…）>
 ## 難度與節奏（怎麼讓新手活過前 15 秒、又讓老手 2 分鐘後不無聊？）
 ## 可偷的設計（3-5 條，我們的單檔小遊戲做得到的）
 ## 不可行的部分（原作有但我們該捨棄的，為什麼）
-## 我們的變形版一句話企劃（史萊姆貓宇宙，核心樂趣要保留哪一條）
+## 我們的變形版一句話企劃（主題與美術自由挑最適合這個機制的，核心樂趣要保留哪一條）
 """
-    out = run_claude(prompt, SMALL_TIMEOUT, model=MODEL_DECON)
+    out = run_claude(prompt, SMALL_TIMEOUT, model=MODEL_DECON, stage="decon")
     src = re.search(r"^SOURCE:\s*(.+)$", out, re.M)
     ttl = re.search(r"^TITLE:\s*(.+)$", out, re.M)
     gnr = re.search(r"^GENRE:\s*(.+)$", out, re.M)
@@ -164,7 +372,7 @@ GENRE: <類型一詞（街機/益智/反應/跑酷/消除…）>
     return {
         "source": src.group(1).strip(),
         "title": (ttl.group(1).strip() if ttl else ""),
-        "genre": (gnr.group(1).strip() if gnr else "小遊戲"),
+        "genre": normalize_genre(gnr.group(1) if gnr else ""),
         "doc": doc.strip(),
     }
 
@@ -173,10 +381,11 @@ GENRE: <類型一詞（街機/益智/反應/跑酷/消除…）>
 def stage_generate(decon: dict, past_games: list, feedback: str = ""):
     """帶著設計聖經 + 解構筆記 + 教訓生成完整遊戲。回傳 (meta, html)。"""
     kb = KB_FILE.read_text(encoding="utf-8") if KB_FILE.exists() else ""
-    learn = tail(LEARN_FILE, 60)
+    learn = recent_lessons()
     past = [f"《{g['title']}》({g.get('genre','')})" for g in past_games]
     fb = (f"\n⚠️ 上一次生成沒通過品管，錯誤如下，請避免同類問題：\n{feedback}\n"
           if feedback else "")
+    genre = normalize_genre(decon.get("genre"))
 
     prompt = f"""你是「SlimeCat 遊戲工作室」的資深遊戲開發者。要做一款比本站過去所有作品都更好玩的小遊戲。
 
@@ -186,19 +395,20 @@ def stage_generate(decon: dict, past_games: list, feedback: str = ""):
 ═══ 這次的解構筆記（策劃已完成）═══
 {decon['doc']}
 
-═══ 最近的教訓與玩家回饋（最高優先級，玩家評分 > 理論）═══
+═══ 近期的教訓與玩家回饋（最高優先級，玩家評分 > 理論）═══
 {learn if learn else "（還沒有）"}
 
 ═══ 本站已有遊戲（核心機制不可重複）═══
 {chr(10).join(past) if past else "（無）"}
 {fb}
 任務：把解構筆記裡「我們的變形版企劃」實作成完整單檔 HTML5 小遊戲。
-建議名稱《{decon['title'] or '（自訂）'}》，主角美術一律「史萊姆貓」宇宙
-（綠色史萊姆＋貓耳，canvas 畫或 emoji），絕不可用原作名稱/角色/美術/音樂。
+建議名稱《{decon['title'] or '（自訂）'}》。美術風格完全自由（不必是史萊姆貓）：
+挑最能放大這個機制的主題與視覺，canvas 畫或 emoji 皆可；絕不可用原作名稱/角色/美術/音樂。
 版權紅線：只學「機制與心理學」、不抄「表達」——遊戲名不可與原作音近/形近/直譯；
 不可複製原作的特徵性視覺（配色組合/圖示造型）、具體數值表與關卡佈局。
 實作時逐條對照設計聖經第三節「出貨檢查清單」——特別是：
-前 15 秒不會死、每個互動都有 juice、Game Over 顯示差 X 分破紀錄、重開一鍵零等待。
+前 15 秒不會死、每個互動都有 juice、Game Over 顯示差 X 分破紀錄、重開一鍵零等待、
+第 3 分鐘要有新的壓力源（新機制／加速／縮圈／限時擇一，別讓後期平掉）。
 
 硬性規格（違反任何一條就算失敗）：
 - 單一 HTML 檔內含全部 CSS/JS；零外部資源（不可用 CDN、外部圖片、字型、音檔；音效用 WebAudio 合成）
@@ -217,17 +427,18 @@ def stage_generate(decon: dict, past_games: list, feedback: str = ""):
 - 一局結束（Game Over）時加一行 `if (window.SC) SC.over(最終分數);`（匿名數據回報，SC 由站台注入）
 
 🔴 交付方式：你唯一的交付物是「印出的文字」。不要使用任何工具、不要建立或修改任何檔案
-（你也沒有寫檔權限），把完整 HTML 當純文字印出來就是交稿。
+（你也沒有寫檔權限），把完整 HTML 當純文字印出來就是交稿。**整份交稿放在同一則回覆裡**，
+不要分成兩則、不要中途停下來問問題。
 
 輸出格式（嚴格遵守）：
 - 不要 markdown code fence、不要任何解說文字，直接輸出檔案內容
 - 檔案第一行必須是這個中繼資料註解（JSON 單行）：
-<!--GAMEMETA {{"title":"遊戲中文名","emoji":"一個代表emoji","genre":"{decon['genre']}","inspiration":"{decon['source']}","desc":"一句話介紹(30字內)"}}-->
+<!--GAMEMETA {{"title":"遊戲中文名","emoji":"一個代表emoji","genre":"{genre}","inspiration":"{decon['source']}","desc":"一句話介紹(30字內)"}}-->
 - 第二行開始就是 <!DOCTYPE html> 起頭的完整網頁
 - 🔴 交稿前最後自檢：輸出的「第 1 行」必須就是那行 <!--GAMEMETA …--> 中繼資料註解
   （先印它、再印網頁）；漏了這行，整包交稿直接作廢
 """
-    out = run_claude(prompt, GEN_TIMEOUT, model=MODEL_BUILD)
+    out = run_claude(prompt, GEN_TIMEOUT, model=MODEL_BUILD, stage="build")
     try:
         return extract(out)
     except ValueError as e:
@@ -258,7 +469,7 @@ def extract(output: str):
         if not meta.get(k):
             raise ValueError(f"GAMEMETA 缺 {k}")
     meta.setdefault("emoji", "🎮")
-    meta.setdefault("genre", "小遊戲")
+    meta["genre"] = normalize_genre(meta.get("genre"))
     meta.setdefault("desc", "")
     if "<canvas" not in html.lower():
         raise ValueError("HTML 裡沒有 canvas")
@@ -310,13 +521,13 @@ def rescue_meta(body: str, decon: dict):
 原始碼：
 {body[:45000]}
 """
-    out = run_claude(prompt, SMALL_TIMEOUT, model=MODEL_CRITIC)
+    out = run_claude(prompt, SMALL_TIMEOUT, model=MODEL_CRITIC, stage="rescue-meta")
     i, j = out.find("{"), out.rfind("}")
     got = json.loads(out[i:j + 1])
     meta = {
         "title": str(got.get("title", "")).strip(),
         "emoji": str(got.get("emoji", "")).strip() or "🎮",
-        "genre": decon.get("genre", "小遊戲"),
+        "genre": normalize_genre(decon.get("genre")),
         "inspiration": decon.get("source", ""),
         "desc": str(got.get("desc", "")).strip()[:60],
     }
@@ -328,7 +539,11 @@ def rescue_meta(body: str, decon: dict):
 
 # ---------------------------------------------------------------- 出廠自評
 def stage_critic(html: str, meta: dict):
-    """AI 評審按五維量表打分。失敗不擋出貨（fail-open），回傳 dict 或 None。"""
+    """AI 評審按五維量表打分＋交工廠備註素材。失敗不擋出貨（fail-open），回傳 dict 或 None。
+
+    回傳欄位：scores/total/fixes/verdict（原本就有）＋ howto（怎麼玩）／design_choices（設計決策）／
+    pressure_3min（第 3 分鐘壓力源）／scale_up（值不值得做大）——給 Telegram 第二則「工廠備註」用。
+    """
     kb_scale = ("五維量表：上手(不看說明能玩?規則一句話?)、Juice(每個操作有視聽回饋?得分有爽感演出?)、"
                 "目標(隨時知道為何而玩?)、難度(前15秒安全?2分鐘後仍有挑戰?)、再一局(near-miss設計?重開零摩擦?)")
     prompt = f"""你是嚴格的遊戲評審。以下是一款 canvas 小遊戲《{meta['title']}》的完整原始碼，
@@ -336,31 +551,37 @@ def stage_critic(html: str, meta: dict):
 
 {kb_scale}
 
-每維 1-10 分（8 分以上必須真的出色才給）。只輸出一行 JSON，格式：
-{{"scores":{{"onboarding":n,"juice":n,"goal":n,"difficulty":n,"one_more":n}},"total":n,"fixes":["最重要的改進點1","改進點2","改進點3"],"verdict":"一句話總評"}}
+每維 1-10 分（8 分以上必須真的出色才給；可以給 .5 半分）。只輸出一行 JSON，格式：
+{{"scores":{{"onboarding":n,"juice":n,"goal":n,"difficulty":n,"one_more":n}},"total":n,"fixes":["最重要的改進點1（要具體到工程師能直接改）","改進點2","改進點3"],"verdict":"一句話總評","howto":"給玩家看的一句話怎麼玩（30字內）","design_choices":["這款最關鍵的設計決策或取捨1（從程式碼看得出來的）","決策2"],"pressure_3min":"第 3 分鐘的壓力源是什麼？沒有就寫『無：後期會平掉』（30字內）","scale_up":{{"worth":true或false,"why":"值不值得做成大型版（關卡/波次/升級/圖鑑）的一句理由"}}}}
 
 原始碼：
-{html[:45000]}
+{html[:CRITIC_HTML_CAP]}
 """
     try:
-        out = run_claude(prompt, SMALL_TIMEOUT, model=MODEL_CRITIC)
+        out = run_claude(prompt, SMALL_TIMEOUT, model=MODEL_CRITIC, stage="critic")
         i, j = out.find("{"), out.rfind("}")
         crit = json.loads(out[i:j + 1])
         # 🔴 不信模型自報的 total：haiku 常把單維 1-10 分當成總分回（例 total=7），
         # 被當成 50 分制上架 → 公開卡片顯示 6/7/8 這種假分數。
-        # 改成先驗五維齊全且各為 1-10 整數，再一律自己加總（忽略模型自報 total）。
+        # 改成先驗五維齊全且各在 1-10，再一律自己加總（忽略模型自報 total）。
+        # 2026-09-05：半分（7.5）改四捨五入收下——以前整包退件，兩款網頁 8 分的好遊戲自評因此變 None。
         scores = crit.get("scores") or {}
         dims = ("onboarding", "juice", "goal", "difficulty", "one_more")
         clean = {}
         for d in dims:
             v = scores.get(d)
-            # 每維必須是 1-10 的整數（容忍 8.0 這種整數值 float，擋掉 8.5／缺項／超範圍）；
-            # 不合格就 raise → 被下面 except 接住當「自評失敗」→ 不設 ai_score（卡片隱藏分數）。
-            if isinstance(v, bool) or not isinstance(v, (int, float)) or v != int(v) or not 1 <= v <= 10:
-                raise ValueError(f"自評維度 {d}={v!r} 非 1-10 整數（五維不齊或超範圍）")
-            clean[d] = int(v)
+            if isinstance(v, bool) or not isinstance(v, (int, float)) or not 1 <= v <= 10:
+                raise ValueError(f"自評維度 {d}={v!r} 不在 1-10（五維不齊或超範圍）")
+            clean[d] = int(math.floor(v + 0.5))   # 四捨五入（7.5→8），不是 banker's rounding
         crit["scores"] = clean
         crit["total"] = sum(clean.values())   # 一律五維加總（滿分 50），不看模型自報 total
+        crit["fixes"] = [str(x) for x in (crit.get("fixes") or []) if str(x).strip()][:3]
+        crit["verdict"] = str(crit.get("verdict") or "")[:120]
+        crit["howto"] = str(crit.get("howto") or "")[:60]
+        crit["design_choices"] = [str(x)[:80] for x in (crit.get("design_choices") or [])][:3]
+        crit["pressure_3min"] = str(crit.get("pressure_3min") or "")[:60]
+        su = crit.get("scale_up") if isinstance(crit.get("scale_up"), dict) else {}
+        crit["scale_up"] = {"worth": bool(su.get("worth")), "why": str(su.get("why") or "")[:80]}
         return crit
     except Exception as e:
         log(f"  ⚠️ 自評失敗（不擋出貨）：{e}")
@@ -369,36 +590,39 @@ def stage_critic(html: str, meta: dict):
 
 # ---------------------------------------------------------------- 打磨（低分才觸發）
 def stage_polish(html: str, meta: dict, crit: dict) -> str:
-    """把評審的改進點餵回開發者，針對「這一款」修一版。回傳修訂後的完整 HTML。
+    """把評審點名的「第一條缺陷」餵回開發者，針對「這一款」修一版。回傳修訂後的完整 HTML。
 
     2026-08-09 三天一產改制：以前評審的 fixes 只餵給下一款，這一款照樣原樣上架；
-    現在自評低於 POLISH_BAR 的作品出廠前多吃一輪修訂（產量砍 2/3 省下的額度換品質）。
-    修訂版要重跑品管＋評分、分數有變高才採用——最差就是用原版上架，不會更差。
+    現在自評低於 POLISH_BAR 的作品出廠前多吃一輪修訂。
+    2026-09-05 改制：只修第一條缺陷（改動小＝不容易弄壞），修訂版品管通過就採用——
+    以前要「重評分數變高才換版」，但 7 次觸發只換版 2 次、都在評審雜訊範圍內，分數當裁判無效。
     """
-    fixes = "\n".join(f"- {f}" for f in crit.get("fixes", []))
+    fixes = crit.get("fixes") or []
+    fix0 = fixes[0] if fixes else "針對分數最低的維度自行強化一項"
     prompt = f"""你是「SlimeCat 遊戲工作室」的資深遊戲開發者。你剛完成的小遊戲《{meta['title']}》
-出廠評審給了 {crit['total']}/50，還不夠好。請針對評審意見修訂一版，把它變得更好玩。
+出廠評審給了 {crit['total']}/50，評審點名了一條最重要的缺陷。請針對這一條修訂一版。
 
-═══ 評審意見（逐條處理，這是這次修訂的唯一目標）═══
-總評：{crit.get('verdict', '')}
+═══ 這次修訂的唯一目標（只處理這一條，其他的別動）═══
+{fix0}
+
+評審總評：{crit.get('verdict', '')}
 各維分數（1-10）：{json.dumps(crit.get('scores', {}), ensure_ascii=False)}
-改進點：
-{fixes if fixes else "（評審沒列，針對分數最低的維度自行強化）"}
 
 ═══ 目前的完整原始碼 ═══
 {html}
 
 修訂規則：
-- 只做「讓它更好玩」的修訂：加強 juice／難度曲線／目標感／near-miss，不可重寫成另一款遊戲
+- 只做「修這一條缺陷」需要的改動，改動越小越好；不可重寫成另一款遊戲、不可順手大改其他系統
 - 原本能玩的功能不可弄壞；維持原有硬性規格（單檔零外部資源／canvas 400×600／
   fixed timestep 不可假設 60fps／DPR 高解析／繁中介面／SC.over 回報／localStorage 最高分）
 - 遊戲名與第一行 GAMEMETA 註解保持原樣
 
 🔴 交付方式：你唯一的交付物是「印出的文字」。不要使用任何工具（你也沒有寫檔權限）。
+整份交稿放在同一則回覆裡，不要分成兩則。
 輸出格式：不要 code fence、不要任何解說文字；第一行是原本的 GAMEMETA 註解，第二行起是完整 HTML。
 交稿前最後自檢：輸出第 1 行必須就是原本那行 <!--GAMEMETA …-->，漏了整包作廢。
 """
-    out = run_claude(prompt, GEN_TIMEOUT, model=MODEL_BUILD)
+    out = run_claude(prompt, GEN_TIMEOUT, model=MODEL_BUILD, stage="polish")
     try:
         _, html2 = extract(out)   # meta 一律沿用原版（防模型偷改名），只取修訂後的 HTML
     except ValueError as e:
@@ -455,44 +679,159 @@ def append_learning(line: str) -> None:
         f.write(line.rstrip() + "\n")
 
 
-def notify(entry: dict, crit) -> None:
-    if not (tg and tg.available()):
-        return
-    score_line = (f"AI 自評：{crit['total']}/50 —— {crit.get('verdict','')}"
-                  if crit else "AI 自評：略過")
-    text = (f"🏭🎮 SlimeCat 遊戲區 新品出爐！\n"
-            f"《{entry['title']}》{entry['emoji']}\n"
-            f"類型：{entry['genre']}｜靈感：{entry['inspiration']}\n"
-            f"{entry['desc']}\n{score_line}\n\n"
-            f"玩完給回饋（會讓下一款更好玩）：\n"
-            f"「遊戲評分 {entry['title']} 8 手感不錯」\n\n"
-            f"打開遊戲區：C:/Users/User/projects/SlimeCatArcade/index.html")
-    shot = HERE / "shots" / f"{entry['id']}.png"
+# ---------------------------------------------------------------- Telegram
+def studio_chat():
+    """SlimeCat Studio 群組的 chat_id（factory/studio_chat.json，用 studio_setup.py 設）；沒設回 None。"""
     try:
-        if shot.exists():
-            tg.push_photo(shot, caption=text)
-        else:
-            tg.send(text)
+        cid = json.loads(STUDIO_CFG.read_text(encoding="utf-8")).get("chat_id")
+        return str(cid) if cid else None
+    except (OSError, ValueError, AttributeError):
+        return None
+
+
+def send_public(text: str, photo: Path = None) -> bool:
+    """對外（玩家群）推播：有設 Studio 群組就送群組，沒設就送預設對象（Boss 私訊）。
+
+    帶圖時 Telegram caption 上限 1024 字：文字太長就「圖＋短說明」再補一則全文。
+    """
+    if not (tg and tg.available()):
+        return False
+    cid = studio_chat()
+    try:
+        if photo is not None and photo.exists():
+            if len(text) <= 1000:
+                return tg.push_photo(photo, caption=text, chat_id=cid)
+            tg.push_photo(photo, caption=text.splitlines()[0][:200], chat_id=cid)
+        return tg.send(text, chat_id=cid)
     except Exception as e:
         log(f"⚠️ Telegram 推播失敗：{e}")
+        return False
+
+
+def notify_release(entry: dict, crit, decon: dict, polish_note: str = "") -> None:
+    """新品出爐推兩則（2026-09-05 4B）：①給玩家看的介紹 ②工廠備註（設計決策／壓力源／評審／值不值得做大／用量）。"""
+    if not (tg and tg.available()):
+        return
+    doc = decon.get("doc", "")
+    mech = section(doc, "核心迴圈") or section(doc, "上癮機制")
+    twist = section(doc, "變形版")
+    howto = (crit or {}).get("howto") or entry.get("desc", "")
+    url = f"{SITE_URL}games/{entry['id']}/index.html"
+    intro = (f"🎮 本週新作《{entry['title']}》{entry['emoji']}\n"
+             f"{entry['desc']}\n\n"
+             f"💡 靈感：{entry['inspiration']}\n"
+             f"🔁 機制：{mech or '（見解構筆記）'}\n"
+             f"🌀 變形：{twist or '（見企劃）'}\n"
+             f"🕹️ 怎麼玩：{howto}\n\n"
+             f"👉 {url}\n"
+             f"玩完到大廳按「評分」留一句，工廠會照留言改。")
+    if crit:
+        choices = "\n".join(f"• {c}" for c in crit.get("design_choices") or []) or "• （評審沒列）"
+        su = crit.get("scale_up") or {}
+        worth = "✅ 值得" if su.get("worth") else "❌ 先不用"
+        polish = f"修了「{polish_note}」，品管通過採用" if polish_note else "未觸發／未採用"
+        notes = (f"🏭 工廠備註《{entry['title']}》\n"
+                 f"設計決策：\n{choices}\n"
+                 f"第 3 分鐘壓力源：{crit.get('pressure_3min') or '（未評）'}\n"
+                 f"評審看法：{crit['total']}/50 — {crit.get('verdict', '')}\n"
+                 f"最想修：{(crit.get('fixes') or ['—'])[0]}\n"
+                 f"打磨：{polish}\n"
+                 f"值不值得做大：{worth} — {su.get('why', '')}\n"
+                 f"用量：{usage_summary()}\n"
+                 f"要做大就說「做大 {entry['title']}」")
+    else:
+        notes = (f"🏭 工廠備註《{entry['title']}》\n評審這次沒交卷（自評失敗，不擋出貨）。\n"
+                 f"用量：{usage_summary()}")
+    shot = HERE / "shots" / f"{entry['id']}.png"
+    send_public(intro, photo=shot)
+    send_public(notes)
 
 
 def notify_fail(reason: str) -> None:
+    """生產失敗告警：一律送 Boss 私訊（預設對象），不進玩家群。"""
     if not (tg and tg.available()):
         return
     try:
-        tg.send(f"🏭⚠️ SlimeCat 遊戲工廠今天生產失敗（已重試）。\n"
+        tg.send(f"🏭⚠️ SlimeCat 遊戲工廠這輪生產失敗（已重試）。\n"
                 f"原因：{reason[:300]}\n詳見 factory/factory.log")
     except Exception:
         pass
 
 
+# ---------------------------------------------------------------- 撞額度自動補跑
+_RETRY_BATS = {"factory": ROOT / "run_factory.bat",
+               "weekly": ROOT / "run_weekly.bat",
+               "feedback": ROOT / "run_feedback.bat"}
+
+
+def _retry_task(kind: str) -> str:
+    return f"SlimeCat Retry {kind}"   # 前綴 SlimeCat＝心跳監控 WATCH_PREFIXES 自動涵蓋
+
+
+def _schtasks(*args) -> tuple:
+    proc = subprocess.run(["schtasks", *args], capture_output=True)
+    return proc.returncode, (proc.stdout + proc.stderr).decode("cp950", errors="replace").strip()
+
+
+def schedule_retry(kind: str, resets_at, reason: str) -> bool:
+    """撞額度：照重置時間＋10 分鐘建一次性 schtasks 自動補跑，回傳是否已排。
+
+    以前撞額度＝當輪停產、等 Boss 回來喊「生一個新遊戲」（8/18、8/21、9/2 三次）。
+    現在：kind ∈ factory/weekly/feedback → 對應 run_*.bat；同一天最多 MAX_QUOTA_RETRY 次
+    （計數在 retry_state.json），超過就放棄並推警報。重置時間不明就 3 小時後再試。
+    排到補跑時呼叫端回 0（失敗已被接手，別讓心跳監控紅一整週）；補跑那輪自己有結果碼。
+    """
+    bat = _RETRY_BATS[kind]
+    today = datetime.date.today().isoformat()
+    state = {}
+    try:
+        state = json.loads(RETRY_STATE.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        pass
+    if state.get("date") != today:
+        state = {"date": today, "count": {}}
+    n = int(state.get("count", {}).get(kind, 0))
+    if n >= MAX_QUOTA_RETRY:
+        log(f"⛔ 撞額度，今天已自動補跑 {n} 次，放棄（明天排程再試）：{reason[:120]}")
+        notify_fail(f"撞額度且今天已自動補跑 {n} 次，放棄：{reason[:150]}")
+        return False
+
+    now = datetime.datetime.now()
+    when = (datetime.datetime.fromtimestamp(resets_at) if resets_at
+            else now + datetime.timedelta(hours=3)) + datetime.timedelta(minutes=10)
+    if when < now + datetime.timedelta(minutes=2):
+        when = now + datetime.timedelta(minutes=5)
+    task = _retry_task(kind)
+    rc, out = _schtasks("/Create", "/TN", task, "/TR", str(bat), "/SC", "ONCE",
+                        "/SD", when.strftime("%Y/%m/%d"), "/ST", when.strftime("%H:%M"), "/F")
+    if rc != 0:
+        log(f"❌ 建補跑排程失敗（{out[-200:]}）：{reason[:120]}")
+        notify_fail(f"撞額度且補跑排程建不起來：{out[-150:]}")
+        return False
+    state["count"][kind] = n + 1
+    RETRY_STATE.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+    log(f"⏳ 撞額度，已排 {when:%m/%d %H:%M} 自動補跑（今天第 {n + 1} 次）：{reason[:120]}")
+    if tg and tg.available():
+        try:
+            tg.send(f"🏭⏳ SlimeCat 撞額度：{reason[:120]}\n"
+                    f"已排 {when:%m/%d %H:%M} 自動補跑（今天第 {n + 1}/{MAX_QUOTA_RETRY} 次），不用手動喊。")
+        except Exception:
+            pass
+    return True
+
+
+def clear_retry(kind: str) -> None:
+    """開跑時清掉上一次的一次性補跑排程（ONCE 跑過就不會再觸發，但留著會佔心跳監控的結果碼）。"""
+    _schtasks("/Delete", "/TN", _retry_task(kind), "/F")
+
+
 # ---------------------------------------------------------------- 生產管線（共用）
 def produce_from_decon(decon: dict) -> int:
-    """帶著企劃資料跑完 設計→實作→品管→自評→上架→部署。
+    """帶著企劃資料跑完 設計→實作→品管→自評→(打磨)→上架→部署→推播。
 
     decon = {source, title, genre, doc}——doc 是解構筆記（臨摹模式，make_game）
     或原創企劃書（原創模式，original_mode.py），管線本身完全相同。
+    回傳 0＝上架完成或已排補跑；1＝失敗。
     """
     # 這份 data 只當 prompt 素材（給模型看「本站已有哪些遊戲」，舊幾分鐘沒關係）；
     # 撥編號、上架寫檔都會「當下重讀最新檔」，不吃這份舊快照（防並行蓋檔，見下方註解）
@@ -503,6 +842,10 @@ def produce_from_decon(decon: dict) -> int:
         log(f"🛠️ 第 {attempt}/{MAX_ATTEMPTS} 次實作（model={MODEL_BUILD}，最多等 {GEN_TIMEOUT//60} 分鐘）…")
         try:
             meta, html = stage_generate(decon, data["games"], feedback)
+        except QuotaError as e:
+            # 撞額度再重試也是撞：直接排補跑，這輪收工
+            log(f"  ⏳ 實作撞額度：{e}")
+            return 0 if schedule_retry("factory", e.resets_at, str(e)) else 1
         except Exception as e:
             log(f"  ❌ 實作失敗：{e}")
             feedback = str(e)
@@ -530,25 +873,25 @@ def produce_from_decon(decon: dict) -> int:
         log("🧐 評審自評中…")
         crit = stage_critic(html, meta)
 
-        # ── 打磨迴圈（低分才觸發，見 stage_polish 說明）──
+        # ── 打磨迴圈（低分才觸發；只修第一條缺陷、品管過就採用，見 stage_polish 說明）──
+        polish_note = ""
         if crit and crit["total"] < POLISH_BAR:
-            log(f"🪄 自評 {crit['total']}/50 低於 {POLISH_BAR}，打磨一輪（針對評審改進點修訂）…")
-            polished = False
+            fix0 = (crit.get("fixes") or ["針對分數最低的維度自行強化一項"])[0]
+            log(f"🪄 自評 {crit['total']}/50 低於 {POLISH_BAR}，打磨一輪：只修第一條缺陷「{fix0[:50]}」…")
+            adopted = False
             try:
                 html2 = stage_polish(html, meta, crit)
                 (gdir / "index.html").write_text(inject_stats(html2), encoding="utf-8")
-                ok2, _ = validate(gdir / "index.html", shot_name=gid)
-                crit2 = stage_critic(html2, meta) if ok2 else None
-                if ok2 and crit2 and crit2["total"] > crit["total"]:
-                    log(f"  ✨ 打磨成功 {crit['total']} → {crit2['total']}/50，採用修訂版")
-                    append_learning(f"- {today} 打磨《{meta['title']}》"
-                                    f"{crit['total']}→{crit2['total']}/50：評審意見修訂有效")
-                    html, crit, polished = html2, crit2, True
+                ok2, errs2 = validate(gdir / "index.html", shot_name=gid)
+                if ok2:
+                    log("  ✨ 修訂版品管通過，採用（不再拿自評分數當裁判）")
+                    append_learning(f"- {today} 打磨《{meta['title']}》修第一條缺陷：{fix0[:60]}（品管通過採用）")
+                    html, adopted, polish_note = html2, True, fix0[:80]
                 else:
-                    log("  ↩️ 修訂版沒有更好（品管沒過或分數沒變高），改回原版上架")
+                    log(f"  ↩️ 修訂版品管沒過（{errs2}），改回原版上架")
             except Exception as e:
                 log(f"  ⚠️ 打磨過程出錯（不擋出貨，用原版上架）：{e}")
-            if not polished:
+            if not adopted:
                 # 修訂版可能已蓋掉檔案與截圖 → 還原原版、重測一次換回原版縮圖
                 try:
                     (gdir / "index.html").write_text(inject_stats(html), encoding="utf-8")
@@ -562,19 +905,23 @@ def produce_from_decon(decon: dict) -> int:
             shutil.copy(shot_src, gdir / "shot.png")
 
         entry = {"id": gid, "title": meta["title"], "emoji": meta["emoji"],
-                 "genre": meta["genre"], "date": today,
+                 "genre": normalize_genre(meta["genre"]), "date": today,
                  "inspiration": meta["inspiration"], "desc": meta["desc"]}
         if crit:
             entry["ai_score"] = crit["total"]
+            if crit.get("howto"):
+                entry["howto"] = crit["howto"]
             log(f"  📋 自評 {crit['total']}/50：{crit.get('verdict','')}")
             append_learning(
                 f"- {today} AI 自評《{meta['title']}》{crit['total']}/50："
                 f"{crit.get('verdict','')}；待改進：{'；'.join(crit.get('fixes', [])[:3])}")
+        if polish_note:
+            entry["polished"] = polish_note
 
         # ── 上架 ──
         # 🔴 read-then-update（防 last-writer-wins 蓋檔）：生產一輪要 20~45 分鐘，
         # 開場讀的 data 是舊快照；拿它整檔覆寫，會把這段期間別的程序寫進
-        # games.json 的改動全部抹掉（例：12:00 生產撞上 11:30 留言修復還沒收工
+        # games.json 的改動全部抹掉（例：生產撞上 11:30 留言修復還沒收工
         # → 修復加的 bugs/changelog、玩家評分、甚至剛上架的新遊戲整批消失）。
         # 比照 daily_feedback / fix_game（2026-07-10 健檢）：寫前重讀最新檔，
         # 只把「自己這一筆」append 進去，別人的改動原封保留。
@@ -591,25 +938,27 @@ def produce_from_decon(decon: dict) -> int:
         HISTORY_FILE.write_text(json.dumps(history, ensure_ascii=False, indent=2),
                                 encoding="utf-8")
         log(f"✅ 上架完成：《{meta['title']}》（全站第 {len(fresh['games'])} 款）")
+        log(f"   本次用量：{usage_summary()}")
         # 先部署、部署成功才推「新品出爐」——否則會出現「站根本沒更新卻已報喜」。
         # publish 失敗會 raise（見 publish_site.py），被這裡接住 → 改發失敗告警、不報喜。
         try:
             import publish_site
             publish_site.publish(f"🏭 新遊戲《{meta['title']}》上架")
-            notify(entry, crit)
+            notify_release(entry, crit, decon, polish_note)
         except Exception as e:
             log(f"⚠️ 自動部署失敗（本機照常可玩）：{e}")
             notify_fail(f"《{meta['title']}》已生成但部署失敗、公開站尚未更新：{e}")
         return 0
 
-    log("❌ 重試後仍失敗，本輪停產（排程三天一產、下一輪會再試；想馬上重來就打「生一個新遊戲」）")
+    log("❌ 重試後仍失敗，本輪停產（下週六排程會再試；想馬上重來就打「生一個新遊戲」）")
     notify_fail(feedback)
     return 1
 
 
 # ---------------------------------------------------------------- 主流程（臨摹模式）
 def main() -> int:
-    log("🏭 SlimeCat 遊戲工作室 v2 開工（解構 → 設計 → 品管 → 自評）")
+    log("🏭 SlimeCat 遊戲工作室 v2.2 開工（解構 → 設計 → 品管 → 自評 → 打磨）")
+    clear_retry("factory")   # 這輪若是補跑本身，先把一次性排程收掉
     try:
         trends = fetch_trends.fetch()
         log(f"📈 榜單 OK（{trends['source']}，{len(trends['games'])} 款）")
@@ -632,6 +981,9 @@ def main() -> int:
         decon_file = DECON_DIR / f"{today}-{slug}.md"
         decon_file.write_text(decon["doc"], encoding="utf-8")
         log(f"📖 解構完成：{decon['source']} → {decon_file.name}")
+    except QuotaError as e:
+        log(f"⏳ 解構撞額度：{e}")
+        return 0 if schedule_retry("factory", e.resets_at, str(e)) else 1
     except Exception as e:
         log(f"❌ 解構階段失敗：{e}")
         notify_fail(f"解構階段失敗：{e}")

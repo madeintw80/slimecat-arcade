@@ -149,6 +149,34 @@ def triage(items, id2title):
     return plan
 
 
+def pull_analytics() -> None:
+    """拉最新遊玩數據到 analytics_summary.json（大廳 games.js 的 stats 從這裡來）。失敗不擋、只記 log。
+
+    2026-09-05（7A 大廳改真實數據排序）：以前 analytics_pull 只在檢討會跑，檢討會改成一週一次後
+    大廳數據會舊一整週；改成每天 11:30 這裡順便拉一次。
+    """
+    try:
+        r = subprocess.run([sys.executable, str(HERE / "analytics_pull.py"), "--quiet"],
+                           capture_output=True, text=True, encoding="utf-8", errors="replace",
+                           timeout=600)
+        if r.returncode != 0:
+            log(f"⚠️ analytics_pull 結果碼 {r.returncode}（大廳數據沿用上次）："
+                f"{(r.stderr or r.stdout or '').strip()[-200:]}")
+    except Exception as e:
+        log(f"⚠️ analytics_pull 執行失敗（大廳數據沿用上次）：{e}")
+
+
+def refresh_lobby_stats() -> None:
+    """沒留言的日子也要讓大廳數據新鮮：拉數據 → 重建 games.js → 有變化才部署（沒變化 publish 會說不用）。"""
+    pull_analytics()
+    try:
+        rebuild.rebuild()
+        import publish_site
+        publish_site.publish("📊 大廳數據更新")
+    except Exception as e:
+        log(f"⚠️ 大廳數據部署失敗：{e}")
+
+
 def main() -> int:
     if "--spawn" in sys.argv:
         args = [sys.executable, str(Path(__file__).resolve())]
@@ -174,6 +202,7 @@ def main() -> int:
 
     if not pending:
         log(f"今天沒有新留言（純分數 {len(silent_done)} 筆已標記）✅")
+        refresh_lobby_stats()
         return 0
 
     data = json.loads(GAMES_JSON.read_text(encoding="utf-8"))
@@ -254,6 +283,7 @@ def main() -> int:
             tgt.setdefault("feedback", []).extend(items)
             tgt["feedback"] = tgt["feedback"][-MAX_FB_PER_GAME:]
     merge_games_json(_apply_feedback)
+    pull_analytics()          # 順便讓大廳的真實數據跟著這次部署一起更新
     rebuild.rebuild()
     try:
         import publish_site

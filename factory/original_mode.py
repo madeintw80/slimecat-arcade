@@ -148,13 +148,13 @@ def cmd_propose() -> int:
 
 要求：
 - 每組的企劃必須用滿抽到的所有原子，並遵守該組約束卡
-- 主角美術是「史萊姆貓」宇宙（綠色史萊姆＋貓耳）
+- 主題與美術完全自由（2026-09-05 起不綁史萊姆貓）：挑最能放大這組機制的主題與視覺
 - 發想時自問：核心迴圈一圈幾秒？失敗歸因於誰？near-miss 長什麼樣？答不出來就換個切入點再想
 - 企劃要具體到「看得見畫面」，不要抽象口號
 
 輸出格式（嚴格遵守，每組三行）：
 CONCEPT1: <30字內的一句話企劃，說清楚玩家在做什麼>
-GENRE1: <類型一詞>
+GENRE1: <只能從這個清單挑一個：{'/'.join(make_game.GENRES)}>
 HOOK1: <為什麼會上癮，一句話>
 CONCEPT2: ...（依此類推到 3）
 """
@@ -172,7 +172,7 @@ CONCEPT2: ...（依此類推到 3）
             "names": [lib["atoms"][a]["name"] for a in c["atoms"]],
             "constraint": c["constraint"],
             "concept": concept.group(1).strip(),
-            "genre": (genre.group(1).strip() if genre else "小遊戲"),
+            "genre": make_game.normalize_genre(genre.group(1) if genre else ""),
             "hook": (hook.group(1).strip() if hook else ""),
         })
 
@@ -222,7 +222,7 @@ def cmd_build(idx: int) -> int:
 {entries}
 
 輸出格式（嚴格遵守，前三行標頭，之後是企劃書本體）：
-TITLE: <遊戲中文名建議（史萊姆貓宇宙、全新命名）>
+TITLE: <遊戲中文名建議（全新命名；主題與美術自由，不必是史萊姆貓）>
 GENRE: {p['genre']}
 SOURCE: 原創組合：{'×'.join(p['names'])}
 
