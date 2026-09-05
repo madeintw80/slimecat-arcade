@@ -200,7 +200,7 @@ function evalFeats(){const st=SV.stats,out=[];C.feats.forEach(f=>{if(SV.feats.in
 function commit(S){ // 一趟結束寫入進度
   const st=SV.stats;SV.runs++;st.runs=SV.runs;
   st.objects_total+=S.objects;st.bosses_total+=S.bosses;st.max_combo=Math.max(st.max_combo,S.maxCombo);st.clocks_total+=S.clocks;st.hazards_total+=S.hazards;st.full_clears+=S.fullClears;
-  st.best_rooms_run=Math.max(st.best_rooms_run,S.roomsCleared);st.clean_rooms_run=Math.max(st.clean_rooms_run,S.cleanRooms);
+  st.best_rooms_run=Math.max(st.best_rooms_run,S.roomsCleared);st.clean_rooms_run=Math.max(st.clean_rooms_run,S.cleanBest||0);
   if(S.firstBossTime!=null)st.fastest_first_room=Math.min(st.fastest_first_room,Math.round(S.firstBossTime*10)/10);
   if(S.mode==='chain'){S.prevBest=SV.best_score;if(S.score>SV.best_score){S.newRecord=true;SV.best_score=S.score;}st.best_score=SV.best_score;}
   else{const t=todayStr(),y=todayStr(new Date(Date.now()-864e5)),d=SV.daily;
@@ -235,11 +235,13 @@ function buildLayout(sc,seed,r0){
   list.sort((a,b)=>(a.tier-b.tier)||((a.hazard?1:0)-(b.hazard?1:0))); // T1 食物優先填安全圈
   const maxD=Math.hypot(w,h);let centers=[];
   if(sc.layout==='clusters'){const n=6+rng.int(0,3);for(let i=0;i<n;i++){let cx0,cy0,tries=0;do{cx0=rng.range(80,w-80);cy0=rng.range(80,h-80);tries++;}while(tries<40&&(dist(cx0,cy0,start.x,start.y)<SAFE+80||centers.some(c=>dist(c.x,c.y,cx0,cy0)<240)));centers.push({x:cx0,y:cy0,d:dist(cx0,cy0,start.x,start.y)});}centers.sort((a,b)=>a.d-b.d);}
+  const cap0=r0*CAP,SPOKES=8,SPOKE_N=24; // 8 方向 × 3 圈：任意方向拖曳都保證連續可吞
   let safeCount=0;
-  list.forEach(d=>{
-    const safeOK=d.tier===1&&!d.hazard;let x=0,y=0,ok=false;
+  const put=d=>{
+    const safeOK=!d.hazard&&!d.boss&&(d.tier===1||d.size<=cap0),spoke=safeOK&&d.size<=cap0&&safeCount<SPOKE_N;let x=0,y=0,ok=false;
     for(let t=0;t<16&&!ok;t++){
-      if(safeOK&&safeCount<14){const a=rng.next()*TAU,rr=rng.range(45,SAFE-30);x=start.x+Math.cos(a)*rr;y=start.y+Math.sin(a)*rr;}
+      if(spoke){const a=(safeCount%SPOKES)*TAU/SPOKES+(t%2?1:-1)*t*0.14,rr=Math.max(65,r0+d.size+34)+Math.floor(safeCount/SPOKES)*45;x=start.x+Math.cos(a)*rr;y=start.y+Math.sin(a)*rr;}
+      else if(safeOK&&safeCount<SPOKE_N){const a=rng.next()*TAU,rr=rng.range(45,SAFE-30);x=start.x+Math.cos(a)*rr;y=start.y+Math.sin(a)*rr;}
       else if(sc.layout==='rings'){const band=[[60,320],[240,560],[420,820],[620,1200],[800,1600]][clamp(d.tier,1,5)-1];const a=rng.next()*TAU,rr=rng.range(band[0],Math.min(band[1],maxD));x=start.x+Math.cos(a)*rr;y=start.y+Math.sin(a)*rr;}
       else if(sc.layout==='clusters'&&centers.length){let ci=Math.round((d.tier-1)/4*(centers.length-1)+rng.range(-1,1));const c=centers[clamp(ci,0,centers.length-1)];const a=rng.next()*TAU,rr=rng.range(0,110+d.tier*15);x=c.x+Math.cos(a)*rr;y=c.y+Math.sin(a)*rr;}
       else{x=rng.range(0,w);y=rng.range(0,h);const minD=Math.min(maxD*0.55,[0,0,220,380,540,0][d.tier]);if(dist(x,y,start.x,start.y)<minD)continue;}
@@ -247,8 +249,13 @@ function buildLayout(sc,seed,r0){
       if(!safeOK&&ds<SAFE)continue;if(ds<d.size+r0+30)continue;if(dist(x,y,door.x,door.y)<DOOR_R+d.size)continue;
       if(objs.some(o=>dist(o.x,o.y,x,y)<o.size+d.size+6))continue;ok=true;
     }
-    if(!ok)return;if(safeOK&&dist(x,y,start.x,start.y)<SAFE)safeCount++;objs.push(mk(d,x,y));
-  });
+    if(!ok)return;if(spoke||(safeOK&&dist(x,y,start.x,start.y)<SAFE))safeCount++;objs.push(mk(d,x,y));
+  };
+  list.forEach(put);
+  if(safeCount<SPOKE_N){ // 內容缺 T1 可吞物時，引擎補最小可吞物件保證成長階梯
+    const g=C.objects.filter(o=>!o.boss&&!o.hazard&&o.size<=cap0).sort((a,b)=>a.size-b.size)[0]||DEF_FOOD;
+    for(let i=0;i<SPOKE_N*2&&safeCount<SPOKE_N;i++)put(g);
+  }
   return{objects:objs,boss,door,start,bounds:{w,h},rng};
 }
 
@@ -259,7 +266,7 @@ function startRun(order,mode){
   if(mode==='daily'){const d=dailyInfo();G.chain=[C.scenes[d.order-1]];G.runSeed=d.seed;G.best=d.todayBest;}
   else{for(let i=0;i<4&&order-1+i<n;i++)G.chain.push(C.scenes[order-1+i]);G.runSeed=(hash(G.chain[0].id)+SV.runs*7)>>>0;G.best=SV.best_score;}
   G.roomIdx=0;G.score=0;G.dispScore=0;G.recHit=false;G.runElapsed=0;G.timeScale=1;G.lastPerk=null;G.pending=null;
-  G.S={mode,startOrder:order,score:0,objects:0,bosses:0,maxCombo:0,hazards:0,clocks:0,fullClears:0,roomsCleared:0,cleanRooms:0,firstBossTime:null,roomResults:[],eaten:{},perks:[],won:false,reason:'',prevBest:G.best,newRecord:false,dexNew:[],featsNew:[]};
+  G.S={mode,startOrder:order,score:0,objects:0,bosses:0,maxCombo:0,hazards:0,clocks:0,fullClears:0,roomsCleared:0,cleanRooms:0,cleanBest:0,firstBossTime:null,roomResults:[],eaten:{},perks:[],won:false,reason:'',prevBest:G.best,newRecord:false,dexNew:[],featsNew:[]};
   Object.assign(P,{r:R0,targetR:R0,vx:0,vy:0,speedMul:1,captureRatio:CAP,gainMul:1,magnet:0,hazardMul:1,slowUntil:0,pointsMul:1,refundMul:1,comboWindow:COMBO_WIN,radar:0,moveMul:1,squash:0});
   PK.taken={};cam.slow.t=0;cam.shakeT=0;AU.beatT=0;IN.reset();
   T.t=mode==='daily'?100:G.chain[0].time_first;
@@ -277,7 +284,8 @@ function enterRoom(){
 function roomStats(){const tot=R.total;return{pct:tot?clamp(R.eaten/tot,0,1):1,eaten:R.eaten,total:tot,bossEaten:R.bossEaten};}
 function nearMissN(o){const need=o.size/P.captureRatio-P.r;const ed=R.objs.filter(x=>!x.eaten&&!x.hazard&&!x.boss&&x.size<=P.r*P.captureRatio);
   const avg=ed.length?ed.reduce((a,x)=>a+x.def.gain,0)/ed.length*P.gainMul:1;return Math.max(1,Math.ceil(need/Math.max(0.3,avg)));}
-function initPips(){R.pips=[];const cap=P.r*P.captureRatio;for(let t=1;t<=5;t++){let best=null;R.objs.forEach(o=>{if(o.tier===t&&!o.hazard&&(!best||o.size>best.size))best=o;});if(best)R.pips.push({tier:t,glyph:best.def.glyph,size:best.size,name:best.def.name,lit:best.size<=cap,flash:0});}}
+function initPips(){R.pips=[];const cap=P.r*P.captureRatio;for(let t=1;t<=5;t++){let best=null;R.objs.forEach(o=>{if(o.tier===t&&!o.hazard&&(!best||o.size>best.size))best=o;});if(best)R.pips.push({tier:t,glyph:best.def.glyph,size:best.size,name:best.def.name,lit:best.size<=cap,flash:0});}
+  let top=null;R.pips.forEach(p=>{if(p.lit)top=p;});if(top)top.lit=false;} // 最高可吞階級先不亮，交給 updatePips 亮燈＋首次橫幅
 function updatePips(){const cap=P.r*P.captureRatio;R.pips.forEach(p=>{if(p.flash>0)p.flash-=STEP;if(!p.lit&&p.size<=cap){p.lit=true;p.flash=1;FX.banner('吞得下 '+p.glyph+' '+p.name+' 了！','tier',1.5);AU.tierUp();}});}
 function tickRun(rdt){
   cam.slow.t-=rdt;G.timeScale=cam.slow.t>0?cam.slow.scale:1;
@@ -342,7 +350,7 @@ function checkOverlaps(){
       if(o.boss){R.taunt={t:1.8,text:o.def.taunt||'還早呢！'};tip('bounce','太大了！先吃小的變大再回來');}}
   }
 }
-function breakCombo(){if(R.combo>=3)AU.drop();R.combo=0;R.comboT=0;R.milestones={};}
+function breakCombo(){if(R.combo>=3)AU.drop();R.combo=0;R.comboT=0;}
 function eat(o){
   o.eaten=true;o.sink=0;o.sx=o.x;o.sy=o.y;const def=o.def;G.S.eaten[def.id]=(G.S.eaten[def.id]||0)+1;
   if(def.hazard){P.targetR=Math.max(R0,P.targetR+def.gain*P.hazardMul);breakCombo();R.hazardsHere++;G.S.hazards++;
@@ -362,7 +370,7 @@ function eat(o){
 function doorEnter(){
   const st=roomStats(),stars3=st.pct>=1?3:st.pct>=0.85?2:1,clearPts=Math.round(st.pct*200),addT=R.scene.time_next+Math.round(R.scene.clear_bonus*st.pct);
   G.score+=clearPts;G.S.roomResults.push({order:R.scene.order,pct:Math.round(st.pct*100),stars:stars3,sec:Math.round(R.roomT*10)/10,entered:true});
-  G.S.roomsCleared++;if(st.pct>=1)G.S.fullClears++;if(R.hazardsHere===0)G.S.cleanRooms++;AU.door();
+  G.S.roomsCleared++;if(st.pct>=1)G.S.fullClears++;if(R.hazardsHere===0){G.S.cleanRooms++;G.S.cleanBest=Math.max(G.S.cleanBest||0,G.S.cleanRooms);}else G.S.cleanRooms=0;AU.door();
   if(G.roomIdx>=G.chain.length-1){endRun('win');return;}
   T.t+=addT;G.pending={pct:Math.round(st.pct*100),stars:stars3,addT,clearPts};
   const offer=PK.draw(G.chain[G.roomIdx+1].order);
