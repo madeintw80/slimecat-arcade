@@ -44,3 +44,10 @@
 - **首航當場加的護欄（Batnini 自決）**：`claude -p` 預設輸出上限 64k tokens（思考也算）把 xhigh 引擎截斷、CLI 自動重試燒到 $15 → `run_claude` 子程序設 `CLAUDE_CODE_MAX_OUTPUT_TOKENS=128000`（fable 實測接受）＋每階段 `--max-budget-usd` 保險絲（企劃書 4／引擎 9／內容包 1.5／評審 1.5／打磨 4）；引擎 effort xhigh→`high`、行數上限 2,600→2,000（緊縮重試 1,400／medium）；企劃書 effort max→`high`＋篇幅 3～5k 字；合約 JSON 只認最外層、壞掉存 `failed_outputs/`。
 - **維持不變**：不設出貨門檻、不凍結新作、不自動下架；v2.2 單線 `make_game.py` 保留當退路（`ENTRY` 改回即可）；留言 11:30／檢討會週日 18:00 不動。
 
+## 2026-09-05 — 新品推播不建群組（Boss 拍板 21:05）
+
+- **不建「SlimeCat Studio」群組**：所有工廠推播（含每週新作兩則介紹）全走 Boss 私訊，理由＝目前自己看就好、不需要分流。`factory/studio_chat.json` 不建，`send_public` 走預設對象，程式不用改。
+- `factory/studio_setup.py` 保留當選配：哪天想拉朋友進群一起看新遊戲，照檔頭四步設定即可，隨時 `--clear` 改回私訊。
+- Echo bot 不加群：Telegram bot 收不到別的 bot 發的訊息，加了也看不到介紹；Echo 評審已透過 codex exec 進生產線，結果直接讀 `factory/runs/<run_id>/review.json`。
+- 附帶勘誤：`studio_setup.py` 檔頭寫「修復完成」也進群，實際 `fix_game.py` 用 `tg.send` 走私訊；改 `fix_game.py` patch 交稿時一併校正說明。
+

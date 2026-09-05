@@ -37,7 +37,7 @@ Kickoff 決策：1A 全鏈試產並上架→成功切排程、2A 靈感一榜合
 
 1. 9/6（日）18:00 檢討會新版首跑；9/12（六）02:00 v3 排程首航看 factory.log（企劃書合約、引擎行數與 tokens、內容包引用驗證、Echo 評審、用量行）。
 2. 跑三～四款後 `python factory/usage_report.py --runs` 對帳，定 effort／模型（`v3/stages.py` 常數）。
-3. Boss：建群「SlimeCat Studio」→ `studio_setup.py`；Bridge 重啟吃分冊關鍵字；Echo：評估升級 codex CLI。
+3. Boss：Bridge 重啟吃分冊關鍵字；Echo：評估升級 codex CLI。（建群「SlimeCat Studio」9/5 21:05 Boss 拍板不建，推播全走私訊；`studio_setup.py` 留著當選配）
 4. Phase 3 旗艦化「做大 <名>」＝手動開 session。
 
 ## Risks / blockers

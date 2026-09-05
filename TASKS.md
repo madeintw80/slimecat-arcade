@@ -7,7 +7,7 @@
 - [x] Phase 2（2026-09-05，Batnini）：Echo 獨立評審＋整合稽核（`v3/echo_review.py`，read-only 委派、fail-open 回 sonnet、模型退路）＋每階段用量對帳工具（`usage_report.py`、TG「遊戲用量」）。
 - [ ] Phase 2 對帳（跑三～四款 v3 後）：`python factory/usage_report.py --runs` 比各階段成本 vs 評審／玩家數據，定案 effort 與模型（改 `v3/stages.py` 頂端常數；候選：企劃書 max 是否值得、內容包 sonnet vs fable low、評審 Echo effort）。
 - [ ] Phase 3：旗艦化「做大 <名>」走 session 手工做（候選：貓客滿樓無限模式、貓灶封潮夜關卡／波次；v3 首款若評審 `scale_up.worth` 也列候選）。
-- [ ] Boss：建 Telegram 群組「SlimeCat Studio」＋加 bot＋群內打「/hi」→ `python factory/studio_setup.py --discover` → `python factory/studio_setup.py <chat_id>`。
+- [x] Boss：建 Telegram 群組「SlimeCat Studio」→ **2026-09-05 21:05 Boss 拍板不建**，所有推播（含新作兩則介紹）全走 Boss 私訊（DECISIONS 9/5 第四條）；`factory/studio_setup.py` 留著當選配，想拉朋友再設。
 - [ ] Echo：評估升級 codex CLI（0.144.1 跑不了 config 的 gpt-6-astra，目前退 gpt-5.6-sol；handoff `2026-09-05-1705-batnini-to-echo-slimecat-v3-echo-review.md`）。
 - [ ] Boss：bridge 分冊關鍵字（解構／用量）要等 Batnini Bridge 下次重啟才生效（CLAUDE.md 路由已即時生效）；方便時雙擊 `scripts/batnini_bridge.bat` 或等機器重開。
 
