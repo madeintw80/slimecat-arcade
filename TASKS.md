@@ -21,6 +21,7 @@
 - [x] 建立五份協作 SSOT。
 - [x] 2026-08-09 三天一產＋低分打磨。
 - [x] 2026-09-05 Phase 0／1／2（見 CHECKPOINT.md、DECISIONS.md）。
+- [x] 2026-09-06 大廳「排序：最新／熱門」開關＋卡片出廠日期；`stats.js` 本機／file:// 不回報（DECISIONS 9/6）。
 
 ## Later
 

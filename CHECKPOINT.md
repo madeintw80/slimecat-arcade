@@ -1,8 +1,8 @@
 # CHECKPOINT
 
-Updated: 2026-09-05 19:05 Asia/Taipei
+Updated: 2026-09-06 20:10 Asia/Taipei
 Task Lead: Batnini
-Status: complete（Phase 1／2 落地＋首款 v3 試產上線＋排程已切 v3）；Phase 3 旗艦化待 Boss 開工
+Status: complete（9/6 小改：大廳「排序：最新／熱門」開關＋卡片出廠日期＋`stats.js` 本機不回報，本機預覽驗證過、待 Boss 拍板 push 上線；v3 Phase 1／2 已落地）；Phase 3 旗艦化待 Boss 開工
 Branch: main
 Last verified commit: 本次 Phase 1／2 程式 commit（見 git log 最新一筆）；工廠自動 commit＝《喵淵吞吞樂》上架＋內容包重生＋打磨；前次基線＝Phase 0 `c983a4b`／`ddf2d03`
 

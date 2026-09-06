@@ -6,6 +6,8 @@
   const URL = window.SC_ANALYTICS_URL || "";
   if (!URL) return;
   try { if (localStorage.getItem("sc_ignore")) return; } catch (e) {}
+  // 本機預覽／直接開檔不回報（localhost、127.0.0.1、file://）：開發測試不灌進真實數據
+  if (location.protocol === "file:" || /^(localhost|127\.0\.0\.1)$/.test(location.hostname)) return;
 
   // 這是哪一款遊戲（大廳 = arcade）
   const m = location.pathname.match(/games\/([^/]+)\//);

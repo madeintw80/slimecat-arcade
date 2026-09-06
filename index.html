@@ -70,6 +70,11 @@
   .filter{min-height:44px;border:1px solid var(--line);border-radius:999px;background:var(--card);color:var(--ink);padding:8px 15px;cursor:pointer;font-weight:700}
   .filter[aria-pressed="true"]{background:var(--ink);border-color:var(--ink);color:var(--card)}
   .catalog-count{color:var(--muted);font-size:13px;white-space:nowrap}
+  .filter-tools{display:flex;align-items:center;gap:14px;flex-wrap:wrap;justify-content:flex-end}
+  .sorts{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+  .sort-label{color:var(--muted);font-size:12px;font-weight:900;letter-spacing:.08em;margin-right:2px}
+  .filter.sort{min-height:38px;padding:6px 13px;font-size:13px}
+  .card-date{font-size:11px;color:var(--muted);margin-left:auto;font-variant-numeric:tabular-nums;white-space:nowrap}
   .section-head{display:flex;justify-content:space-between;align-items:end;gap:14px;margin-bottom:14px}
   .section-head p{margin:5px 0 0;color:var(--muted);font-size:13px}
   .game-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
@@ -119,7 +124,7 @@
     .site-header{padding:18px 14px 12px;align-items:flex-start}.brand-mark{width:44px;height:44px;font-size:24px}.brand-tagline{display:none}
     .header-actions .btn:first-child{display:none}.stats-line,main{padding-left:14px;padding-right:14px}
     .hero{margin-top:2px}.featured{grid-template-columns:1fr;padding:15px;border-radius:24px;gap:16px}.feature-shot{min-height:240px}.feature-copy{padding:2px 4px 7px}
-    .feature-copy h2{font-size:34px}.feature-copy p{font-size:14px}.filter-bar{align-items:flex-start;flex-direction:column}.catalog-count{align-self:flex-end}
+    .feature-copy h2{font-size:34px}.feature-copy p{font-size:14px}.filter-bar{align-items:flex-start;flex-direction:column}.filter-tools{width:100%;justify-content:space-between}
     .game-grid{grid-template-columns:1fr}.game-card{display:grid;grid-template-columns:128px minmax(0,1fr);grid-template-rows:auto auto;border-radius:20px}
     .card-link{display:contents}.thumb-wrap{grid-row:1/3;aspect-ratio:auto;min-height:176px}.card-body{padding:14px 13px 8px}.card-footer{padding:7px 13px 12px}
     .game-desc{-webkit-line-clamp:3}.section-head h2{font-size:21px}
@@ -160,7 +165,7 @@
       </aside>
     </section>
 
-    <section class="filter-bar" aria-label="遊戲分類">
+    <section class="filter-bar" aria-label="遊戲分類與排序">
       <div class="filters" id="filters">
         <button class="filter" type="button" data-filter="all" aria-pressed="true">全部</button>
         <button class="filter" type="button" data-filter="puzzle" aria-pressed="false">益智</button>
@@ -168,7 +173,14 @@
         <button class="filter" type="button" data-filter="strategy" aria-pressed="false">策略</button>
         <button class="filter" type="button" data-filter="relax" aria-pressed="false">放鬆</button>
       </div>
-      <div class="catalog-count" id="catalog-count"></div>
+      <div class="filter-tools">
+        <div class="sorts" id="sorts" role="group" aria-label="排序方式">
+          <span class="sort-label">排序</span>
+          <button class="filter sort" type="button" data-sort="date" aria-pressed="true">最新</button>
+          <button class="filter sort" type="button" data-sort="hot" aria-pressed="false">熱門</button>
+        </div>
+        <div class="catalog-count" id="catalog-count"></div>
+      </div>
     </section>
 
     <section aria-labelledby="catalog-title">
@@ -223,6 +235,8 @@ const games = rawGames ? rawGames.sort((a, b) => (b.date + b.id).localeCompare(a
 const today = new Date();
 const todayStr = today.getFullYear() + "-" + String(today.getMonth() + 1).padStart(2, "0") + "-" + String(today.getDate()).padStart(2, "0");
 let activeFilter = "all";
+let activeSort = "date";   // 清單排序：date＝最新出廠在前（預設）、hot＝玩家熱門（與首屏排行同一套分數）
+try { if (localStorage.getItem("sc_sort") === "hot") activeSort = "hot"; } catch (e) {}
 let featuredGame = null;   // 首屏主打（真實數據第一名；沒數據時＝最新一款）
 
 function esc(s) {
@@ -299,7 +313,7 @@ function cardHtml(g) {
   return `<article class="game-card" data-genre="${broadGenre(g.genre)}">
     <a class="card-link" href="${gameUrl(g)}" data-game-link="${esc(g.id)}">
       <div class="thumb-wrap"><div class="thumb-fallback" aria-hidden="true">${esc(g.emoji || "🎮")}</div><img class="thumb" src="games/${encodeURIComponent(g.id)}/shot.png" loading="lazy" alt="${esc(g.title)} 遊戲畫面"></div>
-      <div class="card-body"><div class="card-topline">${statusBadge(g)}<span class="genre">${esc(g.genre || "小遊戲")}</span></div><h3 class="game-title">${esc(g.title)}</h3><p class="game-desc">${esc(g.desc || "打開看看今天工廠做了什麼玩法。")}</p></div>
+      <div class="card-body"><div class="card-topline">${statusBadge(g)}<span class="genre">${esc(g.genre || "小遊戲")}</span><span class="card-date" title="出廠日期">${esc(g.date || "")}</span></div><h3 class="game-title">${esc(g.title)}</h3><p class="game-desc">${esc(g.desc || "打開看看今天工廠做了什麼玩法。")}</p></div>
     </a>
     <div class="card-footer"><span class="quality">${qualityText(g)}</span><button class="ratebtn" type="button" data-rate="${esc(g.id)}" data-title="${esc(g.title)}">評分</button></div>
   </article>`;
@@ -322,7 +336,8 @@ function renderPicks(featured, ranked) {
 }
 function renderCatalog() {
   const featured = featuredGame || games[0];
-  const pool = games.filter(g => g.id !== featured.id && (activeFilter === "all" || broadGenre(g.genre) === activeFilter));
+  const source = activeSort === "hot" ? rankedGames() : games;   // games 已依出廠日期新→舊排好
+  const pool = source.filter(g => g.id !== featured.id && (activeFilter === "all" || broadGenre(g.genre) === activeFilter));
   const grid = document.getElementById("game-grid");
   grid.innerHTML = pool.length ? pool.map(cardHtml).join("") : '<div class="empty">這個分類還沒有遊戲，工廠正在準備。</div>';
   document.getElementById("catalog-count").textContent = activeFilter === "all" ? `主打 1 款＋清單 ${pool.length} 款` : `找到 ${pool.length} 款`;
@@ -360,6 +375,15 @@ document.getElementById("filters").addEventListener("click", event => {
   if (!button) return;
   activeFilter = button.dataset.filter;
   document.querySelectorAll("[data-filter]").forEach(b => b.setAttribute("aria-pressed", String(b === button)));
+  renderCatalog();
+});
+document.querySelectorAll("[data-sort]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.sort === activeSort)));
+document.getElementById("sorts").addEventListener("click", event => {
+  const button = event.target.closest("[data-sort]");
+  if (!button) return;
+  activeSort = button.dataset.sort;
+  document.querySelectorAll("[data-sort]").forEach(b => b.setAttribute("aria-pressed", String(b === button)));
+  try { localStorage.setItem("sc_sort", activeSort); } catch (e) {}
   renderCatalog();
 });
 document.getElementById("recent-btn").addEventListener("click", () => {

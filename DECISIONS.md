@@ -51,3 +51,10 @@
 - Echo bot 不加群：Telegram bot 收不到別的 bot 發的訊息，加了也看不到介紹；Echo 評審已透過 codex exec 進生產線，結果直接讀 `factory/runs/<run_id>/review.json`。
 - 附帶勘誤：`studio_setup.py` 檔頭寫「修復完成」也進群，實際 `fix_game.py` 用 `tg.send` 走私訊；改 `fix_game.py` patch 交稿時一併校正說明。
 
+## 2026-09-06 — 大廳加「排序」開關（Boss 提、Batnini 落地）
+
+- **Boss**：網站至少要有依遊戲日期排序。清單其實一直是出廠日新→舊，但卡片沒印日期、也沒有開關，看不出來。
+- **落地**：分類列右側加「排序：最新／熱門」（最新＝出廠日新→舊、預設；熱門＝與首屏同一套 `popScore`），選擇記在 `localStorage.sc_sort` 下次沿用；每張卡片 topline 印出廠日期。首屏主打／精選欄不受影響。
+- **順手**：`stats.js` 在 localhost／127.0.0.1／file:// 一律不回報，本機預覽與 Playwright 品管（file://）不再灌進真實數據。
+- 驗證：本機預覽 port 3462，最新／熱門切換與記憶、59 張卡片都有日期、手機 375px 無橫向溢出、無 console 錯誤。上線＝push 後 GitHub Pages 生效，待 Boss 拍板。
+
