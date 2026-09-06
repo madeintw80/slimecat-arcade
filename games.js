@@ -1626,10 +1626,10 @@ const GAMES = [
       }
     ],
     "stats": {
-      "opens": 4,
-      "devices": 4,
+      "opens": 5,
+      "devices": 5,
       "med_session_sec": 462.0,
-      "return_rate": 0.25,
+      "return_rate": 0.2,
       "plays_reported": 18,
       "web_score_med": 7,
       "web_raters": 1
@@ -1642,7 +1642,14 @@ const GAMES = [
     "genre": "反應",
     "date": "2026-09-05",
     "desc": "拋肉球鉤攔截漂走的魚乾拼大貓窩，鯊魚來了就得取捨！",
-    "ai_score": 38
+    "ai_score": 38,
+    "stats": {
+      "opens": 3,
+      "devices": 3,
+      "med_session_sec": 0,
+      "return_rate": 0.0,
+      "plays_reported": 0
+    }
   },
   {
     "id": "2026-09-05-002",
@@ -1672,6 +1679,13 @@ const GAMES = [
         "summary": "評審稽核後修正：連吞里程碑加時可無限重複刷：達10連吞後等窗口耗盡會呼叫breakCombo()；「連續兩間房零危險物」會被非連續房間誤解鎖：doorEnter()僅在乾淨房執行；驗收「任意方向拖曳5秒內至少3次吞食、15秒內首次亮燈＋橫幅」未被保證：bu"
       }
     ],
-    "polished": "連吞里程碑加時可無限重複刷：達10連吞後等窗口耗盡會呼叫breakCombo()；「連續兩間房零危險物」會被非連續房間誤解鎖：doorEnter()僅在乾淨房執"
+    "polished": "連吞里程碑加時可無限重複刷：達10連吞後等窗口耗盡會呼叫breakCombo()；「連續兩間房零危險物」會被非連續房間誤解鎖：doorEnter()僅在乾淨房執",
+    "stats": {
+      "opens": 6,
+      "devices": 6,
+      "med_session_sec": 0,
+      "return_rate": 0.0,
+      "plays_reported": 0
+    }
   }
 ];
