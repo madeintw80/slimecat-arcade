@@ -1296,9 +1296,9 @@ const GAMES = [
     "ai_score": 40,
     "genre_raw": "物理解謎",
     "stats": {
-      "opens": 5,
+      "opens": 6,
       "devices": 4,
-      "med_session_sec": 26.5,
+      "med_session_sec": 26.0,
       "return_rate": 0.5,
       "plays_reported": 0
     }
@@ -1644,10 +1644,10 @@ const GAMES = [
     "desc": "拋肉球鉤攔截漂走的魚乾拼大貓窩，鯊魚來了就得取捨！",
     "ai_score": 38,
     "stats": {
-      "opens": 3,
-      "devices": 3,
-      "med_session_sec": 0,
-      "return_rate": 0.0,
+      "opens": 4,
+      "devices": 4,
+      "med_session_sec": 14.0,
+      "return_rate": 0.25,
       "plays_reported": 0
     }
   },
@@ -1681,10 +1681,10 @@ const GAMES = [
     ],
     "polished": "連吞里程碑加時可無限重複刷：達10連吞後等窗口耗盡會呼叫breakCombo()；「連續兩間房零危險物」會被非連續房間誤解鎖：doorEnter()僅在乾淨房執",
     "stats": {
-      "opens": 6,
-      "devices": 6,
-      "med_session_sec": 0,
-      "return_rate": 0.0,
+      "opens": 7,
+      "devices": 7,
+      "med_session_sec": 85.0,
+      "return_rate": 0.14,
       "plays_reported": 0
     }
   }
