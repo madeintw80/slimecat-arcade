@@ -139,6 +139,7 @@ def _content(run: Run, plan_doc: str, contract: dict, notes: str, regen: set = N
     regen：要重生的 pack key（其他包沿用 run 裡的檔案）；None＝正常流程（已有檔案就略過）。
     """
     content, available = {}, {}
+    warnings = []   # 帶著無效引用出廠的包（9/17 起不再中止生產）→ 交給評審清單
     for pack in stages.order_packs(contract):
         key, name = pack["key"], f"content_{pack['key']}.json"
         if run.has(name) and not (regen and key in regen):
@@ -149,7 +150,7 @@ def _content(run: Run, plan_doc: str, contract: dict, notes: str, regen: set = N
         refs = stages.ref_fields(pack, contract)
         log(f"📦 內容包「{pack['label']}」{key} ×{pack['count']}（{stages.MODEL_CONTENT}"
             + (f"；引用 {sorted(set(refs.values()))}" if refs else "") + "）…")
-        items = stages.stage_content(pack, plan_doc, contract, notes, available)
+        items = stages.stage_content(pack, plan_doc, contract, notes, available, warn_sink=warnings)
         run.write_json(name, items)
         content[key] = items
         available[key] = stages.pack_ids(items)
@@ -159,6 +160,8 @@ def _content(run: Run, plan_doc: str, contract: dict, notes: str, regen: set = N
         bad = stages.find_bad_refs(content.get(pack["key"], []), stages.ref_fields(pack, contract), available)
         if bad:
             log(f"  ⚠️ 內容包 {pack['key']} 仍有無效引用（引擎會略過）：{bad[:3]}")
+            warnings.append(f"內容包 {pack['key']} 交叉核對仍有無效引用：{'；'.join(bad[:3])[:200]}")
+    run.write_json("content_warnings.json", warnings)
     run.mark("content", packs={k: len(v) for k, v in content.items()}, model=stages.MODEL_CONTENT)
     return content
 
@@ -249,6 +252,12 @@ def produce_v3(decon: dict, run: Run = None, publish: bool = True) -> int:
             if not fixed:
                 raise RuntimeError(f"品管沒過：{'；'.join(errs)[:300]}")
         log(f"  ✅ 品管通過（內容包 {qa_info.get('content')}）")
+
+        # 內容包帶著無效引用出廠時（9/17 起不中止生產），把問題一起交給評審看：
+        # 評審該判斷的是「引擎有沒有好好容錯」，不是「資料為什麼不乾淨」
+        cw = run.read_json("content_warnings.json") if run.has("content_warnings.json") else []
+        if cw:
+            qa_info["warnings"] = list(qa_info.get("warnings") or []) + list(cw)
 
         # ── 評審（Echo → sonnet）──
         crit = _review(run, plan_doc, contract, html, qa_info, gid)

@@ -28,8 +28,11 @@ from v3 import stages    # noqa: E402
 
 RUNNER = Path("C:/Users/User/agent-workspace/runners/Invoke-Echo.ps1")
 CODEX_CONFIG = Path("C:/Users/User/.codex/config.toml")
-# 模型順序：先用 Echo config 現役模型；它若被 CLI 拒絕（2026-09-05 實測：codex-cli 0.144.1 跑 gpt-6-astra
-# 回「requires a newer version of Codex」）就退到已驗證可跑的舊模型。Echo 升級 CLI 後不用改這裡。
+# 2026-09-17 Boss 拍板：評審固定用 gpt-5.6-sol。原本是「先試 Echo config 現役模型」，但 config 常比
+# 本機 codex CLI 新（2026-09-05 實測：codex-cli 0.144.1 跑 gpt-6-astra 回「requires a newer version
+# of Codex」），每場都先浪費一次委派才退。改成 sol 優先、config 現役留作第二順位——哪天 sol 被下架，
+# 還找得到能跑的模型，不會整個評審掉回 sonnet。
+PREFERRED_MODEL = "gpt-5.6-sol"
 FALLBACK_MODELS = ["gpt-5.6-sol"]
 ECHO_EFFORT = "high"             # 評審＋稽核值得花；xhigh 留給對帳後決定
 ECHO_TIMEOUT = 900               # 15 分鐘上限（原始碼 2,000 行、xhigh 以下夠用）
@@ -53,9 +56,9 @@ def echo_model() -> str:
 
 
 def model_candidates() -> list:
-    """要試的模型順序：config 現役 → 已驗證退路（去重）。"""
-    out = [echo_model()]
-    for m in FALLBACK_MODELS:
+    """要試的模型順序：Boss 指定的 sol → Echo config 現役 → 已驗證退路（去重）。"""
+    out = [PREFERRED_MODEL]
+    for m in [echo_model()] + FALLBACK_MODELS:
         if m not in out:
             out.append(m)
     return out

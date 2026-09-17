@@ -85,7 +85,9 @@ LLM_CWD.mkdir(parents=True, exist_ok=True)
 # run_claude 的 model 參數預設 MODEL_BUILD(fable) → fix_game / daily_feedback /
 # weekly_review / original_mode 這些沒指定 model 的呼叫端同步升級（全鏈一致）。
 # 2026-09-05 註：「全 fable 分級 effort」是 v3 Phase 2 的題目，跑三款對帳後再定；這裡先不動。
-MODEL_DECON = "opus"      # 解構熱門遊戲
+# 2026-09-17 Boss 拍板 opus→fable：解構是整條產線的源頭（靈感拆得好不好決定後面全部），
+# 每場只多約 $0.3。同一輪把引擎與打磨從 fable 降到 opus（見 v3/stages.py），整場仍淨省。
+MODEL_DECON = "fable"     # 解構熱門遊戲（靈感品質的源頭）
 MODEL_BUILD = "fable"     # 設計＋實作遊戲（品質關鍵）
 MODEL_CRITIC = "sonnet"   # 出廠五維自評
 GEN_TIMEOUT = 3600        # 實作一整款遊戲的時間上限（fable 思考較久，放寬到 60 分鐘）

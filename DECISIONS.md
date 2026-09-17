@@ -58,3 +58,16 @@
 - **順手**：`stats.js` 在 localhost／127.0.0.1／file:// 一律不回報，本機預覽與 Playwright 品管（file://）不再灌進真實數據。
 - 驗證：本機預覽 port 3462，最新／熱門切換與記憶、59 張卡片都有日期、手機 375px 無橫向溢出、無 console 錯誤。Boss 20:30 拍板 push，20:32 Pages 部署完成、實讀線上版確認排序開關／卡片日期／stats.js 三處都生效。
 
+
+## 2026-09-17 — 模型分工改版＋內容包引用改「警告放行」（Boss 拍板、Batnini 落地）
+
+- **起因**：9/12 週更那場在內容包 headlines 卡死，兩次驗證都不過 → 整場中止、燒掉 $7.43、那週停產一款。根因是跨包引用判定誤判（合約把 `{stage}` 佔位符寫在 `text` 欄位說明裡 → 驗證器拿整句中文頭條去比對 stages 的 id），**不是模型寫壞**。
+- **模型分工改版**（Boss 提、拿 9/12 真實 token 數對帳後定案）：
+  - **引擎單檔 fable → opus `high`**：引擎佔整場約七成花費，opus 單價正好是 fable 的一半（$5/$25 vs $10/$50 每百萬 token），同樣輸出量省一半，約 −$2.5／場。
+  - **解構 opus → fable**：解構是整條產線的源頭，多約 $0.3／場，Boss 認為值得。
+  - **內容包維持 sonnet**（Boss 拍板，原提案要換 opus）：這一項是照 schema 填格式化資料，sonnet 夠用；換 opus 貴 2.5 倍（$0.60 → 約 $1.50）且 9/12 的失敗與模型能力無關。
+  - **Echo 獨立評審固定 `gpt-5.6-sol` effort high**：原本先試 `~/.codex/config.toml` 現役模型，但 config 常比本機 codex CLI 新（gpt-6-astra 回 400），每場先浪費一次委派才退。改成 sol 優先、config 現役留第二順位，sol 若被下架仍找得到能跑的模型。
+  - **淨效果**：同 token 數下每場約省 $1.2（約 17%），全部來自引擎那一項。
+- **內容包跨包引用改 fail-open**（Boss 拍板「重試一次，還不過就警告放行」）：引用問題頂多讓某幾筆內容指到不存在的東西，引擎本來就該容錯（打磨 prompt 明寫「引用不存在的 id 時改用同等級的替代物件」、`_content` 尾端的交叉核對本來也只是記警告），不值得毀掉一整場已經花掉大半預算的生產。放行的問題寫進 log 與 `content_warnings.json`，並併進 `qa_info["warnings"]` 交給評審——評審該判斷的是「引擎有沒有好好容錯」。**解析不出 JSON／schema 不合仍然致命**（沒有資料可以組裝，放行只會把失敗延到品管）。
+- **照建議自決（Batnini，Boss 只點名引擎與內容包）**：① 打磨 `stage_polish_patch` 跟著引擎從 fable 改 opus——它做的事是「改引擎交出來的碼」，同一個模型比較一致，順帶同樣省一半；② `BUDGET_USD` 的引擎 9.0→5.0、打磨 4.0→2.5，跟著單價砍半以維持同樣寬度的「截斷後亂重試」防線；③ 企劃書維持 fable `high`、自評退路維持 sonnet；④ v2 舊線 `MODEL_BUILD`（`fix_game`／`daily_feedback`／`weekly_review` 的預設）不動，Boss 這次談的是 v3 週更產線。
+- **驗證**：`tests/test_v3.py` 全綠（新增 5 條：`{stage}` 佔位符不算引用、examples 不是 id 格式就不當引用、引用不過放行出廠、放行寫進警告清單、解析不出 JSON 仍 raise）；`claude -p --model opus` 實跑確認 CLI 吃這個別名；`model_candidates()` 實測回 `['gpt-5.6-sol', 'gpt-6-astra']`。真實端到端驗收＝9/19 02:00 週更那場（Boss 決定不手動補跑 9/12）。

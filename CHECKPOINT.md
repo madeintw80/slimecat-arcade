@@ -1,8 +1,15 @@
 # CHECKPOINT
 
-Updated: 2026-09-06 20:35 Asia/Taipei
+Updated: 2026-09-17 10:45 Asia/Taipei
 Task Lead: Batnini
-Status: complete（9/6 小改：大廳「排序：最新／熱門」開關＋卡片出廠日期＋`stats.js` 本機不回報，本機預覽驗證過、20:32 push 上線並實讀線上版確認；v3 Phase 1／2 已落地）；Phase 3 旗艦化待 Boss 開工
+Status: complete（9/17：修 9/12 停產事故的跨包引用誤判＋模型分工改版＋內容包引用改「警告放行」，離線測試全綠、`claude -p --model opus` 實跑驗過；**真實端到端驗收＝9/19 02:00 週更那場**，Boss 決定不手動補跑 9/12）；Phase 3 旗艦化待 Boss 開工
+
+## 2026-09-17 這輪（詳見 DECISIONS.md 同日條目）
+
+- **9/12 停產根因**：`ref_fields` 把合約 headlines.text 說明裡的 `{stage}` 佔位符當成「引用 stages 包」→ 驗證器拿整句中文頭條比對 id，兩次必敗、整場中止（燒 $7.43）。修法＝比對前剝掉 `{…}` 佔位符＋第二道保險（欄位 examples 不是英文 id 格式就不當引用）。
+- **模型分工**（Boss 拍板）：引擎 fable→**opus** high、打磨 fable→**opus** high（Batnini 自決，跟引擎一致）、解構 opus→**fable**、內容包**維持 sonnet**、Echo 評審固定 **gpt-5.6-sol** high（config 現役降為第二順位）。`BUDGET_USD` 引擎 9→5、打磨 4→2.5。同 token 下每場約省 $1.2。
+- **內容包跨包引用改 fail-open**：重試一次後仍不合格＝警告放行，寫進 `content_warnings.json` 並併入 `qa_info["warnings"]` 交評審；解析不出 JSON／schema 不合仍致命。
+- 測試：`tests/test_v3.py` 全綠（新增 5 條回歸）。下次週更（9/19 02:00）跑完要看 `factory.log` 確認引擎那段是 opus、評審 reviewer 是 sol。
 Branch: main
 Last verified commit: 本次 Phase 1／2 程式 commit（見 git log 最新一筆）；工廠自動 commit＝《喵淵吞吞樂》上架＋內容包重生＋打磨；前次基線＝Phase 0 `c983a4b`／`ddf2d03`
 

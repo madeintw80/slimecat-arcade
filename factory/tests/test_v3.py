@@ -166,6 +166,32 @@ ctpl2["content_packs"][1]["item_schema"]["text"] = "string｜依 stages 顯示�
 check("ref_fields examples 不是 id 格式就不當引用", stages.ref_fields(ctpl2["content_packs"][1], ctpl2) == {},
       str(stages.ref_fields(ctpl2["content_packs"][1], ctpl2)))
 
+# 2026-09-17 Boss 拍板：跨包引用不過＝重試一次後警告放行；解析／schema 不過仍然致命
+_saved_call, _outs = stages.call, []
+stages.call = lambda prompt, timeout, model, effort, stage: _outs.pop(0)
+try:
+    scenes = cref["content_packs"][1]
+    bad_json = json.dumps([
+        {"id": "r1", "spawn": [{"obj": "mug", "n": 1}], "boss": "crumb", "palette": {"bg": "#000"}},
+        {"id": "r2", "spawn": [{"obj": "sock", "n": 1}], "boss": "crumb", "palette": {"bg": "#111"}},
+    ], ensure_ascii=False)
+    _outs[:] = [bad_json, bad_json]
+    sink = []
+    got = stages.stage_content(scenes, "# 企劃書", {"title": "t", "content_packs": cref["content_packs"]},
+                               "", {"objects": {"crumb", "sock"}}, warn_sink=sink)
+    check("引用不過重試一次後放行出廠", len(got) == 2 and len(_outs) == 0, f"items={len(got)}")
+    check("放行有寫進警告清單給評審", len(sink) == 1 and "mug" in sink[0], str(sink))
+
+    _outs[:] = ["這不是 JSON", "還是不是 JSON"]
+    try:
+        stages.stage_content(scenes, "# 企劃書", {"title": "t", "content_packs": cref["content_packs"]},
+                             "", {"objects": {"crumb", "sock"}})
+        check("解析不出 JSON 仍應 raise", False)
+    except ValueError as e:
+        check("解析不出 JSON 仍應 raise", True, str(e)[:50])
+finally:
+    stages.call = _saved_call
+
 # ---------------------------------------------------------------- 3. 組裝
 ENGINE = """<!DOCTYPE html><html><head><meta charset="utf-8"><title>t</title>
 <!--CONTENT-NOTES

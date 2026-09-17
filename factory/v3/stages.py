@@ -24,11 +24,14 @@ import make_game as mg   # noqa: E402  共用 run_claude／GENRES／normalize_ge
 MODEL_PLAN, EFFORT_PLAN = "fable", "high"
 # 引擎 effort：首航 xhigh＋2,200 行在 64k 輸出上限被截斷（思考 tokens 也算輸出）；改 high、上限拉到 128k、
 # 行數壓 2,000；再爆一次就用 TIGHT（1,400 行、medium）重試。
-MODEL_ENGINE, EFFORT_ENGINE = "fable", "high"
+# 2026-09-17 Boss 拍板 fable→opus：引擎佔整場約七成花費，opus 單價正好是 fable 的一半
+# （$5/$25 vs $10/$50 每百萬 token），同樣的輸出量直接省一半。打磨是「改引擎交出來的碼」，
+# 跟著引擎走同一個模型（Batnini 替決定，Boss 只點名引擎與內容包）。
+MODEL_ENGINE, EFFORT_ENGINE = "opus", "high"
 TIGHT_ENGINE_LINES, TIGHT_ENGINE_EFFORT = 1400, "medium"
-MODEL_CONTENT, EFFORT_CONTENT = "sonnet", ""
-MODEL_CRITIC, EFFORT_CRITIC = "sonnet", ""
-MODEL_POLISH, EFFORT_POLISH = "fable", "high"
+MODEL_CONTENT, EFFORT_CONTENT = "sonnet", ""   # 照 schema 填格式化資料，sonnet 夠用（9/17 Boss 維持）
+MODEL_CRITIC, EFFORT_CRITIC = "sonnet", ""     # 只在 Echo 不可用時當 fail-open 退路
+MODEL_POLISH, EFFORT_POLISH = "opus", "high"
 
 PLAN_TIMEOUT = 1800      # 企劃書
 ENGINE_TIMEOUT = 3600    # 引擎一整檔（可能 2,000 行）
@@ -37,7 +40,8 @@ CRITIC_TIMEOUT = 900
 POLISH_TIMEOUT = 1800
 
 # 每次呼叫的花費保險絲（美元；CLI --max-budget-usd）。截斷後 CLI 會自己重試，沒保險絲一次可燒 $15。
-BUDGET_USD = {"v3-plan": 4.0, "v3-engine": 9.0, "v3-content": 1.5, "v3-critic": 1.5, "v3-polish": 4.0}
+# 2026-09-17：引擎與打磨改 opus（單價砍半）→ 保險絲跟著砍半，維持一樣的「截斷後亂重試」防線寬度
+BUDGET_USD = {"v3-plan": 4.0, "v3-engine": 5.0, "v3-content": 1.5, "v3-critic": 1.5, "v3-polish": 2.5}
 
 # ---- 規模上限（Boss 拍板 3C：由企劃書依機制自訂，上限＝大型）----
 CAPS = {"packs": 4, "items": 30, "engine_lines": 2000, "session_max_min": 10}
@@ -700,31 +704,49 @@ def validate_pack(items, pack: dict) -> list:
     return items[:count]
 
 
-def stage_content(pack: dict, plan_doc: str, contract: dict, notes: str, available: dict = None) -> list:
+def stage_content(pack: dict, plan_doc: str, contract: dict, notes: str, available: dict = None,
+                  warn_sink: list = None) -> list:
     """生成一個內容包（schema 驗證＋跨包引用驗證，失敗帶錯誤重生一次）。
 
     available：已生成的內容包 id（{pack key: set(ids)}），引用欄位只能用這些。
+    warn_sink：放行的引用問題會 append 進去（交給評審清單，見 pipeline._content）。
+
+    2026-09-17 Boss 拍板「重試一次，還不過就警告放行」：**跨包引用**不合格頂多讓某幾筆內容指到
+    不存在的東西，引擎本來就該容錯（打磨 prompt 明寫「引用不存在的 id 時改用同等級的替代物件」，
+    _content 尾端的交叉核對也只是記警告），不值得毀掉一整場已經花掉大半預算的生產——9/12 就是
+    在這裡燒掉 $7.43、那週停產一款。**解析不出 JSON／schema 不合仍然致命**：那種情況根本沒有
+    資料可以組裝，放行只會把失敗延到品管。
     """
     available = available or {}
     refs = ref_fields(pack, contract)
     feedback = ""
+    keep, keep_bad = None, []      # 最後一次「schema 過了、只有引用有疑」的成品
     for attempt in (1, 2):
         prompt = build_content_prompt(pack, plan_doc, contract, notes, feedback, available)
         out = call(prompt, CONTENT_TIMEOUT, MODEL_CONTENT, EFFORT_CONTENT, f"v3-content:{pack['key']}")
         text = _strip_fences(out)
-        i, j = text.find("["), text.rfind("]")
         try:
+            i, j = text.find("["), text.rfind("]")
             items = json.loads(text[i:j + 1]) if i >= 0 and j > i else None
             if items is None:
                 raise ValueError("輸出裡找不到 JSON 陣列")
             items = validate_pack(items, pack)
-            bad = find_bad_refs(items, refs, available)
-            if bad:
-                raise ValueError("；".join(bad[:6]))
-            return items
         except ValueError as e:
             feedback = str(e)[:500]
             mg.log(f"  ⚠️ 內容包 {pack['key']} 第 {attempt} 次驗證失敗：{feedback[:160]}")
+            continue
+        bad = find_bad_refs(items, refs, available)
+        if not bad:
+            return items
+        keep, keep_bad = items, bad
+        feedback = "；".join(bad[:6])[:500]
+        mg.log(f"  ⚠️ 內容包 {pack['key']} 第 {attempt} 次跨包引用有問題：{feedback[:160]}")
+    if keep is not None:
+        note = f"內容包 {pack['key']} 帶著無效引用出廠（重試過仍在）：{'；'.join(keep_bad[:3])[:200]}"
+        mg.log(f"  ⏭️ {note}")
+        if warn_sink is not None:
+            warn_sink.append(note)
+        return keep
     raise ValueError(f"內容包 {pack['key']} 兩次都不合格：{feedback[:200]}")
 
 
