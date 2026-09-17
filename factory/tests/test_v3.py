@@ -146,6 +146,26 @@ check("find_bad_refs 乾淨回空", stages.find_bad_refs([{"id": "r1", "spawn": 
 prompt_c = stages.build_content_prompt(cref["content_packs"][1], "# 企劃書", {"title": "t", "content_packs": cref["content_packs"]}, "", available={"objects": {"crumb", "sock"}})
 check("build_content_prompt 帶可引用 id 清單", "只能用這些：crumb, sock" in prompt_c)
 
+# 2026-09-12 停產事故回歸：文字模板的 {佔位符} 與中文文案欄位不可被當成跨包引用
+ctpl = {"content_packs": [
+    {"key": "stages", "label": "季度", "count": 2, "item_schema": {"id": "string｜唯一英文 id", "name": "string｜季度名稱"},
+     "examples": [{"id": "s1", "name": "實習日"}]},
+    {"key": "headlines", "label": "頭條圖鑑", "count": 2,
+     "item_schema": {"id": "string｜唯一英文 id",
+                     "text": "string｜頭條模板，可用 {mult} {stage} {drivers} 佔位",
+                     "hint": "string｜未解鎖時顯示的提示"},
+     "examples": [{"id": "hl_calm", "text": "喵車今日車資 {mult} 倍，乘客表示：還行啦。", "hint": "平穩派單就能看到"}]},
+]}
+refs_tpl = stages.ref_fields(ctpl["content_packs"][1], ctpl)
+check("ref_fields {stage} 佔位符不算引用 stages", refs_tpl == {}, str(refs_tpl))
+check("find_bad_refs 不會拿中文文案去比 id",
+      stages.find_bad_refs(ctpl["content_packs"][1]["examples"], refs_tpl, {"stages": {"s1"}}) == [])
+# 第二道保險：就算說明真的寫了別包的名字，examples 擺明是中文文案就不當引用
+ctpl2 = json.loads(json.dumps(ctpl))
+ctpl2["content_packs"][1]["item_schema"]["text"] = "string｜依 stages 顯示的頭條文字"
+check("ref_fields examples 不是 id 格式就不當引用", stages.ref_fields(ctpl2["content_packs"][1], ctpl2) == {},
+      str(stages.ref_fields(ctpl2["content_packs"][1], ctpl2)))
+
 # ---------------------------------------------------------------- 3. 組裝
 ENGINE = """<!DOCTYPE html><html><head><meta charset="utf-8"><title>t</title>
 <!--CONTENT-NOTES

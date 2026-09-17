@@ -521,6 +521,26 @@ def _strings_in(v) -> set:
     return out
 
 
+def _looks_like_id(v) -> bool:
+    """內容包 id 一律是英文 id（例 s1／ev_rain／hl_calm）；中文文案、帶空白的句子都不是。"""
+    return isinstance(v, str) and bool(re.fullmatch(r"[A-Za-z][A-Za-z0-9_\-]*", v.strip()))
+
+
+def _example_values_look_like_ids(pack: dict, field: str) -> bool:
+    """第二道保險：真正的引用欄位，合約 examples 在該欄位放的會是英文 id。
+
+    examples 全是中文文案／長句 → 上面的關鍵字命中是誤判，別當引用。
+    examples 沒給這欄位（或只給空字串）＝沒有證據，不否決關鍵字判定。
+    """
+    vals = set()
+    for e in pack.get("examples", []):
+        vals |= _strings_in(e.get(field))
+    vals = {v for v in vals if isinstance(v, str) and v.strip()}
+    if not vals:
+        return True
+    return any(_looks_like_id(v) for v in vals)
+
+
 def ref_fields(pack: dict, contract: dict) -> dict:
     """這個內容包哪些欄位引用別的內容包：{欄位: 目標 pack key}。
 
@@ -534,12 +554,19 @@ def ref_fields(pack: dict, contract: dict) -> dict:
         s = str(spec)
         # 只看「說明」部分，不看型別：型別 object 會撞到內容包 objects 的單數形（palette:"object｜{…}" 誤判）
         desc = re.split(r"[｜|]", s, 1)[1] if re.search(r"[｜|]", s) else s
+        # 說明裡的 {mult} {stage} 是「文字模板佔位符」，不是引用別的內容包。
+        # 2026-09-12 停產事故：headlines.text 說明寫「可用 {mult} {stage} … 佔位」→ stage 命中 stages 包
+        # → 驗證器拿整句中文頭條去比對 stages 的 id，兩次必敗、整場生產中止。先剝掉佔位符再比對。
+        desc = re.sub(r"\{[^{}]*\}", " ", desc)
         target = ""
         for p in others:
             words = set(_singulars(p["key"])) | {p.get("label", "")}
             if any(w and re.search(rf"(?<![a-z_]){re.escape(w)}(?![a-z_])", desc) for w in words):
                 target = p["key"]
                 break
+        # 關鍵字命中也要對得起 examples：欄位範例根本不是 id 格式＝誤判（同上事故的第二道保險）
+        if target and not _example_values_look_like_ids(pack, field):
+            target = ""
         if not target:
             for e in pack.get("examples", []):
                 vals = _strings_in(e.get(field))
