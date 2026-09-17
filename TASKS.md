@@ -6,9 +6,10 @@
 - [x] Phase 1（2026-09-05，Batnini）：v3 多階段生產線 `factory/v3/`（企劃書合約→引擎→內容包→組裝→品管壓力測試→評審→patch 打磨→上架，每輪落檔 `factory/runs/`、撞額度續跑）＋Steam 榜靈感（`fetch_trends.py`）＋「解構 <遊戲名>」指令（`decon_now.py`，Telegram 分冊／CLAUDE.md 路由／menus 已加）。
 - [x] Phase 2（2026-09-05，Batnini）：Echo 獨立評審＋整合稽核（`v3/echo_review.py`，read-only 委派、fail-open 回 sonnet、模型退路）＋每階段用量對帳工具（`usage_report.py`、TG「遊戲用量」）。
 - [ ] Phase 2 對帳（跑三～四款 v3 後）：`python factory/usage_report.py --runs` 比各階段成本 vs 評審／玩家數據，定案 effort 與模型（改 `v3/stages.py` 頂端常數；候選：企劃書 max 是否值得、內容包 sonnet vs fable low、評審 Echo effort）。
+  - 2026-09-17 Boss 已依**單價**先定一輪（引擎／打磨／v2 實作 fable→opus、解構 opus→fable、內容包維持 sonnet、Echo 固定 sol high，見 DECISIONS 同日）；**尚未對帳的是「換模型之後品質有沒有掉」**——9/19 起累積三～四款後，比評審分數與玩家數據，確認 opus 寫的引擎撐不撐得住。
 - [ ] Phase 3：旗艦化「做大 <名>」走 session 手工做（候選：貓客滿樓無限模式、貓灶封潮夜關卡／波次；v3 首款若評審 `scale_up.worth` 也列候選）。
 - [x] Boss：建 Telegram 群組「SlimeCat Studio」→ **2026-09-05 21:05 Boss 拍板不建**，所有推播（含新作兩則介紹）全走 Boss 私訊（DECISIONS 9/5 第四條）；`factory/studio_setup.py` 留著當選配，想拉朋友再設。
-- [ ] Echo：評估升級 codex CLI（0.144.1 跑不了 config 的 gpt-6-astra，目前退 gpt-5.6-sol；handoff `2026-09-05-1705-batnini-to-echo-slimecat-v3-echo-review.md`）。
+- [ ] Echo：評估升級 codex CLI（0.144.1 跑不了 config 的 gpt-6-astra）。**2026-09-17 起評審已固定 `gpt-5.6-sol`**（config 現役降第二順位），所以這條不再影響每場生產，只剩「想不想用更新的模型評審」；handoff `2026-09-05-1705-batnini-to-echo-slimecat-v3-echo-review.md`。
 - [ ] Boss：bridge 分冊關鍵字（解構／用量）要等 Batnini Bridge 下次重啟才生效（CLAUDE.md 路由已即時生效）；方便時雙擊 `scripts/batnini_bridge.bat` 或等機器重開。
 
 ## Completed

@@ -85,12 +85,15 @@ LLM_CWD.mkdir(parents=True, exist_ok=True)
 # run_claude 的 model 參數預設 MODEL_BUILD(fable) → fix_game / daily_feedback /
 # weekly_review / original_mode 這些沒指定 model 的呼叫端同步升級（全鏈一致）。
 # 2026-09-05 註：「全 fable 分級 effort」是 v3 Phase 2 的題目，跑三款對帳後再定；這裡先不動。
-# 2026-09-17 Boss 拍板 opus→fable：解構是整條產線的源頭（靈感拆得好不好決定後面全部），
-# 每場只多約 $0.3。同一輪把引擎與打磨從 fable 降到 opus（見 v3/stages.py），整場仍淨省。
+# 2026-09-17 Boss 拍板（與 v3 同一輪，見 v3/stages.py 與 DECISIONS.md）：
+#   解構 opus→fable：整條產線的源頭（靈感拆得好不好決定後面全部），每場只多約 $0.3。
+#   實作 fable→opus：opus 單價正好是 fable 的一半（$5/$25 vs $10/$50 每百萬 token），
+#   寫程式這種「輸出長」的階段省最多。這一項同時降到 fix_game／daily_feedback／
+#   weekly_review／original_mode——它們沒指定 model，吃的就是 MODEL_BUILD 這個預設。
 MODEL_DECON = "fable"     # 解構熱門遊戲（靈感品質的源頭）
-MODEL_BUILD = "fable"     # 設計＋實作遊戲（品質關鍵）
+MODEL_BUILD = "opus"      # 設計＋實作遊戲（v2.2 線＋修遊戲／留言／檢討會的預設模型）
 MODEL_CRITIC = "sonnet"   # 出廠五維自評
-GEN_TIMEOUT = 3600        # 實作一整款遊戲的時間上限（fable 思考較久，放寬到 60 分鐘）
+GEN_TIMEOUT = 3600        # 實作一整款遊戲的時間上限（放寬到 60 分鐘，opus/fable 都夠用）
 SMALL_TIMEOUT = 900       # 解構 / 評審這類小任務的上限
 MAX_ATTEMPTS = 2          # 實作 + 驗證最多試幾次
 POLISH_BAR = 40           # 自評低於這分數就觸發「打磨一輪」（0=關閉打磨、50=每款必磨）

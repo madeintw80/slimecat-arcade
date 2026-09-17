@@ -68,6 +68,7 @@
   - **內容包維持 sonnet**（Boss 拍板，原提案要換 opus）：這一項是照 schema 填格式化資料，sonnet 夠用；換 opus 貴 2.5 倍（$0.60 → 約 $1.50）且 9/12 的失敗與模型能力無關。
   - **Echo 獨立評審固定 `gpt-5.6-sol` effort high**：原本先試 `~/.codex/config.toml` 現役模型，但 config 常比本機 codex CLI 新（gpt-6-astra 回 400），每場先浪費一次委派才退。改成 sol 優先、config 現役留第二順位，sol 若被下架仍找得到能跑的模型。
   - **淨效果**：同 token 數下每場約省 $1.2（約 17%），全部來自引擎那一項。
+  - **追加（Boss 同日 10:42）：v2 舊線 `MODEL_BUILD` fable→opus**——它是 `run_claude` 的預設模型，所以 v2.2 單線生產、`fix_game`（修遊戲）、`daily_feedback`（每日留言處理）、`weekly_review`（週日檢討會主呼叫）、`original_mode` 全部一起降；理由同引擎＝這些都是「輸出長」的寫程式／長文任務，opus 半價省最多。`MODEL_CRITIC=sonnet`（出廠自評、檢討會彙整）與 `MODEL_DECON=fable` 不變。
 - **內容包跨包引用改 fail-open**（Boss 拍板「重試一次，還不過就警告放行」）：引用問題頂多讓某幾筆內容指到不存在的東西，引擎本來就該容錯（打磨 prompt 明寫「引用不存在的 id 時改用同等級的替代物件」、`_content` 尾端的交叉核對本來也只是記警告），不值得毀掉一整場已經花掉大半預算的生產。放行的問題寫進 log 與 `content_warnings.json`，並併進 `qa_info["warnings"]` 交給評審——評審該判斷的是「引擎有沒有好好容錯」。**解析不出 JSON／schema 不合仍然致命**（沒有資料可以組裝，放行只會把失敗延到品管）。
 - **照建議自決（Batnini，Boss 只點名引擎與內容包）**：① 打磨 `stage_polish_patch` 跟著引擎從 fable 改 opus——它做的事是「改引擎交出來的碼」，同一個模型比較一致，順帶同樣省一半；② `BUDGET_USD` 的引擎 9.0→5.0、打磨 4.0→2.5，跟著單價砍半以維持同樣寬度的「截斷後亂重試」防線；③ 企劃書維持 fable `high`、自評退路維持 sonnet；④ v2 舊線 `MODEL_BUILD`（`fix_game`／`daily_feedback`／`weekly_review` 的預設）不動，Boss 這次談的是 v3 週更產線。
 - **驗證**：`tests/test_v3.py` 全綠（新增 5 條：`{stage}` 佔位符不算引用、examples 不是 id 格式就不當引用、引用不過放行出廠、放行寫進警告清單、解析不出 JSON 仍 raise）；`claude -p --model opus` 實跑確認 CLI 吃這個別名；`model_candidates()` 實測回 `['gpt-5.6-sol', 'gpt-6-astra']`。真實端到端驗收＝9/19 02:00 週更那場（Boss 決定不手動補跑 9/12）。
