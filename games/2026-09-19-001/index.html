@@ -1,0 +1,1273 @@
+<!--GAMEMETA {"title": "喵艙輕輕落", "emoji": "🛸", "genre": "街機", "inspiration": "Lander", "desc": "按住噴肉球減速，在魚乾燒光前輕輕落在越來越刁鑽的貓窩墊上！"}-->
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>喵艙輕輕落</title>
+<!--CONTENT-NOTES
+==== 內容包注入說明（引擎實際支援的欄位／範圍／enum）====
+注入點：<script id="sc-content">window.SC_CONTENT = {"boons": [{"id": "big_tank", "name": "大魚乾桶", "desc": "油箱容量+25%", "stat": "tank", "value": 1.25, "mode": "mul", "rarity": "common", "max_stack": 3, "side_stat": "none", "side_value": 1}, {"id": "paw_thrust", "name": "彈力肉球", "desc": "推力+15%", "stat": "thrust", "value": 1.15, "mode": "mul", "rarity": "common", "max_stack": 3, "side_stat": "none", "side_value": 1}, {"id": "side_paw", "name": "側踢貓拳", "desc": "側噴力+20%", "stat": "side", "value": 1.2, "mode": "mul", "rarity": "common", "max_stack": 3, "side_stat": "none", "side_value": 1}, {"id": "soft_paw", "name": "軟綿肉墊", "desc": "綠窗口+15%", "stat": "soft_window", "value": 1.15, "mode": "mul", "rarity": "common", "max_stack": 2, "side_stat": "none", "side_value": 1}, {"id": "fur_coat", "name": "厚毛外套", "desc": "外殼耐久+1", "stat": "hull", "value": 1, "mode": "add", "rarity": "common", "max_stack": 4, "side_stat": "none", "side_value": 1}, {"id": "frugal_step", "name": "省油貓步", "desc": "落地回油+20%", "stat": "fuel_refund", "value": 1.2, "mode": "mul", "rarity": "common", "max_stack": 3, "side_stat": "none", "side_value": 1}, {"id": "paw_combo", "name": "貓拳連擊", "desc": "分數×1.2", "stat": "score_mult", "value": 1.2, "mode": "mul", "rarity": "common", "max_stack": 2, "side_stat": "none", "side_value": 1}, {"id": "can_radar", "name": "罐頭雷達", "desc": "撿罐範圍+20px", "stat": "magnet", "value": 20, "mode": "add", "rarity": "common", "max_stack": 3, "side_stat": "none", "side_value": 1}, {"id": "cool_fur", "name": "涼感肉球", "desc": "過熱耐受+20%", "stat": "heat_cap", "value": 1.2, "mode": "mul", "rarity": "common", "max_stack": 3, "side_stat": "none", "side_value": 1}, {"id": "wind_fur", "name": "定風貓毛", "desc": "抗風力+20%", "stat": "wind_resist", "value": 1.2, "mode": "mul", "rarity": "common", "max_stack": 3, "side_stat": "none", "side_value": 1}, {"id": "fish_pouch", "name": "魚乾小袋", "desc": "油箱+15", "stat": "tank", "value": 15, "mode": "add", "rarity": "common", "max_stack": 3, "side_stat": "none", "side_value": 1}, {"id": "jet_boots", "name": "噴射靴", "desc": "推力+30", "stat": "thrust", "value": 30, "mode": "add", "rarity": "common", "max_stack": 3, "side_stat": "none", "side_value": 1}, {"id": "tail_balance", "name": "尾巴平衡", "desc": "側噴+10%", "stat": "side", "value": 1.1, "mode": "mul", "rarity": "common", "max_stack": 4, "side_stat": "none", "side_value": 1}, {"id": "refill_bonus", "name": "回油加碼", "desc": "落地回油+10", "stat": "fuel_refund", "value": 10, "mode": "add", "rarity": "common", "max_stack": 3, "side_stat": "none", "side_value": 1}, {"id": "iron_hull", "name": "鋼化外殼", "desc": "外殼+1，油箱×0.9", "stat": "hull", "value": 1, "mode": "add", "rarity": "rare", "max_stack": 2, "side_stat": "tank", "side_value": 0.9}, {"id": "wide_window", "name": "寬心綠窗", "desc": "綠窗口+30%", "stat": "soft_window", "value": 1.3, "mode": "mul", "rarity": "rare", "max_stack": 2, "side_stat": "none", "side_value": 1}, {"id": "turbo_paw", "name": "渦輪肉球", "desc": "推力+35%，側噴×0.85", "stat": "thrust", "value": 1.35, "mode": "mul", "rarity": "rare", "max_stack": 1, "side_stat": "side", "side_value": 0.85}, {"id": "score_surge", "name": "分數浪潮", "desc": "分數×1.35", "stat": "score_mult", "value": 1.35, "mode": "mul", "rarity": "rare", "max_stack": 1, "side_stat": "none", "side_value": 1}, {"id": "magnet_core", "name": "磁力核心", "desc": "撿罐範圍+45px", "stat": "magnet", "value": 45, "mode": "add", "rarity": "rare", "max_stack": 2, "side_stat": "none", "side_value": 1}, {"id": "gold_paw", "name": "黃金肉球", "desc": "分數×1.5，油箱×0.7", "stat": "score_mult", "value": 1.5, "mode": "mul", "rarity": "legendary", "max_stack": 1, "side_stat": "tank", "side_value": 0.7}], "pods": [{"id": "jelly_basic", "name": "果凍初號艙", "desc": "均衡好上手", "mass": 1.0, "tank": 100, "thrust": 260, "side_thrust": 90, "hull": 3, "soft_limit": 1.5, "hull_color": "#9fd8ff", "shape": "round", "unlock_type": "default", "unlock_value": 0}, {"id": "nimbus_kitten", "name": "小飛喵艙", "desc": "快但脆，貼地飛", "mass": 0.8, "tank": 80, "thrust": 310, "side_thrust": 115, "hull": 2, "soft_limit": 1.3, "hull_color": "#a0f0ff", "shape": "drop", "unlock_type": "depth", "unlock_value": 8}, {"id": "streak_chaser", "name": "追井喵艙", "desc": "推力猛，容錯偏窄", "mass": 1.0, "tank": 100, "thrust": 295, "side_thrust": 100, "hull": 3, "soft_limit": 1.3, "hull_color": "#ff9ecf", "shape": "star", "unlock_type": "daily_streak", "unlock_value": 3}, {"id": "combo_jelly", "name": "連段軟糖艙", "desc": "窗口寬，殼薄易碎", "mass": 0.9, "tank": 90, "thrust": 250, "side_thrust": 95, "hull": 2, "soft_limit": 1.8, "hull_color": "#ffe08a", "shape": "star", "unlock_type": "combo", "unlock_value": 12}, {"id": "precision_shell", "name": "精準硬殼艙", "desc": "殼厚但窗口極窄", "mass": 1.1, "tank": 95, "thrust": 270, "side_thrust": 105, "hull": 4, "soft_limit": 1.1, "hull_color": "#7be495", "shape": "square", "unlock_type": "perfect_count", "unlock_value": 10}, {"id": "fat_tank", "name": "胖胖油罐艙", "desc": "油多但煞車慢", "mass": 1.4, "tank": 150, "thrust": 280, "side_thrust": 80, "hull": 3, "soft_limit": 1.4, "hull_color": "#ffb37a", "shape": "square", "unlock_type": "depth", "unlock_value": 20}, {"id": "koi_merchant", "name": "魚乾富商艙", "desc": "花錢買寬容窗口", "mass": 1.0, "tank": 110, "thrust": 255, "side_thrust": 85, "hull": 3, "soft_limit": 1.9, "hull_color": "#c9a0ff", "shape": "round", "unlock_type": "fish", "unlock_value": 200}, {"id": "deepwell_armor", "name": "深井重甲艙", "desc": "笨重但扛得住", "mass": 1.5, "tank": 130, "thrust": 300, "side_thrust": 70, "hull": 4, "soft_limit": 1.6, "hull_color": "#8899ff", "shape": "square", "unlock_type": "depth", "unlock_value": 35}, {"id": "flawless_needle", "name": "零失誤針尖艙", "desc": "極限推力，毫無容錯", "mass": 1.2, "tank": 90, "thrust": 320, "side_thrust": 128, "hull": 2, "soft_limit": 1.0, "hull_color": "#ff5c7a", "shape": "drop", "unlock_type": "perfect_count", "unlock_value": 25}, {"id": "abyss_king", "name": "深淵喵王艙", "desc": "全能重砲，起步遲緩", "mass": 1.6, "tank": 160, "thrust": 360, "side_thrust": 140, "hull": 4, "soft_limit": 2.2, "hull_color": "#2d2d55", "shape": "star", "unlock_type": "depth", "unlock_value": 60}], "zones": [{"id": "z01", "name": "井口軟墊層", "order": 1, "pads": 5, "gravity": 90, "wind_max": 0, "gust_rate": 0, "pad_width": [140, 180], "pad_types": ["static"], "fuel_pickup_rate": 0.5, "wall_gap": 0, "heat": false, "twin_rate": 0, "intro": "輕輕地，別急"}, {"id": "z02", "name": "貓掌試落坡", "order": 2, "pads": 4, "gravity": 105, "wind_max": 0, "gust_rate": 0, "pad_width": [140, 180], "pad_types": ["static"], "fuel_pickup_rate": 0.5, "wall_gap": 0, "heat": false, "twin_rate": 0, "intro": "重力悄悄加重了"}, {"id": "z03", "name": "落穴軟骨層", "order": 3, "pads": 6, "gravity": 105, "wind_max": 0, "gust_rate": 0, "pad_width": [110, 145], "pad_types": ["static", "sink"], "fuel_pickup_rate": 0.3, "wall_gap": 0, "heat": false, "twin_rate": 0.15, "intro": "墊子開始往下沉"}, {"id": "z04", "name": "穿堂風廊", "order": 4, "pads": 6, "gravity": 105, "wind_max": 36, "gust_rate": 3, "pad_width": [115, 150], "pad_types": ["static", "sink", "slide"], "fuel_pickup_rate": 0.4, "wall_gap": 0, "heat": false, "twin_rate": 0.35, "intro": "風來了，先修正再煞車"}, {"id": "z05", "name": "縮甲蜷曲道", "order": 5, "pads": 7, "gravity": 105, "wind_max": 36, "gust_rate": 3, "pad_width": [95, 130], "pad_types": ["static", "sink", "slide", "shrink"], "fuel_pickup_rate": 0.25, "wall_gap": 0, "heat": false, "twin_rate": 0.3, "intro": "墊子會越縮越小"}, {"id": "z06", "name": "月光眨眼谷", "order": 6, "pads": 6, "gravity": 105, "wind_max": 36, "gust_rate": 3, "pad_width": [110, 145], "pad_types": ["static", "sink", "slide", "shrink", "blink"], "fuel_pickup_rate": 0.45, "wall_gap": 0, "heat": false, "twin_rate": 0.3, "intro": "看準明暗再落下"}, {"id": "z07", "name": "灼熱噴發道", "order": 7, "pads": 7, "gravity": 105, "wind_max": 36, "gust_rate": 3, "pad_width": [90, 120], "pad_types": ["static", "sink", "slide", "shrink", "blink"], "fuel_pickup_rate": 0.2, "wall_gap": 0, "heat": true, "twin_rate": 0.4, "intro": "長按會過熱，改點噴"}, {"id": "z08", "name": "鹹魚乾涼亭", "order": 8, "pads": 6, "gravity": 105, "wind_max": 36, "gust_rate": 3, "pad_width": [115, 150], "pad_types": ["static", "sink", "slide", "shrink", "blink"], "fuel_pickup_rate": 0.5, "wall_gap": 0, "heat": true, "twin_rate": 0.3, "intro": "喘口氣，魚乾管夠"}, {"id": "z09", "name": "傾斜搖搖橋", "order": 9, "pads": 7, "gravity": 105, "wind_max": 36, "gust_rate": 3, "pad_width": [85, 115], "pad_types": ["static", "sink", "slide", "shrink", "blink", "tilt"], "fuel_pickup_rate": 0.25, "wall_gap": 0, "heat": true, "twin_rate": 0.4, "intro": "墊子會偏，落點要準"}, {"id": "z10", "name": "深井回音潭", "order": 10, "pads": 6, "gravity": 105, "wind_max": 36, "gust_rate": 3, "pad_width": [105, 140], "pad_types": ["static", "sink", "slide", "shrink", "blink", "tilt"], "fuel_pickup_rate": 0.45, "wall_gap": 0, "heat": true, "twin_rate": 0.35, "intro": "回音陣陣，稍稍放鬆"}, {"id": "z11", "name": "崩壁陣風口", "order": 11, "pads": 8, "gravity": 105, "wind_max": 36, "gust_rate": 3, "pad_width": [85, 115], "pad_types": ["static", "sink", "slide", "shrink", "blink", "tilt"], "fuel_pickup_rate": 0.2, "wall_gap": 150, "heat": true, "twin_rate": 0.45, "intro": "牆縫夾擊，先橫移再落"}, {"id": "z12", "name": "無盡墜落井", "order": 12, "pads": 999, "gravity": 105, "wind_max": 36, "gust_rate": 3, "pad_width": [85, 115], "pad_types": ["static", "sink", "slide", "shrink", "blink", "tilt"], "fuel_pickup_rate": 0.2, "wall_gap": 150, "heat": true, "twin_rate": 0.45, "intro": "沒有終點，只有紀錄"}], "pad_types": [{"id": "pad_cozy_nest", "name": "貓窩軟墊", "motion": "static", "speed": 0, "amplitude": 0, "soft_mult": 1.0, "score_mult": 1.0, "color": "#7be495", "min_zone_order": 1, "hint": "綠燈亮時放手"}, {"id": "pad_sun_patch", "name": "曬毯暖墊", "motion": "static", "speed": 0, "amplitude": 0, "soft_mult": 1.0, "score_mult": 1.0, "color": "#ffe08a", "min_zone_order": 2, "hint": "穩穩落下就好"}, {"id": "pad_stray_perch", "name": "浪貓歇腳墊", "motion": "sink", "speed": 25, "amplitude": 50, "soft_mult": 0.95, "score_mult": 1.3, "color": "#c79a6b", "min_zone_order": 3, "hint": "要提早煞車"}, {"id": "pad_scratch_slide", "name": "滑溜貓抓板", "motion": "slide", "speed": 40, "amplitude": 70, "soft_mult": 1.0, "score_mult": 1.5, "color": "#f6c453", "min_zone_order": 4, "hint": "預判牠會滑到哪"}, {"id": "pad_lazy_drift", "name": "懶洋洋漂浮墊", "motion": "slide", "speed": 15, "amplitude": 25, "soft_mult": 1.1, "score_mult": 1.2, "color": "#a8e6cf", "min_zone_order": 6, "hint": "慢慢漂喘口氣"}, {"id": "pad_paw_crumble", "name": "貓爪酥餅墊", "motion": "shrink", "speed": 0, "amplitude": 80, "soft_mult": 0.85, "score_mult": 1.6, "color": "#e08283", "min_zone_order": 5, "hint": "墊子會越縮越小"}, {"id": "pad_lantern_blink", "name": "提燈忽明墊", "motion": "blink", "speed": 0, "amplitude": 14, "soft_mult": 0.85, "score_mult": 1.7, "color": "#9b8cf2", "min_zone_order": 5, "hint": "亮起時才能落地"}, {"id": "pad_tilt_saucer", "name": "歪斜貓碟墊", "motion": "tilt", "speed": 0, "amplitude": 20, "soft_mult": 0.8, "score_mult": 1.8, "color": "#ff9f68", "min_zone_order": 7, "hint": "歪的要對準中心"}, {"id": "pad_gale_slide", "name": "疾風貓道墊", "motion": "slide", "speed": 60, "amplitude": 100, "soft_mult": 0.75, "score_mult": 2.0, "color": "#5dade2", "min_zone_order": 8, "hint": "風大滑更遠"}, {"id": "pad_ember_tilt", "name": "餘燼歪斜墊", "motion": "tilt", "speed": 0, "amplitude": 35, "soft_mult": 0.7, "score_mult": 2.3, "color": "#d35400", "min_zone_order": 9, "hint": "燙墊要快狠準"}]};</script>
+所有欄位缺漏 → 補預設值；數值超範圍 → clamp；未知 enum → 退回預設 enum；不會靜默略過（console.warn + 標題畫面紅字）。
+
+[zones] 井區，建議 12 筆（引擎依陣列長度動態決定；1 筆也能跑）
+  id            string 唯一英文 id（必填，重複會警告）
+  name          string 繁中區名（顯示於 HUD 與進區字幕）
+  order         int 1..99（引擎會依 order 排序；缺值用陣列索引）
+  pads          int 3..999（該區層數；最後一區建議 999＝無限循環區）
+  gravity       number 80..260（px/s²；clamp）
+  wind_max      number 0..60（px/s²；合約上限 90 但引擎硬 clamp 到 60，避免側噴抵銷不了）
+  gust_rate     number 0..8（每分鐘陣風次數）
+  pad_width     array [最小,最大]，各 60..180（會自動排序大小；非陣列則視為 [v,v]）
+  pad_types     array of pad_types.id（至少 1 個；引用不存在的 id ＝阻擋式錯誤，標題紅字）
+  fuel_pickup_rate number 0..1（每層出現魚乾罐機率）
+  wall_gap      int 0 或 100..220（0＝無橫梁；1..99 會被提升到 100）
+  heat          bool（是否啟用過熱系統）
+  twin_rate     number 0..1（雙墊選擇段機率）
+  intro         string 12 字內進區字幕
+  規則建議：order 1~2 合計 ≥8 層、無風、pad_width 最小 ≥120；order 4 需 wind_max ≥30 且含 slide 墊；
+            order 7 需 heat=true；偶數區為喘息區（較寬墊、fuel_pickup_rate ≥0.4）。
+            最後一區 pads=999，引擎每循環自動 gravity +5%、pad_width -5px（下限 60）、gust_rate +1。
+
+[pad_types] 墊型，建議 10 筆
+  id            string 唯一英文 id（被 zones.pad_types 引用）
+  name          string 繁中名
+  motion        enum static|slide|sink|shrink|blink|tilt（未知值退回 static）
+  speed         number 0..80（px/s；static 填 0）
+  amplitude     number 0..140（slide＝往返半程 px／sink＝下沉距離 px／shrink＝縮減量 px／
+                blink＝亮暗週期秒×10（引擎下限 12＝1.2 秒）／tilt＝傾角度數）
+  soft_mult     number 0.6..1.2（綠窗口倍率，<1 更嚴；建議 min_zone_order≥3 才用 <1）
+  score_mult    number 1.0..2.5（static 建議 1.0）
+  color         string #rrggbb（非法色碼退回 #7be495）
+  min_zone_order int 1..12（僅作提示用，實際出現由 zones.pad_types 決定）
+  hint          string 14 字內，首次出現時顯示 2 秒
+  規則：shrink 後寬度引擎保證 ≥60px；判定寬＝視覺寬＋6px（判定比看起來寬鬆）。
+
+[boons] 肉球卡，建議 20 筆（少於 3 筆時引擎自動以 common 補齊重複抽池）
+  id/name/desc  string（name ≤6 字、desc ≤16 字）
+  stat          enum tank|thrust|side|soft_window|hull|fuel_refund|score_mult|magnet|heat_cap|wind_resist
+  value         number（mode=mul 時 0.5..2.0；mode=add 時 -3..60）
+  mode          enum mul|add（未知退回 mul）
+  rarity        enum common|rare|legendary（權重固定 70/25/5，內容包不可改）
+  max_stack     int 1..4
+  side_stat     同 stat 的可用值，或 "none"
+  side_value    number（mul 0.5..1.0 或 add 負值；無副作用填 1）
+  規則：legendary 必有副作用；common 不可有副作用；hull 的 add 值 ≤1；score_mult 單張 ≤1.5。
+
+[pods] 艙體，建議 10 筆
+  id/name/desc  string（desc ≤16 字）
+  mass          number 0.7..1.6
+  tank          int 60..160
+  thrust        number 180..360
+  side_thrust   number 40..140（引擎硬 clamp 到 thrust×0.4 以內）
+  hull          int 1..4
+  soft_limit    number 1.0..2.2（綠色門檻，顯示單位 m/s）
+  hull_color    string #rrggbb
+  shape         enum round|square|drop|star（未知退回 round）
+  unlock_type   enum default|depth|combo|fish|daily_streak|perfect_count（未知退回 depth）
+  unlock_value  int 0..500（default 填 0）
+  規則：恰好一艘 default（沒有的話引擎自動把第一艘設為 default）；第二艘建議 depth ≤12。
+-->
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{height:100%;background:#0b0d16;overflow:hidden;font-family:"Noto Sans TC","PingFang TC","Microsoft JhengHei",system-ui,sans-serif;color:#e9f1ff;-webkit-tap-highlight-color:transparent}
+#wrap{position:fixed;inset:0;display:flex;align-items:center;justify-content:center}
+canvas{touch-action:none;display:block;background:#080a12;border-radius:10px;box-shadow:0 0 40px #000a}
+#lobby{position:fixed;left:8px;top:6px;z-index:9;color:#9fb6d8;font-size:13px;text-decoration:none;background:#0e1navy;background:rgba(10,14,26,.72);padding:4px 9px;border-radius:8px}
+#lobby:hover{color:#fff}
+</style>
+</head>
+<body>
+<a id="lobby" href="../../index.html">← 回遊戲區</a>
+<div id="wrap"><canvas id="cv"></canvas></div>
+
+<script id="sc-content">window.SC_CONTENT = {
+ "zones":[
+  {"id":"z01","name":"井口軟墊層","order":1,"pads":5,"gravity":90,"wind_max":0,"gust_rate":0,"pad_width":[140,180],"pad_types":["static"],"fuel_pickup_rate":0.5,"wall_gap":0,"heat":false,"twin_rate":0,"intro":"輕輕地，別急"},
+  {"id":"z04","name":"穿堂風廊","order":4,"pads":6,"gravity":130,"wind_max":36,"gust_rate":3,"pad_width":[100,130],"pad_types":["static","slide","sink"],"fuel_pickup_rate":0.3,"wall_gap":0,"heat":false,"twin_rate":0.4,"intro":"風來了，先修正再煞車"}
+ ],
+ "pad_types":[
+  {"id":"static","name":"貓窩軟墊","motion":"static","speed":0,"amplitude":0,"soft_mult":1.0,"score_mult":1.0,"color":"#7be495","min_zone_order":1,"hint":"綠燈亮時放手"},
+  {"id":"slide","name":"滑溜貓抓板","motion":"slide","speed":40,"amplitude":70,"soft_mult":1.0,"score_mult":1.5,"color":"#f6c453","min_zone_order":4,"hint":"預判牠會滑到哪"},
+  {"id":"sink","name":"下沉懶骨頭","motion":"sink","speed":30,"amplitude":60,"soft_mult":1.0,"score_mult":1.4,"color":"#b79bff","min_zone_order":3,"hint":"牠會往下陷，早點煞"}
+ ],
+ "boons":[
+  {"id":"big_tank","name":"大魚乾桶","desc":"油箱容量 +25%","stat":"tank","value":1.25,"mode":"mul","rarity":"common","max_stack":3,"side_stat":"none","side_value":1},
+  {"id":"gold_paw","name":"黃金肉球","desc":"分數 ×1.5，油箱 ×0.7","stat":"score_mult","value":1.5,"mode":"mul","rarity":"legendary","max_stack":1,"side_stat":"tank","side_value":0.7}
+ ],
+ "pods":[
+  {"id":"jelly_basic","name":"果凍初號艙","desc":"均衡好上手","mass":1.0,"tank":100,"thrust":260,"side_thrust":90,"hull":3,"soft_limit":1.5,"hull_color":"#9fd8ff","shape":"round","unlock_type":"default","unlock_value":0},
+  {"id":"fat_tank","name":"胖胖油罐艙","desc":"油多但煞車慢","mass":1.4,"tank":150,"thrust":280,"side_thrust":80,"hull":3,"soft_limit":1.4,"hull_color":"#ffb37a","shape":"square","unlock_type":"depth","unlock_value":12}
+ ]
+};</script>
+
+<script>
+(function(){
+"use strict";
+// ===== 基礎工具 =====
+var W=400,H=600,cv=document.getElementById("cv"),ctx=cv.getContext("2d"),scale=1,dpr=1;
+var clamp=function(v,a,b){v=+v;if(!isFinite(v))v=a;return v<a?a:(v>b?b:v);};
+var lerp=function(a,b,t){return a+(b-a)*t;};
+var HEX=/^#[0-9a-fA-F]{6}$/;
+var col=function(c,d){return (typeof c==="string"&&HEX.test(c))?c:d;};
+var pickEnum=function(v,list,d){return list.indexOf(v)>=0?v:d;};
+var fmt=function(n){return Math.floor(n).toLocaleString("en-US");};
+
+// canvas 等比縮放 + DPR
+function resize(){
+  var aw=window.innerWidth-12, ah=window.innerHeight-12;
+  scale=Math.min(aw/W,ah/H); if(scale>2)scale=2; if(scale<0.3)scale=0.3;
+  dpr=Math.min(window.devicePixelRatio||1,3);
+  cv.style.width=(W*scale)+"px"; cv.style.height=(H*scale)+"px";
+  cv.width=Math.round(W*scale*dpr); cv.height=Math.round(H*scale*dpr);
+  ctx.setTransform(scale*dpr,0,0,scale*dpr,0,0);
+  ctx.textBaseline="alphabetic";
+}
+window.addEventListener("resize",resize);
+
+// ===== 音效（WebAudio 合成） =====
+var AC=null,muted=false;
+function ac(){ if(!AC){ try{ AC=new (window.AudioContext||window.webkitAudioContext)(); }catch(e){ AC=null; } } if(AC&&AC.state==="suspended"){ try{AC.resume();}catch(e){} } return AC; }
+function tone(f1,f2,dur,type,vol,delay){
+  var c=ac(); if(!c||muted)return;
+  var t0=c.currentTime+(delay||0);
+  var o=c.createOscillator(),g=c.createGain();
+  o.type=type||"sine"; o.frequency.setValueAtTime(f1,t0);
+  if(f2&&f2!==f1)o.frequency.exponentialRampToValueAtTime(Math.max(20,f2),t0+dur);
+  g.gain.setValueAtTime(0.0001,t0);
+  g.gain.exponentialRampToValueAtTime(Math.max(0.0002,(vol||0.18)),t0+0.012);
+  g.gain.exponentialRampToValueAtTime(0.0001,t0+dur);
+  o.connect(g); g.connect(c.destination); o.start(t0); o.stop(t0+dur+0.03);
+}
+var noiseBuf=null;
+function noise(dur,vol,filt,slide){
+  var c=ac(); if(!c||muted)return;
+  if(!noiseBuf){ noiseBuf=c.createBuffer(1,c.sampleRate*1.2,c.sampleRate); var d=noiseBuf.getChannelData(0);
+    for(var i=0;i<d.length;i++)d[i]=Math.random()*2-1; }
+  var s=c.createBufferSource(); s.buffer=noiseBuf; s.loop=true;
+  var bp=c.createBiquadFilter(); bp.type="bandpass"; bp.frequency.setValueAtTime(filt||800,c.currentTime); bp.Q.value=1.1;
+  if(slide)bp.frequency.exponentialRampToValueAtTime(Math.max(60,slide),c.currentTime+dur);
+  var g=c.createGain(); g.gain.setValueAtTime(vol||0.12,c.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.0001,c.currentTime+dur);
+  s.connect(bp); bp.connect(g); g.connect(c.destination); s.start(); s.stop(c.currentTime+dur+0.05);
+}
+// 持續噴射音（白噪 loop）
+var jetSrc=null,jetGain=null;
+function jetOn(){
+  var c=ac(); if(!c||muted||jetSrc)return;
+  if(!noiseBuf){ noiseBuf=c.createBuffer(1,c.sampleRate*1.2,c.sampleRate); var d=noiseBuf.getChannelData(0);
+    for(var i=0;i<d.length;i++)d[i]=Math.random()*2-1; }
+  jetSrc=c.createBufferSource(); jetSrc.buffer=noiseBuf; jetSrc.loop=true;
+  var lp=c.createBiquadFilter(); lp.type="lowpass"; lp.frequency.value=900;
+  jetGain=c.createGain(); jetGain.gain.setValueAtTime(0.0001,c.currentTime);
+  jetGain.gain.linearRampToValueAtTime(0.075,c.currentTime+0.05);
+  jetSrc.connect(lp); lp.connect(jetGain); jetGain.connect(c.destination); jetSrc.start();
+}
+function jetOff(){
+  if(!jetSrc)return; var c=AC;
+  try{ jetGain.gain.cancelScheduledValues(c.currentTime); jetGain.gain.setValueAtTime(jetGain.gain.value,c.currentTime);
+       jetGain.gain.linearRampToValueAtTime(0.0001,c.currentTime+0.06); jetSrc.stop(c.currentTime+0.1); }catch(e){}
+  jetSrc=null; jetGain=null;
+}
+var SFX={
+  green:function(){ tone(880,1320,0.16,"triangle",0.2); tone(1320,1760,0.12,"sine",0.12,0.05); },
+  perfect:function(){ [0,0.07,0.14,0.22].forEach(function(d,i){ tone(660*Math.pow(1.26,i),0,0.18,"triangle",0.17,d); }); },
+  yellow:function(){ tone(150,70,0.24,"square",0.16); noise(0.16,0.1,400,160); },
+  boom:function(){ noise(0.55,0.28,700,80); tone(90,32,0.5,"sawtooth",0.2); },
+  card:function(){ tone(520,980,0.1,"triangle",0.14); },
+  legend:function(){ [0,0.08,0.16].forEach(function(d,i){ tone(784*Math.pow(1.33,i),0,0.3,"sine",0.15,d); }); },
+  record:function(){ [523,659,784,1046,1318].forEach(function(f,i){ tone(f,0,0.3,"triangle",0.16,i*0.09); }); },
+  pick:function(){ tone(420,620,0.07,"square",0.1); },
+  can:function(){ tone(1046,1568,0.09,"sine",0.15); },
+  unlock:function(){ [440,554,659,880].forEach(function(f,i){ tone(f,0,0.35,"triangle",0.15,i*0.08); }); },
+  beat:function(){ tone(180,120,0.08,"sine",0.12); },
+  heat:function(){ tone(300,120,0.3,"sawtooth",0.14); noise(0.25,0.08,1600,400); }
+};
+
+// ===== 內容載入與驗證 =====
+var CONTENT={zones:[],pads:{},padList:[],boons:[],pods:[]},CERR=[],CWARN=0;
+function warn(msg){ CWARN++; if(CWARN<40&&window.console&&console.warn)console.warn("[SC_CONTENT] "+msg); }
+var MOTIONS=["static","slide","sink","shrink","blink","tilt"];
+var STATS=["tank","thrust","side","soft_window","hull","fuel_refund","score_mult","magnet","heat_cap","wind_resist"];
+var RARITY=["common","rare","legendary"];
+var SHAPES=["round","square","drop","star"];
+var UNLOCKS=["default","depth","combo","fish","daily_streak","perfect_count"];
+
+function loadContent(){
+  var raw=(window.SC_CONTENT&&typeof window.SC_CONTENT==="object")?window.SC_CONTENT:{};
+  var arr=function(k){ return Array.isArray(raw[k])?raw[k]:(warn(k+" 缺少或非陣列，使用空陣列"),[]); };
+  // pad_types
+  var pts=arr("pad_types"),seen={};
+  CONTENT.padList=pts.map(function(p,i){
+    p=p||{}; var id=(typeof p.id==="string"&&p.id)?p.id:("pad"+i);
+    if(seen[id]){ warn("pad_types id 重複："+id); id=id+"_"+i; } seen[id]=1;
+    var amp=clamp(p.amplitude,0,140), mo=pickEnum(p.motion,MOTIONS,"static");
+    if(p.motion&&mo!==p.motion)warn("未知 motion："+p.motion+"（退回 static）");
+    if(mo==="blink"&&amp<12)amp=12; // 亮暗週期 ≥1.2 秒
+    return {id:id,name:(p.name||id)+"",motion:mo,speed:clamp(p.speed,0,80),amplitude:amp,
+      soft_mult:clamp(p.soft_mult==null?1:p.soft_mult,0.6,1.2),
+      score_mult:clamp(p.score_mult==null?1:p.score_mult,1,2.5),
+      color:col(p.color,"#7be495"),min_zone_order:clamp(p.min_zone_order||1,1,99)|0,
+      hint:(p.hint||"")+""};
+  });
+  if(!CONTENT.padList.length){ CONTENT.padList=[{id:"static",name:"軟墊",motion:"static",speed:0,amplitude:0,soft_mult:1,score_mult:1,color:"#7be495",min_zone_order:1,hint:""}]; warn("pad_types 為空，使用內建 fallback"); }
+  CONTENT.pads={}; CONTENT.padList.forEach(function(p){CONTENT.pads[p.id]=p;});
+  // zones
+  var zs=arr("zones");
+  CONTENT.zones=zs.map(function(z,i){
+    z=z||{};
+    var pw=Array.isArray(z.pad_width)?z.pad_width:[z.pad_width,z.pad_width];
+    var a=clamp(pw[0],60,180),b=clamp(pw[1],60,180); if(a>b){var t=a;a=b;b=t;}
+    var types=Array.isArray(z.pad_types)?z.pad_types.slice():[];
+    var ok=[];
+    types.forEach(function(id){
+      if(CONTENT.pads[id])ok.push(id);
+      else CERR.push("井區「"+(z.name||z.id||("#"+(i+1)))+"」引用了不存在的墊型 id：「"+id+"」");
+    });
+    if(!ok.length){ ok=[CONTENT.padList[0].id]; if(!types.length)warn("zone "+(z.id||i)+" pad_types 為空，補預設墊型"); }
+    var wg=clamp(z.wall_gap||0,0,220)|0; if(wg>0&&wg<100)wg=100;
+    return {id:(z.id||("z"+i))+"",name:(z.name||("第 "+(i+1)+" 區"))+"",
+      order:(z.order==null?i+1:clamp(z.order,1,99))|0,
+      pads:clamp(z.pads==null?5:z.pads,1,999)|0,
+      gravity:clamp(z.gravity==null?120:z.gravity,80,260),
+      wind_max:clamp(z.wind_max||0,0,60),
+      gust_rate:clamp(z.gust_rate||0,0,8),
+      pad_width:[a,b],pad_types:ok,
+      fuel_pickup_rate:clamp(z.fuel_pickup_rate==null?0.3:z.fuel_pickup_rate,0,1),
+      wall_gap:wg,heat:!!z.heat,twin_rate:clamp(z.twin_rate||0,0,1),
+      intro:(z.intro||z.name||"")+""};
+  }).sort(function(x,y){return x.order-y.order;});
+  if(!CONTENT.zones.length){ CERR.push("zones 內容包是空的，無法開始遊戲"); }
+  // boons
+  CONTENT.boons=arr("boons").map(function(b,i){
+    b=b||{}; var mode=pickEnum(b.mode,["mul","add"],"mul");
+    var st=pickEnum(b.stat,STATS,"tank"); if(b.stat&&st!==b.stat)warn("未知 boon stat："+b.stat);
+    var v=mode==="mul"?clamp(b.value==null?1.1:b.value,0.5,2):clamp(b.value==null?10:b.value,-3,60);
+    if(st==="hull"&&mode==="add")v=clamp(v,-1,1);
+    if(st==="score_mult"&&mode==="mul")v=clamp(v,0.5,1.5);
+    var ss=(b.side_stat==="none"||b.side_stat==null)?"none":pickEnum(b.side_stat,STATS,"none");
+    var sv=b.side_value==null?1:+b.side_value; if(!isFinite(sv))sv=1;
+    var rar=pickEnum(b.rarity,RARITY,"common");
+    if(rar==="common"&&ss!=="none"){ ss="none"; warn("common 卡不應有副作用："+(b.id||i)); }
+    return {id:(b.id||("b"+i))+"",name:(b.name||"肉球卡")+"",desc:(b.desc||"")+"",stat:st,value:v,mode:mode,
+      rarity:rar,max_stack:clamp(b.max_stack==null?1:b.max_stack,1,4)|0,side_stat:ss,side_value:sv};
+  });
+  if(CONTENT.boons.length===0)warn("boons 為空，將不會出現三選一");
+  // pods
+  CONTENT.pods=arr("pods").map(function(p,i){
+    p=p||{}; var th=clamp(p.thrust==null?260:p.thrust,180,360);
+    var ut=pickEnum(p.unlock_type,UNLOCKS,"depth");
+    return {id:(p.id||("pod"+i))+"",name:(p.name||"艙體")+"",desc:(p.desc||"")+"",
+      mass:clamp(p.mass==null?1:p.mass,0.7,1.6),tank:clamp(p.tank==null?100:p.tank,60,160)|0,
+      thrust:th,side_thrust:Math.min(clamp(p.side_thrust==null?90:p.side_thrust,40,140),th*0.4),
+      hull:clamp(p.hull==null?3:p.hull,1,4)|0,soft_limit:clamp(p.soft_limit==null?1.5:p.soft_limit,1,2.2),
+      hull_color:col(p.hull_color,"#9fd8ff"),shape:pickEnum(p.shape,SHAPES,"round"),
+      unlock_type:ut,unlock_value:clamp(p.unlock_value||0,0,500)|0};
+  });
+  if(!CONTENT.pods.length){ CONTENT.pods=[{id:"default_pod",name:"果凍艙",desc:"均衡",mass:1,tank:100,thrust:260,side_thrust:90,hull:3,soft_limit:1.5,hull_color:"#9fd8ff",shape:"round",unlock_type:"default",unlock_value:0}]; warn("pods 為空，使用內建艙體"); }
+  if(!CONTENT.pods.some(function(p){return p.unlock_type==="default";})){ CONTENT.pods[0].unlock_type="default"; CONTENT.pods[0].unlock_value=0; warn("沒有 default 艙，已將第一艘設為預設"); }
+  fillContent();
+}
+
+// ===== 內容補齊（合約：zones/pad_types/boons/pods = 12/10/20/10）=====
+// 內容包資料不足時不改資料本身，改由引擎依既有內容程序化衍生，保證每區都有可吞的成長階梯。
+var TARGET={zones:12,pad_types:10,boons:20,pods:10};
+var AUTO_COLORS=["#7be495","#ffe08a","#c79a6b","#f6c453","#a8e6cf","#e08283","#9b8cf2","#ff9f68","#5dade2","#d35400"];
+var AUTO_PADNAME={static:"衍生軟墊",slide:"衍生滑板",sink:"衍生沉墊",shrink:"衍生酥餅墊",blink:"衍生忽明墊",tilt:"衍生歪碟墊"};
+var AUTO_BOONNAME={tank:"備用油袋",thrust:"備用推力",side:"備用側踢",soft_window:"備用軟墊",hull:"備用外殼",fuel_refund:"備用回油",score_mult:"備用加分",magnet:"備用磁吸",heat_cap:"備用涼感",wind_resist:"備用定風"};
+var AUTO_BOONDESC={tank:"油箱容量提升",thrust:"推力提升",side:"側噴力提升",soft_window:"綠窗口加寬",hull:"外殼耐久+1",fuel_refund:"落地回油提升",score_mult:"分數倍率提升",magnet:"撿罐範圍+20px",heat_cap:"過熱耐受提升",wind_resist:"抗風力提升"};
+function fillContent(){
+  var i,made;
+  // pad_types → 10 筆（依 motion 輪替出階梯）
+  made=0;
+  for(i=CONTENT.padList.length;i<TARGET.pad_types;i++){
+    var mo=MOTIONS[i%MOTIONS.length],pid="auto_pad_"+i;
+    while(CONTENT.pads[pid])pid+="_";
+    var pt={id:pid,name:AUTO_PADNAME[mo]||"衍生軟墊",motion:mo,
+      speed:(mo==="slide")?clamp(30+i*4,0,80):((mo==="sink"||mo==="shrink")?clamp(20+i*3,0,80):0),
+      amplitude:(mo==="blink")?clamp(12+i,12,140):((mo==="tilt")?clamp(16+i*2,0,40):clamp(40+i*6,0,140)),
+      soft_mult:clamp(1.05-0.05*i,0.6,1.2),score_mult:clamp(1+0.15*i,1,2.5),
+      color:AUTO_COLORS[i%AUTO_COLORS.length],min_zone_order:clamp(i+1,1,12)|0,
+      hint:"引擎衍生墊型，先看動向"};
+    CONTENT.padList.push(pt); CONTENT.pads[pt.id]=pt; made++;
+  }
+  if(made)warn("pad_types 只有 "+(CONTENT.padList.length-made)+" 筆（合約 "+TARGET.pad_types+"），引擎衍生補上 "+made+" 筆");
+  // zones → 12 筆（完全沒有 zones 時不補，維持 CERR 阻擋）
+  made=0;
+  if(CONTENT.zones.length){
+    for(i=CONTENT.zones.length;i<TARGET.zones;i++){
+      var prev=CONTENT.zones[CONTENT.zones.length-1];
+      var ord=clamp(prev.order+1,1,99)|0,last=(i===TARGET.zones-1),even=(ord%2===0);
+      var ids=CONTENT.padList.filter(function(p){return p.min_zone_order<=ord;}).map(function(p){return p.id;});
+      if(!ids.length)ids=[CONTENT.padList[0].id];
+      CONTENT.zones.push({id:"auto_z"+i,name:"深井第 "+ord+" 區",order:ord,
+        pads:last?999:clamp(5+(i%3),3,999)|0,
+        gravity:clamp(prev.gravity+5,80,260),
+        wind_max:clamp(ord>=4?36:0,0,60),gust_rate:clamp(ord>=4?3:0,0,8),
+        pad_width:[clamp(prev.pad_width[0]-4,60,180),clamp(prev.pad_width[1]-4,60,180)],
+        pad_types:ids,fuel_pickup_rate:even?0.45:0.25,
+        wall_gap:ord>=11?150:0,heat:ord>=7,twin_rate:clamp(0.2+0.02*i,0,1),
+        intro:last?"沒有終點，只有紀錄":"再往下，越來越沉"});
+      made++;
+    }
+  }
+  if(made)warn("zones 只有 "+(CONTENT.zones.length-made)+" 筆（合約 "+TARGET.zones+"），引擎衍生補上 "+made+" 筆");
+  // boons → 20 筆（第二輪為 rare 強化版，common 一律無副作用）
+  made=0;
+  for(i=CONTENT.boons.length;i<TARGET.boons;i++){
+    var st=STATS[i%STATS.length],tier=Math.floor(i/STATS.length)>0?1:0;
+    var mode=(st==="hull"||st==="magnet")?"add":"mul";
+    var val=mode==="add"?(st==="hull"?1:(tier?30:20)):(st==="score_mult"?(tier?1.3:1.15):(tier?1.28:1.15));
+    CONTENT.boons.push({id:"auto_boon_"+i,name:(AUTO_BOONNAME[st]||"備用肉球")+(tier?"Ⅱ":""),
+      desc:AUTO_BOONDESC[st]||"",stat:st,value:val,mode:mode,
+      rarity:tier?"rare":"common",max_stack:tier?2:3,side_stat:"none",side_value:1});
+    made++;
+  }
+  if(made)warn("boons 只有 "+(CONTENT.boons.length-made)+" 筆（合約 "+TARGET.boons+"），引擎衍生補上 "+made+" 筆");
+  // pods → 10 筆（以既有艙為基底遞增，解鎖一律 depth）
+  made=0;
+  var basePods=CONTENT.pods.slice();
+  for(i=CONTENT.pods.length;i<TARGET.pods;i++){
+    var bp=basePods[i%basePods.length],kk=i-basePods.length+1;
+    var th2=clamp(bp.thrust+6*kk,180,360);
+    CONTENT.pods.push({id:"auto_pod_"+i,name:"衍生喵艙 "+kk,desc:"引擎衍生的備用艙",
+      mass:clamp(bp.mass+0.03*kk,0.7,1.6),tank:clamp(bp.tank+4*kk,60,160)|0,thrust:th2,
+      side_thrust:Math.min(clamp(bp.side_thrust+3*kk,40,140),th2*0.4),
+      hull:clamp(bp.hull,1,4)|0,soft_limit:clamp(bp.soft_limit+0.04*kk,1,2.2),
+      hull_color:bp.hull_color,shape:bp.shape,unlock_type:"depth",unlock_value:clamp(15+8*kk,0,500)|0});
+    made++;
+  }
+  if(made)warn("pods 只有 "+(CONTENT.pods.length-made)+" 筆（合約 "+TARGET.pods+"），引擎衍生補上 "+made+" 筆");
+}
+
+// ===== 存檔 =====
+var KEY="sc_jelly_pod_well_v1";
+var SAVE={best:0,bestDepth:0,fish:0,hangar:{tank:0,thrust:0,hull:0,magnet:0},pods:[],podSelected:"",
+  stats:{landings:0,perfect:0,maxCombo:0,runs:0},daily:{date:"",best:0,streak:0,last:""},mute:false};
+function loadSave(){
+  try{ var s=localStorage.getItem(KEY); if(s){ var o=JSON.parse(s);
+    if(o&&typeof o==="object"){
+      SAVE.best=+o.best||0; SAVE.bestDepth=+o.bestDepth||0; SAVE.fish=+o.fish||0;
+      if(o.hangar)["tank","thrust","hull","magnet"].forEach(function(k){SAVE.hangar[k]=clamp(o.hangar[k]||0,0,5)|0;});
+      SAVE.pods=Array.isArray(o.pods)?o.pods.filter(function(x){return typeof x==="string";}):[];
+      SAVE.podSelected=o.podSelected||"";
+      if(o.stats)["landings","perfect","maxCombo","runs"].forEach(function(k){SAVE.stats[k]=+o.stats[k]||0;});
+      if(o.daily)SAVE.daily={date:o.daily.date||"",best:+o.daily.best||0,streak:+o.daily.streak||0,last:o.daily.last||""};
+      SAVE.mute=!!o.mute;
+    }}}catch(e){}
+  muted=SAVE.mute;
+  var def=CONTENT.pods.filter(function(p){return p.unlock_type==="default";})[0]||CONTENT.pods[0];
+  if(SAVE.pods.indexOf(def.id)<0)SAVE.pods.push(def.id);
+  if(!SAVE.podSelected||!CONTENT.pods.some(function(p){return p.id===SAVE.podSelected;})||SAVE.pods.indexOf(SAVE.podSelected)<0)SAVE.podSelected=def.id;
+}
+function save(){ try{ SAVE.mute=muted; localStorage.setItem(KEY,JSON.stringify(SAVE)); }catch(e){} }
+function todayStr(){ var d=new Date(); return d.getFullYear()+"-"+(d.getMonth()+1)+"-"+d.getDate(); }
+function daySeed(){ var s=todayStr(),h=2166136261; for(var i=0;i<s.length;i++){h^=s.charCodeAt(i);h=(h*16777619)>>>0;} return h; }
+
+// 機庫：每級價格 80×2^n
+function hangarCost(lv){ return Math.round(80*Math.pow(2,lv)); }
+var HANGAR_LINES=[
+  {k:"tank",name:"魚乾油箱",per:"每級 +8% 油量"},
+  {k:"thrust",name:"肉球推力",per:"每級 +5% 推力"},
+  {k:"hull",name:"果凍外殼",per:"第 3 級 +1 格殼"},
+  {k:"magnet",name:"喵鬚磁吸",per:"每級 +12px 吸附"}
+];
+
+// ===== 可種子化 RNG =====
+function mkRng(seed){ var s=(seed>>>0)||1; return function(){ s^=s<<13;s>>>=0;s^=s>>17;s^=s<<5;s>>>=0; return s/4294967296; }; }
+
+// ===== 遊戲狀態 =====
+var scene="title"; // title | play | over | hangar | codex
+var G=null, hooksStart=false;
+var titleT=0, overT=0, shake=0, camY=0, flash=null, uiToasts=[];
+var menuBtns=[], hangarBtns=[], codexBtns=[], overBtns=[], cardBtns=[];
+var POD_Y=220; // 艙體固定螢幕高度
+
+function newRun(daily){
+  var pod=CONTENT.pods.filter(function(p){return p.id===SAVE.podSelected;})[0]||CONTENT.pods[0];
+  var hg=SAVE.hangar;
+  var g={
+    daily:!!daily, rng:mkRng(daily?daySeed():(Date.now()>>>0)), pod:pod,
+    phase:"fall", // fall | landed | choose | boom
+    t:0, depth:0, zoneIdx:0, zoneLeft:0, loop:0,
+    mods:{tank:1,thrust:1,side:1,soft_window:1,hull:0,fuel_refund:1,score_mult:1,magnet:0,heat_cap:1,wind_resist:1},
+    owned:{}, score:0, combo:0, maxCombo:0, hull:0, hullMax:0,
+    fuel:0, tankMax:0, heat:0, overheat:0,
+    x:W/2, y:0, vx:0, vy:0, worldY:0, ceilY:-CEIL_GAP,
+    pads:[], cans:[], beams:[], parts:[], floats:[], rings:[],
+    wind:0, windTarget:0, gust:0, gustWarn:0, gustNext:6, gustDir:1,
+    landT:0, introT:0, introTxt:"", hintT:0, hintTxt:"",
+    cards:null, cardSel:-1, cardT:0,
+    fishRun:0, perfectRun:0, landings:0,
+    over:false, overReason:"", reported:false, newRecord:false, gainFish:0,
+    padHintSeen:{}, nextY:0, acc:0, elapsed:0, lastJudge:null, magnetPulse:0
+  };
+  // 套用機庫升級
+  g.mods.tank*=1+0.08*hg.tank; g.mods.thrust*=1+0.05*hg.thrust; g.mods.magnet+=12*hg.magnet;
+  g.hullMax=pod.hull+(hg.hull>=3?1:0); g.hull=g.hullMax;
+  g.tankMax=pod.tank*g.mods.tank; g.fuel=g.tankMax;
+  g.zoneIdx=0; g.zoneLeft=zone(g).pads;
+  g.worldY=0; g.y=0; g.vy=0;
+  g.introT=2.2; g.introTxt=zone(g).name+"　"+zone(g).intro;
+  // 生成前幾座墊
+  g.nextY=520;
+  for(var i=0;i<3;i++)spawnPad(g);
+  return g;
+}
+function zone(g){ return CONTENT.zones[Math.min(g.zoneIdx,CONTENT.zones.length-1)]||CONTENT.zones[0]; }
+// 循環區加壓：每循環 gravity+5%、寬度-5px、gust+1
+function zoneTuned(g){
+  var z=zone(g),L=g.loop;
+  if(!L)return z;
+  return {id:z.id,name:z.name+(L?" ×"+(L+1):""),order:z.order,pads:z.pads,
+    gravity:z.gravity*Math.pow(1.05,L),wind_max:Math.min(60,z.wind_max),
+    gust_rate:Math.min(8,z.gust_rate+L),pad_width:[Math.max(60,z.pad_width[0]-5*L),Math.max(66,z.pad_width[1]-5*L)],
+    pad_types:z.pad_types,fuel_pickup_rate:z.fuel_pickup_rate,wall_gap:z.wall_gap,heat:z.heat,
+    twin_rate:z.twin_rate,intro:z.intro};
+}
+
+// 生成下一座墊（含雙墊、魚乾罐、牆縫橫梁）
+function spawnPad(g){
+  var z=zoneTuned(g),r=g.rng;
+  var idx=g.pads.length?g.pads[g.pads.length-1].depth+1:1;
+  var mk=function(xr,wmul,mult){
+    var tid=z.pad_types[Math.floor(r()*z.pad_types.length)%z.pad_types.length];
+    var pt=CONTENT.pads[tid]||CONTENT.padList[0];
+    var w=clamp(lerp(z.pad_width[0],z.pad_width[1],r())*wmul,60,180);
+    var x=clamp(xr,40+w/2,W-40-w/2);
+    return {type:pt,x:x,x0:x,w:w,w0:w,y:g.nextY,y0:g.nextY,depth:idx,phase:r()*6.28,
+      dead:false,used:false,mult:mult,sinkAmt:0,visible:true,tilt:0,broken:0};
+  };
+  var twin=(r()<z.twin_rate)&&idx>3;
+  if(twin){
+    var big=mk(110+r()*40,1.0,1.0); var small=mk(280+r()*40,0.6,2.2);
+    small.isSmall=true; g.pads.push(big,small);
+  }else{
+    g.pads.push(mk(60+r()*(W-120),1.0,1.0));
+  }
+  // 魚乾罐（在墊上方 100~170px，偏離 40~80px）
+  if(r()<z.fuel_pickup_rate){
+    var base=g.pads[g.pads.length-1];
+    g.cans.push({x:clamp(base.x+(r()<0.5?-1:1)*(40+r()*40),45,W-45),y:g.nextY-110-r()*60,got:false,ph:r()*6.3});
+  }
+  // 牆縫橫梁（致死，但提前可見）
+  if(z.wall_gap>0&&idx%2===0){
+    var gap=z.wall_gap, gx=clamp(60+r()*(W-120),40+gap/2,W-40-gap/2);
+    g.beams.push({y:g.nextY-190,gx:gx,gap:gap});
+  }
+  g.nextY+=200+Math.floor(r()*40);
+}
+
+// ===== 輸入 =====
+var IN={thrust:0,side:0,pressed:false,ox:0,oy:0,px:0,py:0,keys:{}};
+var pressCbTime=0;
+function cvPos(e){
+  var r=cv.getBoundingClientRect();
+  return {x:(e.clientX-r.left)/(r.width/W),y:(e.clientY-r.top)/(r.height/H)};
+}
+function clearInput(){ IN.pressed=false; IN.thrust=0; IN.side=0; IN.keys={}; jetOff(); }
+cv.addEventListener("pointerdown",function(e){
+  e.preventDefault(); ac();
+  var p=cvPos(e); IN.pressed=true; IN.ox=p.x; IN.oy=p.y; IN.px=p.x; IN.py=p.y;
+  try{cv.setPointerCapture(e.pointerId);}catch(_){}
+  onPress(p);
+},{passive:false});
+cv.addEventListener("pointermove",function(e){
+  if(!IN.pressed)return; var p=cvPos(e); IN.px=p.x; IN.py=p.y;
+},{passive:false});
+function up(e){ IN.pressed=false; IN.side=0; jetOff(); }
+cv.addEventListener("pointerup",up); cv.addEventListener("pointercancel",up);
+cv.addEventListener("pointerleave",up);
+window.addEventListener("blur",clearInput);
+document.addEventListener("visibilitychange",function(){ if(document.hidden)clearInput(); });
+window.addEventListener("keydown",function(e){
+  var k=e.key;
+  if([" ","ArrowUp","ArrowLeft","ArrowRight","ArrowDown"].indexOf(k)>=0)e.preventDefault();
+  if(IN.keys[k])return; IN.keys[k]=1; ac();
+  if(k==="m"||k==="M"){ muted=!muted; if(muted)jetOff(); save(); return; }
+  if(k==="r"||k==="R"){ if(scene==="play"||scene==="over"){ startRun(G?G.daily:false); } return; }
+  if(scene==="title"||scene==="over"||scene==="hangar"||scene==="codex"){
+    if(k===" "||k==="Enter"){
+      if(scene==="over"&&overT<0.3)return;
+      if(scene==="hangar"||scene==="codex")scene="title"; else startRun(scene==="over"&&G?G.daily:false);
+    }
+    if(k==="Escape"&&(scene==="hangar"||scene==="codex"))scene="title";
+  }
+  if(scene==="play"&&G&&G.phase==="choose"&&G.cards){
+    var n={"1":0,"2":1,"3":2}[k]; if(n!=null&&G.cards[n])chooseCard(n);
+  }
+});
+window.addEventListener("keyup",function(e){ delete IN.keys[e.key]; if(!IN.pressed&&!IN.keys[" "]&&!IN.keys["ArrowUp"])jetOff(); });
+
+function readInput(){
+  var th=0,side=0;
+  if(IN.pressed&&scene==="play"&&G&&G.phase!=="choose"){
+    th=1;
+    var dx=IN.px-IN.ox, dead=10;
+    if(Math.abs(dx)>dead)side=clamp((dx-(dx>0?dead:-dead))/60,-1,1);
+  }
+  if(IN.keys[" "]||IN.keys["ArrowUp"])th=1;
+  if(IN.keys["ArrowLeft"])side=-1; if(IN.keys["ArrowRight"])side=1;
+  return {thrust:th,side:side};
+}
+
+// ===== 按下處理（各場景） =====
+function hitBtn(list,p){ for(var i=0;i<list.length;i++){var b=list[i]; if(p.x>=b.x&&p.x<=b.x+b.w&&p.y>=b.y&&p.y<=b.y+b.h)return b;} return null; }
+function onPress(p){
+  if(scene==="title"){ var b=hitBtn(menuBtns,p); if(b)b.fn(); return; }
+  if(scene==="hangar"){ var b2=hitBtn(hangarBtns,p); if(b2)b2.fn(); return; }
+  if(scene==="codex"){ var b3=hitBtn(codexBtns,p); if(b3)b3.fn(); return; }
+  if(scene==="over"){ if(overT<0.3)return; var b4=hitBtn(overBtns,p); if(b4){b4.fn();return;} startRun(G?G.daily:false); return; }
+  if(scene==="play"&&G){
+    if(G.phase==="choose"&&G.cards){ var b5=hitBtn(cardBtns,p); if(b5)chooseCard(b5.i); return; }
+    // 靜音鈕（右上角）
+    if(p.x>W-42&&p.y<34){ muted=!muted; if(muted)jetOff(); save(); return; }
+  }
+}
+function startRun(daily){
+  if(CERR.length)return;
+  scene="play"; G=newRun(daily); overT=0; uiToasts.length=0; clearInput();
+}
+
+// ===== 物理與局流程 =====
+var FIXED=1/120;
+var VY_UP=150;    // 上升速度上限（px/s）
+var VY_DOWN=1400; // 落速上限（px/s）
+var CEIL_GAP=240; // 井口天花板：距目前下潛進度最多往上爬這麼多 px
+function step(g,dt){
+  var z=zoneTuned(g);
+  var inp=readInput();
+  g.elapsed+=dt;
+  // 過熱系統
+  if(z.heat){
+    if(g.overheat>0){ g.overheat-=dt; if(g.overheat<=0){g.overheat=0;g.heat=0;} }
+    else if(inp.thrust&&g.fuel>0){ g.heat+=40*dt; if(g.heat>=100*g.mods.heat_cap){ g.overheat=1.2; SFX.heat(); burst(g,g.x,g.y+10,10,"#ff7a5a"); } }
+    else g.heat=Math.max(0,g.heat-60*dt);
+  }else{ g.heat=Math.max(0,g.heat-80*dt); g.overheat=0; }
+  var canThrust=g.fuel>0&&g.overheat<=0;
+  var th=inp.thrust&&canThrust?1:0;
+  var sd=canThrust?inp.side:0; // 沒油／過熱時側噴一併失效，不再有免費水平推力
+  // 噴射音
+  if(th&&!muted&&scene==="play")jetOn(); else if(!th)jetOff();
+  // 燃料
+  if(th)g.fuel-=6*dt;
+  if(sd&&g.fuel>0)g.fuel-=2*Math.abs(sd)*dt;
+  if(g.fuel<0)g.fuel=0;
+  // 風（陣風：預告 1 秒 → 1 秒升到 wind_max → 退回）
+  if(z.wind_max>0){
+    g.gustNext-=dt;
+    if(g.gustWarn>0){ g.gustWarn-=dt; if(g.gustWarn<=0){ g.gust=1.6; g.windTarget=z.wind_max*g.gustDir; } }
+    else if(g.gust>0){ g.gust-=dt; if(g.gust<=0)g.windTarget=z.wind_max*0.25*g.gustDir; }
+    else if(g.gustNext<=0&&z.gust_rate>0){ g.gustWarn=1.0; g.gustDir=g.rng()<0.5?-1:1; g.gustNext=60/z.gust_rate; }
+    if(g.windTarget===0)g.windTarget=z.wind_max*0.25*(g.rng()<0.5?-1:1);
+  }else{ g.windTarget=0; g.gustWarn=0; g.gust=0; }
+  g.wind=lerp(g.wind,g.windTarget/g.mods.wind_resist,Math.min(1,dt*2.4));
+  // 加速度
+  var m=g.pod.mass;
+  var ay=z.gravity-(th?(g.pod.thrust*g.mods.thrust)/m:0);
+  var ax=(sd*(g.pod.side_thrust*g.mods.side))/m+g.wind;
+  g.vy+=ay*dt; g.vx+=ax*dt;
+  // 速度上下界：長按噴射最多以 VY_UP 上升，落速也不會爆表
+  if(g.vy<-VY_UP)g.vy=-VY_UP; else if(g.vy>VY_DOWN)g.vy=VY_DOWN;
+  g.vx*=Math.pow(0.98,dt*60);
+  g.y+=g.vy*dt; g.x+=g.vx*dt;
+  // 井口天花板：只跟著下潛進度往下走，最多往上爬 CEIL_GAP，杜絕無限滯空
+  if(g.y<g.ceilY){ g.y=g.ceilY; if(g.vy<0)g.vy=0; }
+  else if(g.y-CEIL_GAP>g.ceilY)g.ceilY=g.y-CEIL_GAP;
+  // 撞牆：反彈（不致死）
+  if(g.x<46){ g.x=46; g.vx=Math.abs(g.vx)*0.4; }
+  if(g.x>W-46){ g.x=W-46; g.vx=-Math.abs(g.vx)*0.4; }
+  // 噴射粒子
+  if(th&&Math.random()<dt*70)burst(g,g.x+(Math.random()-0.5)*10,g.y+14,1,"#ffd27a",1);
+  if(sd&&Math.random()<dt*35)burst(g,g.x-sd*12,g.y,1,"#a9e6ff",1);
+  // 墊子行為
+  for(var i=0;i<g.pads.length;i++)updatePad(g,g.pads[i],dt);
+  // 魚乾罐（磁吸）
+  for(var c=0;c<g.cans.length;c++){
+    var can=g.cans[c]; if(can.got)continue; can.ph+=dt*3;
+    var d=Math.hypot(can.x-g.x,can.y-g.y);
+    if(d<22+g.mods.magnet){ can.got=true; g.fuel=Math.min(g.tankMax,g.fuel+14); g.fishRun+=3;
+      SFX.can(); burst(g,can.x,can.y,10,"#ffd27a"); floatTxt(g,can.x,can.y,"+3 魚乾","#ffd27a"); }
+  }
+  // 橫梁致死判定
+  for(var b=0;b<g.beams.length;b++){
+    var bm=g.beams[b];
+    if(g.y+14>bm.y-6&&g.y-14<bm.y+6){
+      if(g.x<bm.gx-bm.gap/2+10||g.x>bm.gx+bm.gap/2-10){ return boom(g,"撞上橫梁"); }
+    }
+  }
+  // 觸地裁決
+  for(var p2=0;p2<g.pads.length;p2++){
+    var pd=g.pads[p2];
+    if(pd.used||pd.dead||!pd.visible)continue;
+    if(g.y+14>=pd.y&&g.y+14<=pd.y+26&&g.vy>0){
+      var half=pd.w/2+3; // 判定比視覺寬 6px
+      var off=Math.abs(g.x-pd.x);
+      var limit=pd.type.motion==="tilt"?half*0.6:half;
+      if(off<=limit){ return judgeLand(g,pd,off,half); }
+    }
+  }
+  // 掉太深（無墊接住）→ 井底
+  if(g.pads.length&&g.y>g.pads[g.pads.length-1].y+600)return boom(g,"墜入井底");
+  // 生成更多墊
+  while(g.nextY<g.y+1400)spawnPad(g);
+  // 清掉上方過期物件
+  g.pads=g.pads.filter(function(o){return o.y>g.y-400;});
+  g.cans=g.cans.filter(function(o){return o.y>g.y-400;});
+  g.beams=g.beams.filter(function(o){return o.y>g.y-400;});
+  // 沒油且速度超標的提示心跳
+  if(g.fuel/g.tankMax<0.25){ g.beatT=(g.beatT||0)+dt; if(g.beatT>0.62){g.beatT=0;SFX.beat();} }
+}
+function updatePad(g,pd,dt){
+  pd.phase+=dt;
+  var t=pd.type;
+  if(t.motion==="slide"){ pd.x=clamp(pd.x0+Math.sin(pd.phase*(t.speed/40))*t.amplitude,40+pd.w/2,W-40-pd.w/2); }
+  else if(t.motion==="sink"){ if(pd.trig){ pd.sinkAmt=Math.min(t.amplitude,pd.sinkAmt+t.speed*dt); pd.y=pd.y0+pd.sinkAmt; }
+    else if(Math.abs(g.y-pd.y)<260){ pd.trig=true; } }
+  else if(t.motion==="shrink"){ if(Math.abs(g.y-pd.y)<300){ pd.w=Math.max(60,pd.w0-Math.min(t.amplitude,(pd.shr=(pd.shr||0)+t.speed*dt))); } }
+  else if(t.motion==="blink"){ var per=Math.max(1.2,t.amplitude/10); pd.visible=(pd.phase%per)<per*0.62; }
+  else if(t.motion==="tilt"){ pd.tilt=Math.sin(pd.phase*0.8)*(t.amplitude*Math.PI/180)*0.5; }
+  if(pd.broken>0)pd.broken+=dt;
+}
+function judgeLand(g,pd,off,half){
+  var soft=g.pod.soft_limit*pd.type.soft_mult*g.mods.soft_window;
+  var spd=g.vy/60; // 轉成 m/s 顯示刻度
+  var grade = spd<=soft?"green":(spd<=soft*1.8?"yellow":"red");
+  pd.used=true; g.lastJudge={grade:grade,speed:spd,offset:off/half,soft:soft};
+  if(grade==="red")return boom(g,"落速 "+spd.toFixed(1)+" 太快",spd,soft);
+  // 計分
+  var prec=lerp(2.0,1.0,clamp(off/half,0,1));
+  var fuelRatio=clamp(g.fuel/g.tankMax,0,1);
+  var mult=pd.type.score_mult*pd.mult;
+  var gain=100*mult*prec*(grade==="green"?1.5:0.5)*(1+fuelRatio)*(1+0.1*g.combo)*g.mods.score_mult;
+  var perfect=(off/half<0.1&&spd<soft*0.5&&grade==="green");
+  if(perfect){ gain+=200; g.perfectRun++; }
+  gain=Math.round(gain);
+  g.score+=gain; g.landings++; g.depth=pd.depth;
+  if(SAVE.bestDepth<g.depth)SAVE.bestDepth=g.depth;
+  // 外殼／連段
+  if(grade==="green"){ g.combo++; if(g.combo>g.maxCombo)g.maxCombo=g.combo;
+    g.fuel=Math.min(g.tankMax,g.fuel+20*prec*g.mods.fuel_refund); }
+  else { g.combo=0; g.hull--; }
+  // 演出
+  g.x=pd.x*0.25+g.x*0.75; g.vy=0; g.vx*=0.2; g.phase="landed"; g.landT=0.8; g.squash=1;
+  jetOff();
+  if(grade==="green"){
+    SFX.green(); burst(g,g.x,pd.y,14,pd.type.color);
+    floatTxt(g,g.x,pd.y-28,"+"+fmt(gain),"#8ef0a8");
+    if(perfect){ SFX.perfect(); shake=6; g.rings.push({x:g.x,y:pd.y,r:10,life:0.7,c:"#ffe27a"});
+      floatTxt(g,g.x,pd.y-56,"完美著陸！+200","#ffe27a"); flash={c:"#ffe27a",a:0.18}; }
+    if(g.combo>=3)floatTxt(g,g.x+52,pd.y-44,"連段 ×"+g.combo,"#9fd8ff");
+  }else{
+    SFX.yellow(); shake=9; burst(g,g.x,pd.y,18,"#ffc46b");
+    floatTxt(g,g.x,pd.y-28,"硬著陸 +"+fmt(gain),"#ffc46b");
+    floatTxt(g,g.x,pd.y-50,"外殼 -1","#ff8f8f");
+  }
+  // 落速數字（常駐 near-miss）
+  var gc=grade==="green"?"#8ef0a8":"#ffc46b";
+  floatTxt(g,g.x+58,pd.y-6,spd.toFixed(1)+" / "+soft.toFixed(1),gc,1.4);
+  if(grade==="yellow")floatTxt(g,g.x+58,pd.y+14,"差 "+(spd-soft).toFixed(1)+" 就是軟著陸","#ffd9a0",1.6);
+  SAVE.stats.landings++; if(perfect)SAVE.stats.perfect++;
+  if(g.maxCombo>SAVE.stats.maxCombo)SAVE.stats.maxCombo=g.maxCombo;
+  checkUnlocks(g);
+  if(g.hull<=0)return boom(g,"外殼碎裂");
+  // 進區／循環
+  g.zoneLeft--;
+  if(g.zoneLeft<=0){
+    if(g.zoneIdx<CONTENT.zones.length-1){ g.zoneIdx++; g.zoneLeft=zone(g).pads; }
+    else { g.loop++; g.zoneLeft=zone(g).pads; }
+    var zz=zoneTuned(g); g.introT=2.2; g.introTxt=zz.name+"　"+zz.intro;
+  }
+  return null;
+}
+function boom(g,reason,spd,soft){
+  if(g.over)return null;
+  g.over=true; g.phase="boom"; g.overReason=reason; jetOff();
+  if(spd!=null&&soft!=null)g.missTxt="差 "+(spd-soft).toFixed(1)+" m/s 就是軟著陸";
+  SFX.boom(); shake=18; burst(g,g.x,g.y,46,"#ff7a5a"); burst(g,g.x,g.y,22,"#ffd27a");
+  flash={c:"#ff7a5a",a:0.3};
+  setTimeout(function(){ endRun(g); },520);
+  return "over";
+}
+function endRun(g){
+  if(g.ended)return; g.ended=true;
+  g.gainFish=Math.floor(g.score/100)+g.fishRun;
+  SAVE.fish+=g.gainFish; SAVE.stats.runs++;
+  g.newRecord=g.score>SAVE.best;
+  if(g.newRecord)SAVE.best=Math.round(g.score);
+  if(g.daily){
+    var t=todayStr();
+    if(SAVE.daily.date!==t){
+      var y=new Date(Date.now()-86400000); var ys=y.getFullYear()+"-"+(y.getMonth()+1)+"-"+y.getDate();
+      SAVE.daily.streak=(SAVE.daily.date===ys)?SAVE.daily.streak+1:1;
+      SAVE.daily.date=t; SAVE.daily.best=0;
+    }
+    if(g.score>SAVE.daily.best)SAVE.daily.best=Math.round(g.score);
+  }
+  checkUnlocks(g); save();
+  scene="over"; overT=0;
+  if(g.newRecord)SFX.record();
+  if(!g.reported){ g.reported=true; if(window.SC&&SC.over)SC.over(Math.round(g.score)); }
+}
+// 艙體解鎖檢查
+function checkUnlocks(g){
+  var got=[];
+  CONTENT.pods.forEach(function(p){
+    if(SAVE.pods.indexOf(p.id)>=0||p.unlock_type==="default")return;
+    var v=0;
+    if(p.unlock_type==="depth")v=Math.max(SAVE.bestDepth,g?g.depth:0);
+    else if(p.unlock_type==="combo")v=Math.max(SAVE.stats.maxCombo,g?g.maxCombo:0);
+    else if(p.unlock_type==="fish")v=SAVE.fish;
+    else if(p.unlock_type==="daily_streak")v=SAVE.daily.streak;
+    else if(p.unlock_type==="perfect_count")v=SAVE.stats.perfect;
+    if(v>=p.unlock_value){ SAVE.pods.push(p.id); got.push(p); }
+  });
+  if(got.length){ got.forEach(function(p){ toast("新艙體解鎖！"+p.name); }); SFX.unlock(); save(); }
+}
+function unlockProgress(p){
+  if(p.unlock_type==="default")return 1;
+  var v=0;
+  if(p.unlock_type==="depth")v=SAVE.bestDepth; else if(p.unlock_type==="combo")v=SAVE.stats.maxCombo;
+  else if(p.unlock_type==="fish")v=SAVE.fish; else if(p.unlock_type==="daily_streak")v=SAVE.daily.streak;
+  else if(p.unlock_type==="perfect_count")v=SAVE.stats.perfect;
+  return {v:v,need:p.unlock_value,r:clamp(v/Math.max(1,p.unlock_value),0,1)};
+}
+var UNLOCK_TXT={depth:"最深層數",combo:"最長連段",fish:"累積魚乾",daily_streak:"每日連續",perfect_count:"完美著陸數"};
+
+// ===== 肉球卡 =====
+function drawCards(g){
+  if(!CONTENT.boons.length)return null;
+  var pool=CONTENT.boons.filter(function(b){ return (g.owned[b.id]||0)<b.max_stack; });
+  if(!pool.length)return null;
+  var wt={common:70,rare:25,legendary:5},out=[],used={};
+  for(var n=0;n<3;n++){
+    var avail=pool.filter(function(b){return !used[b.id];});
+    if(!avail.length){ avail=pool.filter(function(b){return b.rarity==="common";}); if(!avail.length)avail=pool; }
+    var tot=0; avail.forEach(function(b){tot+=wt[b.rarity]||70;});
+    var r=g.rng()*tot,pickd=avail[0];
+    for(var i=0;i<avail.length;i++){ r-=(wt[avail[i].rarity]||70); if(r<=0){pickd=avail[i];break;} }
+    out.push(pickd); used[pickd.id]=1;
+  }
+  return out;
+}
+function applyStat(g,stat,mode,val){
+  if(stat==="none")return;
+  var M=g.mods;
+  if(stat==="hull"){ var add=mode==="add"?Math.round(val):0; g.hullMax=clamp(g.hullMax+add,1,6); g.hull=clamp(g.hull+add,0,g.hullMax); return; }
+  if(stat==="magnet"){ M.magnet+= mode==="add"?val:(val-1)*40; return; }
+  if(M[stat]==null)return;
+  if(mode==="mul")M[stat]*=val; else M[stat]+=val/100;
+  if(stat==="tank"){ var old=g.tankMax; g.tankMax=g.pod.tank*M.tank; g.fuel=Math.min(g.tankMax,g.fuel*(g.tankMax/Math.max(1,old))); }
+  if(stat==="heat_cap")M.heat_cap=clamp(M.heat_cap,0.5,3);
+}
+function chooseCard(i){
+  var g=G; if(!g||!g.cards||!g.cards[i])return;
+  var b=g.cards[i];
+  g.owned[b.id]=(g.owned[b.id]||0)+1;
+  applyStat(g,b.stat,b.mode,b.value);
+  if(b.side_stat!=="none")applyStat(g,b.side_stat,b.side_value<=1&&b.side_value>0?"mul":"add",b.side_value);
+  SFX.pick(); toast(b.name+"："+b.desc);
+  floatTxt(g,W/2,320,b.name,"#ffe27a",1.6);
+  g.cards=null; g.phase="fall"; g.cardT=0;
+}
+
+// ===== 特效 =====
+function burst(g,x,y,n,c,small){
+  for(var i=0;i<n;i++){
+    var a=Math.random()*6.283,s=(small?30:60)*(0.3+Math.random());
+    g.parts.push({x:x,y:y,vx:Math.cos(a)*s,vy:Math.sin(a)*s-(small?40:0),life:small?0.35:0.5+Math.random()*0.4,t:0,c:c,r:small?2:2+Math.random()*3});
+  }
+  if(g.parts.length>360)g.parts.splice(0,g.parts.length-360);
+}
+function floatTxt(g,x,y,txt,c,life){ g.floats.push({x:x,y:y,txt:txt,c:c,life:life||1.1,t:0}); if(g.floats.length>24)g.floats.shift(); }
+function toast(txt){ uiToasts.push({txt:txt,t:0,life:2.2}); if(uiToasts.length>4)uiToasts.shift(); }
+function fxStep(g,dt){
+  for(var i=g.parts.length-1;i>=0;i--){ var p=g.parts[i]; p.t+=dt; p.x+=p.vx*dt; p.y+=p.vy*dt; p.vy+=180*dt; if(p.t>=p.life)g.parts.splice(i,1); }
+  for(var j=g.floats.length-1;j>=0;j--){ var f=g.floats[j]; f.t+=dt; f.y-=22*dt; if(f.t>=f.life)g.floats.splice(j,1); }
+  for(var k=g.rings.length-1;k>=0;k--){ var r=g.rings[k]; r.t=(r.t||0)+dt; r.r+=190*dt; if(r.t>=r.life)g.rings.splice(k,1); }
+  if(g.squash)g.squash=Math.max(0,g.squash-dt*3);
+}
+
+// ===== 繪圖 =====
+function rr(x,y,w,h,r){ ctx.beginPath(); r=Math.min(r,w/2,h/2);
+  ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
+function txt(s,x,y,size,c,align,bold){
+  ctx.font=(bold?"bold ":"")+size+'px "Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif';
+  ctx.fillStyle=c; ctx.textAlign=align||"left"; ctx.fillText(s,x,y);
+}
+function btn(list,x,y,w,h,label,fn,c1,sub){
+  list.push({x:x,y:y,w:w,h:h,fn:fn});
+  var gr=ctx.createLinearGradient(0,y,0,y+h); gr.addColorStop(0,c1||"#2a4a7a"); gr.addColorStop(1,"#16243c");
+  ctx.fillStyle=gr; rr(x,y,w,h,10); ctx.fill();
+  ctx.strokeStyle="rgba(190,220,255,.35)"; ctx.lineWidth=1.5; ctx.stroke();
+  txt(label,x+w/2,y+h/2+(sub?-2:6),sub?16:17,"#eaf3ff","center",true);
+  if(sub)txt(sub,x+w/2,y+h/2+16,11,"#9fb6d8","center");
+}
+// 井壁
+function drawWell(g,off){
+  ctx.fillStyle="#0a0d18"; ctx.fillRect(0,0,W,H);
+  var z=zoneTuned(g),hue=(z.order*47)%360;
+  // 背景漸層（依區變色）
+  var bg=ctx.createLinearGradient(0,0,0,H);
+  bg.addColorStop(0,"hsl("+hue+",32%,9%)"); bg.addColorStop(1,"hsl("+((hue+40)%360)+",38%,5%)");
+  ctx.fillStyle=bg; ctx.fillRect(0,0,W,H);
+  // 磚紋（隨深度捲動）
+  ctx.strokeStyle="hsla("+hue+",40%,40%,.16)"; ctx.lineWidth=1;
+  var step=48, base=-((off%step)+step)%step;
+  for(var y=base;y<H;y+=step){ ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(30,y); ctx.moveTo(W-30,y); ctx.lineTo(W,y); ctx.stroke(); }
+  ctx.fillStyle="hsla("+hue+",35%,16%,1)"; ctx.fillRect(0,0,30,H); ctx.fillRect(W-30,0,30,H);
+  ctx.fillStyle="hsla("+hue+",45%,30%,.6)"; ctx.fillRect(28,0,2,H); ctx.fillRect(W-30,0,2,H);
+  // 風粒子
+  if(Math.abs(g.wind)>1){
+    ctx.strokeStyle="rgba(170,215,255,"+clamp(Math.abs(g.wind)/50,0.08,0.4)+")"; ctx.lineWidth=1.2;
+    for(var i=0;i<18;i++){
+      var wy=((i*63+ (g.elapsed*(60+Math.abs(g.wind)*2))) % H);
+      var wx=((i*97+g.elapsed*g.wind*4)%(W-60))+30;
+      ctx.beginPath(); ctx.moveTo(wx,wy); ctx.lineTo(wx+g.wind*0.5,wy); ctx.stroke();
+    }
+  }
+}
+function drawPad(g,pd,off){
+  var y=pd.y-off; if(y<-40||y>H+40)return;
+  var t=pd.type;
+  if(!pd.visible){ // blink 暗相：畫虛框
+    ctx.strokeStyle="rgba(255,255,255,.22)"; ctx.setLineDash([6,6]); ctx.lineWidth=2;
+    ctx.strokeRect(pd.x-pd.w/2,y,pd.w,10); ctx.setLineDash([]); return;
+  }
+  ctx.save(); ctx.translate(pd.x,y); if(pd.tilt)ctx.rotate(pd.tilt);
+  var w=pd.w-6; // 視覺比判定窄 6px
+  var c=t.color;
+  // 落地燈：依目前落速預測顏色
+  var soft=g.pod.soft_limit*t.soft_mult*g.mods.soft_window, spd=g.vy/60;
+  var lamp = pd.used?"#6f7d95":(spd<=soft?"#7bf0a0":(spd<=soft*1.8?"#ffc46b":"#ff7a5a"));
+  ctx.shadowColor=lamp; ctx.shadowBlur=pd.used?0:14;
+  ctx.fillStyle=c; rr(-w/2,0,w,12,6); ctx.fill();
+  ctx.shadowBlur=0;
+  // 墊面高光與貓爪紋
+  ctx.fillStyle="rgba(255,255,255,.22)"; rr(-w/2+4,2,w-8,3,2); ctx.fill();
+  ctx.fillStyle="rgba(0,0,0,.25)"; ctx.fillRect(-w/2,12,w,5);
+  // 兩端燈
+  ctx.fillStyle=lamp; ctx.beginPath(); ctx.arc(-w/2+4,6,2.6,0,6.3); ctx.arc(w/2-4,6,2.6,0,6.3); ctx.fill();
+  // 倍率標
+  if(pd.mult>1.01||t.score_mult>1.01){
+    txt("×"+(pd.mult*t.score_mult).toFixed(1),0,-6,11,"#ffe27a","center",true);
+  }
+  // slide 軌跡虛線（提前可見）
+  ctx.restore();
+  if(t.motion==="slide"&&!pd.used){
+    ctx.strokeStyle="rgba(246,196,83,.3)"; ctx.setLineDash([4,5]); ctx.lineWidth=1.5;
+    ctx.beginPath(); ctx.moveTo(clamp(pd.x0-t.amplitude,40,W-40),y+6); ctx.lineTo(clamp(pd.x0+t.amplitude,40,W-40),y+6); ctx.stroke(); ctx.setLineDash([]);
+  }
+  if(t.motion==="sink"&&!pd.trig){ ctx.fillStyle="rgba(183,155,255,.5)"; txt("↓",pd.x,y-8,13,"rgba(183,155,255,.7)","center"); }
+}
+function drawPod(g,off){
+  var y=g.y-off,x=g.x;
+  var sq=g.squash||0;
+  var sx=1+sq*0.5, sy=1-sq*0.35;
+  var soft=g.pod.soft_limit*g.mods.soft_window, spd=g.vy/60;
+  var glow = g.over?"#ff7a5a":(spd<=soft?"#7bf0a0":(spd<=soft*1.8?"#ffc46b":"#ff7a5a"));
+  ctx.save(); ctx.translate(x,y); ctx.scale(sx,sy);
+  // 光暈
+  ctx.shadowColor=glow; ctx.shadowBlur=18;
+  ctx.fillStyle=g.pod.hull_color;
+  var s=g.pod.shape,R=15;
+  ctx.beginPath();
+  if(s==="square")rr(-R,-R,R*2,R*2,5);
+  else if(s==="drop"){ ctx.moveTo(0,-R*1.15); ctx.quadraticCurveTo(R,-R*0.2,0,R); ctx.quadraticCurveTo(-R,-R*0.2,0,-R*1.15); }
+  else if(s==="star"){ for(var i=0;i<10;i++){ var a=-Math.PI/2+i*Math.PI/5,rr2=i%2?R*0.5:R; ctx.lineTo(Math.cos(a)*rr2,Math.sin(a)*rr2); } ctx.closePath(); }
+  else ctx.arc(0,0,R,0,6.3);
+  ctx.fill(); ctx.shadowBlur=0;
+  // 貓臉艙窗
+  ctx.fillStyle="rgba(10,16,30,.8)"; ctx.beginPath(); ctx.arc(0,-1,8.5,0,6.3); ctx.fill();
+  ctx.fillStyle=glow; ctx.beginPath(); ctx.arc(-3.2,-2,1.8,0,6.3); ctx.arc(3.2,-2,1.8,0,6.3); ctx.fill();
+  ctx.strokeStyle=glow; ctx.lineWidth=1; ctx.beginPath(); ctx.arc(0,1,3,0.2,Math.PI-0.2); ctx.stroke();
+  // 貓耳
+  ctx.fillStyle=g.pod.hull_color;
+  ctx.beginPath(); ctx.moveTo(-11,-11); ctx.lineTo(-6,-20); ctx.lineTo(-2,-12); ctx.closePath(); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(11,-11); ctx.lineTo(6,-20); ctx.lineTo(2,-12); ctx.closePath(); ctx.fill();
+  ctx.restore();
+  // 過熱冒煙
+  if(g.overheat>0){
+    txt("過熱！",x,y-30,13,"#ff7a5a","center",true);
+    for(var k=0;k<2;k++)burst(g,x+(Math.random()-0.5)*16,y-16,1,"#8a8a9a",1);
+  }
+  // 即時落速（艙旁小字）
+  var c2=spd<=soft?"#8ef0a8":(spd<=soft*1.8?"#ffc46b":"#ff7a5a");
+  if(!g.over)txt(spd.toFixed(1),x+24,y+4,13,c2,"left",true);
+  // 陣風預告箭頭
+  if(g.gustWarn>0){
+    var d=g.gustDir,al=0.5+0.5*Math.sin(g.elapsed*16);
+    ctx.fillStyle="rgba(255,150,120,"+al+")";
+    ctx.save(); ctx.translate(x+d*44,y-26); ctx.scale(d,1);
+    ctx.beginPath(); ctx.moveTo(-10,-7); ctx.lineTo(10,0); ctx.lineTo(-10,7); ctx.closePath(); ctx.fill(); ctx.restore();
+    txt("陣風來了",x,y-46,12,"rgba(255,170,140,"+al+")","center",true);
+  }
+}
+function drawHUD(g){
+  // 頂列
+  ctx.fillStyle="rgba(8,12,22,.55)"; ctx.fillRect(0,0,W,34);
+  txt(fmt(g.score),10,23,19,"#ffffff","left",true);
+  var z=zoneTuned(g);
+  txt("第 "+g.depth+" 層｜"+z.name,W/2,22,13,"#bcd4f2","center");
+  if(g.combo>1)txt("連段 ×"+g.combo,W-48,22,15,"#9fd8ff","right",true);
+  // 靜音鈕
+  txt(muted?"🔇":"🔊",W-28,24,16,"#cfe2ff","center");
+  // 燃料條（左）
+  var fh=240,fx=10,fy=60,r=clamp(g.fuel/g.tankMax,0,1);
+  ctx.fillStyle="rgba(0,0,0,.45)"; rr(fx,fy,12,fh,6); ctx.fill();
+  var low=r<0.25, bl=low?(0.55+0.45*Math.sin(g.elapsed*12)):1;
+  ctx.fillStyle=low?"rgba(255,110,90,"+bl+")":"#ffd27a";
+  rr(fx,fy+fh*(1-r),12,fh*r,6); ctx.fill();
+  txt("油",fx+6,fy+fh+16,12,low?"#ff8f8f":"#ffd27a","center");
+  // 過熱條（燃料條右側）
+  if(z.heat){
+    var hr=clamp(g.heat/(100*g.mods.heat_cap),0,1);
+    ctx.fillStyle="rgba(0,0,0,.45)"; rr(fx+18,fy,8,fh,4); ctx.fill();
+    ctx.fillStyle=g.overheat>0?"#ff5a3c":(hr>0.7?"#ff9a5a":"#7ac8ff");
+    rr(fx+18,fy+fh*(1-hr),8,fh*hr,4); ctx.fill();
+    txt("熱",fx+22,fy+fh+30,11,"#ff9a5a","center");
+  }
+  // 外殼肉球（右）
+  for(var i=0;i<g.hullMax;i++){
+    var hx=W-22,hy=70+i*28,on=i<g.hull;
+    ctx.fillStyle=on?"#ff9fb8":"rgba(120,130,150,.3)";
+    ctx.beginPath(); ctx.arc(hx,hy,8,0,6.3); ctx.fill();
+    ctx.beginPath(); ctx.arc(hx-6,hy-8,3.2,0,6.3); ctx.arc(hx+6,hy-8,3.2,0,6.3); ctx.arc(hx,hy-11,3.2,0,6.3); ctx.fill();
+  }
+  // 進區字幕
+  if(g.introT>0){
+    var a=clamp(g.introT>1.6?(2.2-g.introT)/0.6:g.introT/1.0,0,1);
+    ctx.globalAlpha=a;
+    ctx.fillStyle="rgba(8,12,24,.6)"; ctx.fillRect(0,250,W,54);
+    txt(g.introTxt,W/2,284,20,"#ffe9b0","center",true);
+    ctx.globalAlpha=1;
+  }
+  // 墊型提示
+  if(g.hintT>0){ ctx.globalAlpha=clamp(g.hintT,0,1);
+    txt("＊ "+g.hintTxt,W/2,H-24,14,"#bfe4ff","center",true); ctx.globalAlpha=1; }
+  // toast
+  uiToasts.forEach(function(t2,i){
+    var a2=clamp(t2.life-t2.t,0,1); ctx.globalAlpha=a2;
+    ctx.fillStyle="rgba(20,32,56,.85)"; rr(W/2-110,40+i*30,220,24,8); ctx.fill();
+    txt(t2.txt,W/2,57+i*30,13,"#ffe9b0","center",true); ctx.globalAlpha=1;
+  });
+}
+function drawCardsUI(g){
+  ctx.fillStyle="rgba(4,8,18,.82)"; ctx.fillRect(0,0,W,H);
+  txt("選一張肉球卡",W/2,120,22,"#ffe9b0","center",true);
+  txt("（時間暫停　點擊或按 1/2/3 選擇）",W/2,146,12,"#9fb6d8","center");
+  cardBtns.length=0;
+  var cw=112,ch=190,gap=10,x0=(W-(cw*3+gap*2))/2,y0=200;
+  g.cards.forEach(function(b,i){
+    var x=x0+i*(cw+gap);
+    var rc={common:"#6f88a8",rare:"#6fd0ff",legendary:"#ffcf5a"}[b.rarity];
+    var pulse=b.rarity==="legendary"?(0.6+0.4*Math.sin(g.cardT*8)):1;
+    ctx.save(); ctx.shadowColor=rc; ctx.shadowBlur=b.rarity==="legendary"?22*pulse:10;
+    var gr=ctx.createLinearGradient(0,y0,0,y0+ch); gr.addColorStop(0,"#1b2b48"); gr.addColorStop(1,"#0f1728");
+    ctx.fillStyle=gr; rr(x,y0,cw,ch,12); ctx.fill();
+    ctx.strokeStyle=rc; ctx.lineWidth=2; ctx.stroke(); ctx.restore();
+    // 肉球圖
+    ctx.fillStyle=rc;
+    ctx.beginPath(); ctx.arc(x+cw/2,y0+56,15,0,6.3); ctx.fill();
+    ctx.beginPath(); ctx.arc(x+cw/2-13,y0+38,6,0,6.3); ctx.arc(x+cw/2+13,y0+38,6,0,6.3); ctx.arc(x+cw/2,y0+32,6.5,0,6.3); ctx.fill();
+    txt(b.name,x+cw/2,y0+100,16,"#eaf3ff","center",true);
+    // desc 折兩行
+    var d=b.desc||"";
+    if(d.length>9){ txt(d.slice(0,9),x+cw/2,y0+124,11,"#bcd4f2","center"); txt(d.slice(9),x+cw/2,y0+140,11,"#bcd4f2","center"); }
+    else txt(d,x+cw/2,y0+126,12,"#bcd4f2","center");
+    var rn={common:"普通",rare:"稀有",legendary:"傳說"}[b.rarity];
+    txt(rn,x+cw/2,y0+166,11,rc,"center",true);
+    var own=g.owned[b.id]||0;
+    if(own)txt("已持有 "+own+"/"+b.max_stack,x+cw/2,y0+182,10,"#8ba2c4","center");
+    cardBtns.push({x:x,y:y0,w:cw,h:ch,i:i});
+  });
+}
+function drawRunFX(g,off){
+  g.parts.forEach(function(p){
+    var a=1-p.t/p.life; ctx.globalAlpha=clamp(a,0,1); ctx.fillStyle=p.c;
+    ctx.beginPath(); ctx.arc(p.x,p.y-off,p.r*a+0.6,0,6.3); ctx.fill();
+  });
+  ctx.globalAlpha=1;
+  g.rings.forEach(function(r){ var a=1-r.t/r.life; ctx.globalAlpha=clamp(a,0,1);
+    ctx.strokeStyle=r.c; ctx.lineWidth=3*a+1; ctx.beginPath(); ctx.arc(r.x,r.y-off,r.r,0,6.3); ctx.stroke(); });
+  ctx.globalAlpha=1;
+  g.floats.forEach(function(f){ var a=clamp(1-f.t/f.life,0,1); ctx.globalAlpha=a;
+    txt(f.txt,f.x,f.y-off,14,f.c,"center",true); });
+  ctx.globalAlpha=1;
+}
+
+// ===== 畫面：標題／機庫／圖鑑／Game Over =====
+function drawTitle(dt){
+  titleT+=dt;
+  var bg=ctx.createLinearGradient(0,0,0,H); bg.addColorStop(0,"#121c34"); bg.addColorStop(1,"#070a14");
+  ctx.fillStyle=bg; ctx.fillRect(0,0,W,H);
+  // 背景井壁
+  ctx.fillStyle="rgba(40,60,100,.35)"; ctx.fillRect(0,0,30,H); ctx.fillRect(W-30,0,30,H);
+  // 動畫示範艙
+  var ph=(titleT%3.2)/3.2, dy=lerp(90,300,ph*ph), dsq=ph>0.96?1:0;
+  ctx.save(); ctx.translate(W/2,dy);
+  ctx.shadowColor="#7bf0a0"; ctx.shadowBlur=16; ctx.fillStyle="#9fd8ff";
+  ctx.beginPath(); ctx.arc(0,0,14,0,6.3); ctx.fill(); ctx.shadowBlur=0;
+  ctx.fillStyle="#0b1220"; ctx.beginPath(); ctx.arc(0,-1,8,0,6.3); ctx.fill();
+  ctx.fillStyle="#7bf0a0"; ctx.beginPath(); ctx.arc(-3,-2,1.7,0,6.3); ctx.arc(3,-2,1.7,0,6.3); ctx.fill();
+  ctx.fillStyle="#9fd8ff"; ctx.beginPath(); ctx.moveTo(-10,-10); ctx.lineTo(-5,-18); ctx.lineTo(-1,-11); ctx.closePath(); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(10,-10); ctx.lineTo(5,-18); ctx.lineTo(1,-11); ctx.closePath(); ctx.fill();
+  if(ph<0.8){ ctx.fillStyle="rgba(255,210,122,.8)"; ctx.beginPath(); ctx.moveTo(-5,14); ctx.lineTo(5,14); ctx.lineTo(0,26+Math.sin(titleT*30)*4); ctx.closePath(); ctx.fill(); }
+  ctx.restore();
+  ctx.fillStyle="#7be495"; rr(W/2-60,312,120,10,5); ctx.fill();
+  ctx.fillStyle="rgba(255,255,255,.2)"; rr(W/2-56,314,112,3,2); ctx.fill();
+
+  txt("🛸 喵艙輕輕落",W/2,74,30,"#ffffff","center",true);
+  txt("按住噴射，綠燈亮時輕輕落在墊子上",W/2,104,14,"#ffe9b0","center",true);
+  txt("手機：按住任一處＝噴射　左右拖曳＝側噴",W/2,352,12,"#bcd4f2","center");
+  txt("鍵盤：Space／↑ 噴射　←→ 側噴　M 靜音　R 重開",W/2,370,12,"#bcd4f2","center");
+  txt("落得越輕越準、剩油越多，分數越高",W/2,388,12,"#9fb6d8","center");
+
+  menuBtns.length=0;
+  if(CERR.length){
+    ctx.fillStyle="rgba(60,12,16,.9)"; rr(20,410,W-40,150,10); ctx.fill();
+    ctx.strokeStyle="#ff6b6b"; ctx.lineWidth=2; ctx.stroke();
+    txt("⚠ 內容包錯誤，無法開始",W/2,436,16,"#ff9a9a","center",true);
+    CERR.slice(0,5).forEach(function(e,i){ txt(e.slice(0,28),W/2,460+i*18,11,"#ffc9c9","center"); });
+    return;
+  }
+  btn(menuBtns,W/2-90,410,180,46,"開始下落",function(){startRun(false);},"#2f6b4a");
+  var dToday=SAVE.daily.date===todayStr()?SAVE.daily.best:0;
+  btn(menuBtns,W/2-90,464,180,38,"每日井",function(){startRun(true);},"#3a4a80","今日最佳 "+fmt(dToday)+"　連續 "+SAVE.daily.streak+" 天");
+  btn(menuBtns,W/2-90,510,86,34,"機庫",function(){scene="hangar";},"#4a3a6a");
+  btn(menuBtns,W/2+4,510,86,34,"圖鑑",function(){scene="codex";},"#4a3a6a");
+  // 底列狀態
+  txt("最高分 "+fmt(SAVE.best)+"　最深 "+SAVE.bestDepth+" 層　🐟 "+fmt(SAVE.fish),W/2,566,12,"#9fb6d8","center");
+  var pod=CONTENT.pods.filter(function(p){return p.id===SAVE.podSelected;})[0];
+  if(pod)txt("目前艙體："+pod.name+"（"+pod.desc+"）",W/2,584,11,"#7f95b8","center");
+  // 挑釁文字
+  var nextLine=null,minGap=1e9;
+  HANGAR_LINES.forEach(function(l){ if(SAVE.hangar[l.k]<5){ var c=hangarCost(SAVE.hangar[l.k])-SAVE.fish; if(c>0&&c<minGap){minGap=c;nextLine=l;} } });
+  if(nextLine)txt("再賺 "+minGap+" 魚乾就能升「"+nextLine.name+"」",W/2,404,11,"#ffd27a","center");
+}
+function drawHangar(){
+  ctx.fillStyle="#0c1120"; ctx.fillRect(0,0,W,H);
+  txt("機庫升級",W/2,50,24,"#ffffff","center",true);
+  txt("🐟 魚乾 "+fmt(SAVE.fish),W/2,74,15,"#ffd27a","center",true);
+  hangarBtns.length=0;
+  HANGAR_LINES.forEach(function(l,i){
+    var y=100+i*86,lv=SAVE.hangar[l.k],maxed=lv>=5,cost=hangarCost(lv);
+    ctx.fillStyle="rgba(24,36,60,.8)"; rr(24,y,W-48,74,10); ctx.fill();
+    ctx.strokeStyle="rgba(150,190,240,.25)"; ctx.lineWidth=1; ctx.stroke();
+    txt(l.name,40,y+26,17,"#eaf3ff","left",true);
+    txt(l.per,40,y+46,11,"#9fb6d8","left");
+    for(var s=0;s<5;s++){ ctx.fillStyle=s<lv?"#7bf0a0":"rgba(120,140,170,.3)";
+      rr(40+s*20,y+54,15,7,3); ctx.fill(); }
+    if(maxed)txt("已滿級",W-46,y+42,14,"#7bf0a0","right",true);
+    else btn(hangarBtns,W-126,y+18,96,38,"🐟 "+cost,(function(k,c){return function(){
+      if(SAVE.fish>=c){ SAVE.fish-=c; SAVE.hangar[k]++; save(); SFX.unlock(); } else SFX.yellow();
+    };})(l.k,cost),SAVE.fish>=cost?"#2f6b4a":"#3a3f4e");
+  });
+  txt("升級只把甜蜜點往後推，手感仍是主要成長",W/2,470,11,"#7f95b8","center");
+  btn(hangarBtns,W/2-70,500,140,40,"返回",function(){scene="title";},"#2a4a7a");
+}
+function drawCodex(){
+  ctx.fillStyle="#0c1120"; ctx.fillRect(0,0,W,H);
+  txt("艙體圖鑑",W/2,42,24,"#ffffff","center",true);
+  txt("點擊已解鎖的艙體即可選用",W/2,62,11,"#9fb6d8","center");
+  codexBtns.length=0;
+  var cols=3,cw=110,chh=104,x0=(W-cols*cw)/2,y0=78;
+  CONTENT.pods.slice(0,9).forEach(function(p,i){
+    var x=x0+(i%cols)*cw,y=y0+Math.floor(i/cols)*chh;
+    var un=SAVE.pods.indexOf(p.id)>=0||p.unlock_type==="default";
+    var sel=SAVE.podSelected===p.id;
+    ctx.fillStyle=un?"rgba(26,40,66,.9)":"rgba(26,28,36,.9)"; rr(x+4,y,cw-8,chh-8,9); ctx.fill();
+    ctx.strokeStyle=sel?"#ffd27a":(un?"rgba(150,190,240,.3)":"rgba(90,100,120,.3)"); ctx.lineWidth=sel?2.5:1; ctx.stroke();
+    // 縮圖
+    ctx.save(); ctx.translate(x+cw/2,y+30); ctx.globalAlpha=un?1:0.3;
+    ctx.fillStyle=un?p.hull_color:"#6a7488"; ctx.beginPath();
+    if(p.shape==="square")rr(-11,-11,22,22,4); else if(p.shape==="drop"){ctx.moveTo(0,-13);ctx.quadraticCurveTo(12,-2,0,12);ctx.quadraticCurveTo(-12,-2,0,-13);}
+    else if(p.shape==="star"){for(var k=0;k<10;k++){var a=-Math.PI/2+k*Math.PI/5,r2=k%2?5.5:12;ctx.lineTo(Math.cos(a)*r2,Math.sin(a)*r2);}ctx.closePath();}
+    else ctx.arc(0,0,12,0,6.3);
+    ctx.fill(); ctx.restore(); ctx.globalAlpha=1;
+    txt(p.name.slice(0,6),x+cw/2,y+58,11,un?"#eaf3ff":"#8a94a8","center",true);
+    if(un){ txt("油"+p.tank+"｜殼"+p.hull,x+cw/2,y+74,10,"#9fb6d8","center");
+      txt("綠 ≤"+p.soft_limit.toFixed(1),x+cw/2,y+88,10,"#7bf0a0","center");
+      codexBtns.push({x:x+4,y:y,w:cw-8,h:chh-8,fn:(function(id){return function(){ SAVE.podSelected=id; save(); SFX.pick(); };})(p.id)});
+    }else{
+      var up=unlockProgress(p);
+      txt(UNLOCK_TXT[p.unlock_type]||"條件",x+cw/2,y+74,10,"#8a94a8","center");
+      ctx.fillStyle="rgba(90,100,120,.35)"; rr(x+18,y+80,cw-36,7,3); ctx.fill();
+      ctx.fillStyle="#6fa8ff"; rr(x+18,y+80,(cw-36)*up.r,7,3); ctx.fill();
+      txt(up.v+" / "+up.need,x+cw/2,y+97,9,"#9fb6d8","center");
+    }
+  });
+  // 井圖（到過的區點亮）
+  txt("井圖　最深 "+SAVE.bestDepth+" 層",W/2,438,12,"#bcd4f2","center",true);
+  var reach=0,acc2=0;
+  CONTENT.zones.forEach(function(z){ acc2+=Math.min(z.pads,60); if(SAVE.bestDepth>=acc2)reach++; });
+  CONTENT.zones.slice(0,12).forEach(function(z,i){
+    var x=(W-CONTENT.zones.length*26)/2+i*26;
+    ctx.fillStyle=i<=reach?"hsl("+((z.order*47)%360)+",60%,55%)":"rgba(90,100,120,.3)";
+    ctx.beginPath(); ctx.arc(x+10,456,7,0,6.3); ctx.fill();
+  });
+  txt("總落地 "+SAVE.stats.landings+"　完美 "+SAVE.stats.perfect+"　最長連段 "+SAVE.stats.maxCombo+"　局數 "+SAVE.stats.runs,W/2,486,11,"#7f95b8","center");
+  btn(codexBtns,W/2-70,506,140,40,"返回",function(){scene="title";},"#2a4a7a");
+}
+function drawOver(dt){
+  overT+=dt;
+  var g=G;
+  ctx.fillStyle="rgba(4,8,16,"+clamp(overT*2,0,0.88)+")"; ctx.fillRect(0,0,W,H);
+  if(overT<0.25)return;
+  txt(g.newRecord?"🏆 新紀錄！":"艙體報銷",W/2,96,g.newRecord?30:26,g.newRecord?"#ffd27a":"#ff9a9a","center",true);
+  if(g.newRecord){ // 破紀錄慶祝彩帶
+    for(var i=0;i<3;i++)burst(g,W/2+(Math.random()-0.5)*220,110+Math.random()*40,1,["#ffd27a","#7bf0a0","#9fd8ff"][i%3],1);
+  }
+  txt(g.overReason,W/2,122,13,"#bcd4f2","center");
+  if(g.missTxt)txt(g.missTxt,W/2,146,15,"#ffc46b","center",true);
+  txt(fmt(g.score),W/2,206,50,"#ffffff","center",true);
+  txt("分",W/2+ctx.measureText("").width,230,13,"#9fb6d8","center");
+  if(!g.newRecord){
+    var d=Math.max(1,Math.ceil(SAVE.best-g.score));
+    txt("差 "+fmt(d)+" 分破紀錄（紀錄 "+fmt(SAVE.best)+"）",W/2,258,15,"#ffe9b0","center",true);
+  }else{
+    txt("上一個紀錄被你踩在腳下了",W/2,258,13,"#ffe9b0","center");
+  }
+  txt("最深第 "+g.depth+" 層（紀錄 "+SAVE.bestDepth+" 層）",W/2,284,13,"#bcd4f2","center");
+  txt("軟著陸 "+g.landings+" 次　完美 "+g.perfectRun+"　最長連段 "+g.maxCombo,W/2,306,12,"#9fb6d8","center");
+  txt("獲得 🐟 "+fmt(g.gainFish)+" 魚乾（庫存 "+fmt(SAVE.fish)+"）",W/2,330,13,"#ffd27a","center",true);
+  if(g.daily)txt("每日井　今日最佳 "+fmt(SAVE.daily.best)+"　連續 "+SAVE.daily.streak+" 天",W/2,352,12,"#9fd8ff","center");
+  overBtns.length=0;
+  btn(overBtns,W/2-100,392,200,52,"再落一次",function(){startRun(g.daily);},"#2f6b4a","點畫面任一處也可以");
+  btn(overBtns,W/2-100,456,96,36,"機庫",function(){scene="hangar";},"#4a3a6a");
+  btn(overBtns,W/2+4,456,96,36,"圖鑑",function(){scene="codex";},"#4a3a6a");
+  btn(overBtns,W/2-100,500,200,34,"回標題",function(){scene="title";},"#2a4a7a");
+  // 挑釁
+  var nl=null,mg=1e9;
+  HANGAR_LINES.forEach(function(l){ if(SAVE.hangar[l.k]<5){ var c=hangarCost(SAVE.hangar[l.k])-SAVE.fish; if(c>0&&c<mg){mg=c;nl=l;} } });
+  if(nl)txt("機庫還差 "+mg+" 魚乾就能升「"+nl.name+"」",W/2,548,11,"#ffd27a","center");
+  txt("按 Space／點一下＝立刻再來（零等待）",W/2,570,11,"#7f95b8","center");
+  // 爆炸粒子續飛
+  fxStep(g,dt);
+  drawRunFX(g,g.y-POD_Y);
+}
+
+// ===== 主迴圈（固定步長） =====
+var last=0,accT=0;
+function frame(ts){
+  requestAnimationFrame(frame);
+  if(!last)last=ts;
+  var dt=(ts-last)/1000; last=ts;
+  if(dt>0.25)dt=0.25; // 分頁切回不快轉
+  ctx.save();
+  if(shake>0){ ctx.translate((Math.random()-0.5)*shake,(Math.random()-0.5)*shake); shake=Math.max(0,shake-dt*40); }
+  if(scene==="title")drawTitle(dt);
+  else if(scene==="hangar")drawHangar();
+  else if(scene==="codex")drawCodex();
+  else if(scene==="play")playFrame(dt);
+  else if(scene==="over")drawOver(dt);
+  ctx.restore();
+  // 全螢幕閃光
+  if(flash){ ctx.fillStyle=flash.c; ctx.globalAlpha=flash.a; ctx.fillRect(0,0,W,H); ctx.globalAlpha=1;
+    flash.a-=dt*1.2; if(flash.a<=0)flash=null; }
+  // toast 計時
+  for(var i=uiToasts.length-1;i>=0;i--){ uiToasts[i].t+=dt; if(uiToasts[i].t>=uiToasts[i].life)uiToasts.splice(i,1); }
+}
+function playFrame(dt){
+  var g=G; if(!g)return;
+  // 狀態機
+  if(g.phase==="choose"){ g.cardT+=dt; }
+  else if(g.phase==="landed"){
+    g.landT-=dt;
+    // 墊子裂開演出
+    var lp=g.pads.filter(function(p){return p.used&&!p.broken;})[0];
+    if(lp&&g.landT<0.45){ lp.broken=0.001; burst(g,lp.x,lp.y,10,lp.type.color); }
+    if(g.landT<=0){
+      // 每 4 層抽卡
+      if(g.landings>0&&g.landings%4===0&&CONTENT.boons.length){
+        var cards=drawCards(g);
+        if(cards){ g.cards=cards; g.phase="choose"; g.cardT=0;
+          SFX.card(); if(cards.some(function(c){return c.rarity==="legendary";}))SFX.legend(); }
+        else g.phase="fall";
+      } else g.phase="fall";
+      if(g.phase==="fall"){ g.vy=20; }
+    }
+  }
+  else if(g.phase==="fall"){
+    // 固定步長累積器（決定論）
+    accT+=dt; var guard=0;
+    while(accT>=FIXED&&guard<20){ accT-=FIXED; guard++;
+      if(step(g,FIXED)==="over")break; }
+    if(accT>FIXED*20)accT=0;
+    // 首次出現墊型提示
+    var z=zoneTuned(g);
+    for(var i=0;i<g.pads.length;i++){
+      var pt=g.pads[i].type;
+      if(!g.padHintSeen[pt.id]&&pt.hint&&g.pads[i].y-g.y<520){ g.padHintSeen[pt.id]=1; g.hintTxt=pt.name+"："+pt.hint; g.hintT=2.4; }
+    }
+  }
+  else if(g.phase==="boom"){ /* 等 endRun */ }
+  if(g.introT>0)g.introT-=dt;
+  if(g.hintT>0)g.hintT-=dt;
+  fxStep(g,dt);
+  // 繪製
+  camY=g.y-POD_Y;
+  drawWell(g,camY);
+  g.beams.forEach(function(b){
+    var y=b.y-camY; if(y<-20||y>H+20)return;
+    ctx.fillStyle="#5a4a6a"; ctx.fillRect(30,y-6,b.gx-b.gap/2-30,12); ctx.fillRect(b.gx+b.gap/2,y-6,W-30-(b.gx+b.gap/2),12);
+    ctx.fillStyle="rgba(255,120,120,.5)";
+    ctx.fillRect(30,y-8,Math.max(0,b.gx-b.gap/2-30),2); ctx.fillRect(b.gx+b.gap/2,y-8,Math.max(0,W-30-(b.gx+b.gap/2)),2);
+  });
+  g.cans.forEach(function(c){
+    if(c.got)return; var y=c.y-camY; if(y<-20||y>H+20)return;
+    var bob=Math.sin(c.ph)*3;
+    ctx.save(); ctx.translate(c.x,y+bob);
+    ctx.shadowColor="#ffd27a"; ctx.shadowBlur=10; ctx.fillStyle="#ffd27a";
+    rr(-8,-10,16,20,4); ctx.fill(); ctx.shadowBlur=0;
+    ctx.fillStyle="#7a5a2a"; ctx.fillRect(-8,-3,16,3);
+    txt("🐟",0,5,11,"#7a5a2a","center");
+    ctx.restore();
+  });
+  g.pads.forEach(function(p){ if(!p.broken||p.broken<0.25)drawPad(g,p,camY); else{
+    // 裂開：左右兩半飛開
+    var y=p.y-camY,o=(p.broken-0.25)*160;
+    ctx.fillStyle=p.type.color; ctx.globalAlpha=clamp(1-(p.broken-0.25)*2,0,1);
+    rr(p.x-p.w/2-o,y+o*0.4,p.w/2-4,11,5); ctx.fill();
+    rr(p.x+4+o,y+o*0.4,p.w/2-4,11,5); ctx.fill(); ctx.globalAlpha=1;
+  }});
+  if(!g.over||g.phase!=="boom"||g.parts.length)drawPod(g,camY);
+  drawRunFX(g,camY);
+  drawHUD(g);
+  if(g.phase==="choose"&&g.cards)drawCardsUI(g);
+}
+
+// ===== SC_HOOKS（品管自動化） =====
+window.SC_HOOKS={
+  start:function(){ startRun(false); },
+  snapshot:function(){
+    var g=G;
+    return {scene:scene,score:g?Math.round(g.score):0,level:g?g.depth:0,
+      elapsed:g?+g.elapsed.toFixed(2):0,zone:g?zoneTuned(g).name:"",
+      fuel:g?+(g.fuel/g.tankMax).toFixed(3):0,hull:g?g.hull:0,combo:g?g.combo:0,
+      best:SAVE.best,bestDepth:SAVE.bestDepth,fish:SAVE.fish,
+      phase:g?g.phase:"",errors:CERR.slice(0),contentWarnings:CWARN,
+      content:{zones:CONTENT.zones.length,pad_types:CONTENT.padList.length,
+        boons:CONTENT.boons.length,pods:CONTENT.pods.length}};
+  }
+};
+
+// ===== 啟動 =====
+try{
+  loadContent(); loadSave(); resize();
+  requestAnimationFrame(frame);
+}catch(err){
+  // 任何啟動例外都不拋到 console.error，畫面顯示訊息
+  try{
+    resize(); ctx.fillStyle="#14060a"; ctx.fillRect(0,0,W,H);
+    txt("引擎啟動失敗",W/2,280,22,"#ff9a9a","center",true);
+    txt(String(err&&err.message||err).slice(0,40),W/2,310,12,"#ffc9c9","center");
+  }catch(e2){}
+}
+window.addEventListener("error",function(e){ e.preventDefault&&e.preventDefault(); });
+})();
+</script>
+<script src="../../sc_config.js"></script>
+<script src="../../stats.js"></script>
+</body>
+</html>

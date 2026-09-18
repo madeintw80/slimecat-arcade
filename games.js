@@ -1687,5 +1687,24 @@ const GAMES = [
       "return_rate": 0.14,
       "plays_reported": 0
     }
+  },
+  {
+    "id": "2026-09-19-001",
+    "title": "喵艙輕輕落",
+    "emoji": "🛸",
+    "genre": "街機",
+    "date": "2026-09-19",
+    "desc": "按住噴肉球減速，在魚乾燒光前輕輕落在越來越刁鑽的貓窩墊上！",
+    "pipeline": "v3",
+    "packs": {
+      "boons": 20,
+      "pods": 10,
+      "zones": 12,
+      "pad_types": 10
+    },
+    "ai_score": 34,
+    "reviewer": "echo:gpt-5.6-sol",
+    "howto": "按住減速、左右拖修正，對準綠燈輕落。",
+    "polished": "開局持續按住噴射即可觸發：z01 的 ay=90-(260/1)=-170，且程；燃料歸零或過熱時仍能免費側噴：step 以 canThrust 為 false ；內容包合約要求 zones/pad_types/boons/pods 為 12/"
   }
 ];
