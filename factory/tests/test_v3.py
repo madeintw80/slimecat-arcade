@@ -326,7 +326,56 @@ final = pipeline._final_html("<!DOCTYPE html><html><body><canvas></canvas></body
 meta, html = mg.extract(final)
 check("_final_html GAMEMETA 可被 extract 讀回", meta["title"] == "潮汐倉庫" and meta["inspiration"] == "原作" and "stats.js" in html)
 
-# ---------------------------------------------------------------- 10. live 探針（可選）
+# ---------------------------------------------------------------- 10. run_claude 沙盒旗標＋事件流解析（假 subprocess）
+import subprocess                              # noqa: E402
+from types import SimpleNamespace              # noqa: E402
+
+
+def _fake_claude(lines, rc=0):
+    """假的 subprocess.run：記下指令，回傳指定的 stream-json 行。"""
+    seen = {}
+
+    def run(cmd, **kw):
+        seen["cmd"], seen["kw"] = cmd, kw
+        return SimpleNamespace(returncode=rc, stdout="\n".join(json.dumps(x, ensure_ascii=False) for x in lines), stderr="")
+    return run, seen
+
+
+orig_run, orig_usage = mg.subprocess.run, mg.USAGE_LOG
+mg.USAGE_LOG = TMP / "usage.jsonl"             # 別把測試用量寫進工廠的 usage.jsonl
+try:
+    ok_lines = [{"type": "system", "subtype": "init", "tools": []},
+                {"type": "assistant", "message": {"content": [{"type": "text", "text": "前半"}]}},
+                {"type": "assistant", "message": {"content": [{"type": "text", "text": "後半"}]}},
+                {"type": "rate_limit_event", "rate_limit_info": {"status": "allowed", "resetsAt": 1790157600}},
+                {"type": "result", "is_error": False, "num_turns": 1, "total_cost_usd": 0.01,
+                 "usage": {"input_tokens": 10, "output_tokens": 5}, "result": "後半"}]
+    mg.subprocess.run, seen = _fake_claude(ok_lines)
+    out = mg.run_claude("玩家留言", 60, model="opus", effort="high", stage="t-sandbox", max_budget_usd=2.5)
+    cmd = seen["cmd"]
+    check("run_claude 帶 --restricted --tools \"\"", cmd[cmd.index("--restricted"):cmd.index("--restricted") + 3] == ["--restricted", "--tools", ""])
+    check("run_claude 不再用 --disallowedTools 黑名單", "--disallowedTools" not in cmd)
+    check("空參數轉成字面 \"\"（Windows 命令列）", '--tools ""' in subprocess.list2cmdline(cmd))
+    check("run_claude 補繁中 system prompt", cmd[cmd.index("--append-system-prompt") + 1] == mg.LANG_GUARD)
+    check("run_claude 保留 stream-json／effort／budget／空 MCP",
+          all(x in cmd for x in ("stream-json", "--verbose", "--strict-mcp-config")) and
+          cmd[cmd.index("--effort") + 1] == "high" and cmd[cmd.index("--max-budget-usd") + 1] == "2.5")
+    check("run_claude 保留輸出上限 env", seen["kw"]["env"].get("CLAUDE_CODE_MAX_OUTPUT_TOKENS") == str(mg.MAX_OUTPUT_TOKENS))
+    check("多則文字塊照順序接起來", out == "前半\n後半", repr(out))
+    check("usage 照記", mg.USAGE[-1]["stage"] == "t-sandbox" and mg.USAGE[-1]["out"] == 5)
+
+    quota_lines = [{"type": "rate_limit_event", "rate_limit_info": {"status": "rejected", "resetsAt": 1790157600}},
+                   {"type": "result", "is_error": True, "result": "You've hit your session limit · resets 3:40pm"}]
+    mg.subprocess.run, _ = _fake_claude(quota_lines, rc=1)
+    try:
+        mg.run_claude("x", 60, stage="t-quota")
+        check("撞額度 → QuotaError", False, "沒丟例外")
+    except mg.QuotaError as e:
+        check("撞額度 → QuotaError＋resetsAt", e.resets_at == 1790157600.0, str(e.resets_at))
+finally:
+    mg.subprocess.run, mg.USAGE_LOG = orig_run, orig_usage
+
+# ---------------------------------------------------------------- 11. live 探針（可選）
 if "--live" in sys.argv:
     print("── live：haiku 企劃書探針 ──")
     stages.MODEL_PLAN, stages.EFFORT_PLAN = "haiku", ""

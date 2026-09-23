@@ -103,6 +103,18 @@ CRITIC_HTML_CAP = 160000  # 評審讀多少字的原始碼（舊值 45000 只看
 # 引擎在 64k 被截斷，CLI 還自己重試到 256k tokens／$15 才放棄；企劃書 max 也是 66k 被截斷才合約壞掉。
 # 128,000 實測 fable 接受（超過模型上限 API 會直接拒絕，改這裡前先用小 prompt 試）。
 MAX_OUTPUT_TOKENS = 128000
+# 子 Claude 是「純文字交稿」：一個工具都不給（2026-07-04 事故：開發者把遊戲直接寫進專案、stdout 沒交稿）。
+# 2026-09-23 從 --disallowedTools 黑名單改成沙盒：prompt 會混進「不是 Boss 寫的字」（公開站玩家留言、
+# 從留言轉出的修 bug 指令、混有留言的 learnings.md、App Store／Steam 榜單標題簡介），
+# 舊黑名單漏了 PowerShell／Agent／Skill／CronCreate…，而且照樣載入 ~/.claude/settings.json 的
+# 全域放行規則（auto 模式）與 hooks → 留言可做提示注入。
+# --restricted＝不讀 user/project/local settings（連全域 allow 與 hooks 一起關掉）＋拿掉會跑程式的工具；
+# --tools ""＝內建工具全部關掉（list 參數放 "" 即可，subprocess 會轉成一個空參數）。
+# 參考 ExpenseTracker AI_SANDBOX_TEXT_ARGS、XianxiaSaga llm._SANDBOX_ARGS（同日同一套）。
+SANDBOX_ARGS = ["--restricted", "--tools", ""]
+# --restricted 也會把全域 UserPromptSubmit hook（time_context.py）關掉，而它以前每次都會注入「一律繁體中文」；
+# 少了它 haiku 實測會回簡體 → 改用 system prompt 補回來（優先序比 prompt 裡的玩家留言高）。
+LANG_GUARD = "回覆一律使用繁體中文（台灣用語），不要用簡體字；程式碼、JSON 鍵名、檔名照原本格式。"
 
 # 類型固定清單（2026-09-05）：以前讓模型自由填，59 款長出 33 種寫法
 # （「益智（邏輯推理）」「街機／駕駛跑酷」…），大廳分類靠正則猜、猜錯就掉錯格。
@@ -230,10 +242,7 @@ def run_claude(prompt: str, timeout: int, model: str = MODEL_BUILD,
     截斷後 CLI 會自己重試，沒保險絲一次引擎可以燒到 $15（9/5 首航）。
     輸出上限走環境變數 CLAUDE_CODE_MAX_OUTPUT_TOKENS＝MAX_OUTPUT_TOKENS（預設 64k 不夠 v3 引擎用）。
     """
-    # 子 Claude 是「純文字交稿」：禁用全部工具，防止它自作主張直接寫檔案
-    # （2026-07-04 事故：開發者把遊戲直接寫進專案、stdout 沒交稿 → 驗收誤判失敗）
-    deny = "Bash,Edit,Write,NotebookEdit,Read,Glob,Grep,WebFetch,WebSearch,Task,TodoWrite"
-    cmd = [CLAUDE, "-p", "--model", model, "--disallowedTools", deny,
+    cmd = [CLAUDE, "-p", "--model", model, *SANDBOX_ARGS, "--append-system-prompt", LANG_GUARD,
            "--strict-mcp-config", "--mcp-config", str(EMPTY_MCP),
            "--output-format", "stream-json", "--verbose"]
     if effort:

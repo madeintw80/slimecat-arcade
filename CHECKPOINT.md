@@ -1,8 +1,14 @@
 # CHECKPOINT
 
-Updated: 2026-09-17 10:45 Asia/Taipei
+Updated: 2026-09-23 14:30 Asia/Taipei
 Task Lead: Batnini
-Status: complete（9/17：修 9/12 停產事故的跨包引用誤判＋模型分工改版＋內容包引用改「警告放行」，離線測試全綠、`claude -p --model opus` 實跑驗過；**真實端到端驗收＝9/19 02:00 週更那場**，Boss 決定不手動補跑 9/12）；Phase 3 旗艦化待 Boss 開工
+Status: complete（9/23：子 Claude 改沙盒 `--restricted --tools ""`＋繁中 system prompt，見下節）；前一輪 complete（9/17：修 9/12 停產事故的跨包引用誤判＋模型分工改版＋內容包引用改「警告放行」，離線測試全綠、`claude -p --model opus` 實跑驗過；**真實端到端驗收＝9/19 02:00 週更那場**，Boss 決定不手動補跑 9/12）；Phase 3 旗艦化待 Boss 開工
+
+## 2026-09-23 這輪（詳見 DECISIONS.md 同日條目）
+
+- **子 Claude 沙盒**：`make_game.run_claude`（全工廠唯一 `claude -p` 入口）的 `--disallowedTools` 黑名單換成 `SANDBOX_ARGS=["--restricted","--tools",""]`，防玩家留言／榜單簡介做提示注入；另補 `--append-system-prompt LANG_GUARD`（`--restricted` 會關掉原本注入繁中的全域 hook）。其餘旗標與 env 不變。
+- 測試：`tests/test_v3.py` 離線全綠（新增 9 條沙盒／解析回歸）；haiku 真跑事件流、預算保險絲、注入探針都過。`--live` 探針第一次失敗＝haiku 合約寫了 `array[string]` 型別被 `validate_contract` 擋（跟沙盒無關，傳輸與解析正常）。
+- 沒有常駐程序：三個排程都是每次新開 python，自動吃新碼——最先跑到的是 9/24 11:30 每日留言，其次 9/26（六）02:00 週更、9/27（日）18:00 檢討會；看 `factory.log` 有沒有 claude -p 失敗即可。
 
 ## 2026-09-17 這輪（詳見 DECISIONS.md 同日條目）
 
