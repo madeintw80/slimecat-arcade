@@ -1291,6 +1291,25 @@
       "reviewer": "echo:gpt-5.6-sol",
       "howto": "按住減速、左右拖修正，對準綠燈輕落。",
       "polished": "開局持續按住噴射即可觸發：z01 的 ay=90-(260/1)=-170，且程；燃料歸零或過熱時仍能免費側噴：step 以 canThrust 為 false ；內容包合約要求 zones/pad_types/boons/pods 為 12/"
+    },
+    {
+      "id": "2026-09-26-001",
+      "title": "喵鎖層層開",
+      "emoji": "🥫",
+      "genre": "益智",
+      "date": "2026-09-26",
+      "inspiration": "Rotate Rings",
+      "desc": "點一下轉一格，對齊層層罐鎖縫隙，放貓鑽出來！",
+      "pipeline": "v3",
+      "packs": {
+        "ring_types": 6,
+        "cats": 24,
+        "lock_blueprints": 24,
+        "towers": 8
+      },
+      "ai_score": 41,
+      "reviewer": "echo:gpt-5.6-sol",
+      "howto": "點環左右半旋轉，讓所有缺口對準頂端。"
     }
   ]
 }

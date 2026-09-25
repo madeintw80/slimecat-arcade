@@ -1,0 +1,507 @@
+<!--GAMEMETA {"title": "喵鎖層層開", "emoji": "🥫", "genre": "益智", "inspiration": "Rotate Rings", "desc": "點一下轉一格，對齊層層罐鎖縫隙，放貓鑽出來！"}-->
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>喵鎖層層開</title>
+<!--CONTENT-NOTES
+引擎只從 window.SC_CONTENT 讀四個包；缺欄位給預設值、數值自動 clamp。
+跨包 id 引用錯誤會「自動修正並 console.warn」（略過該鎖／該貓、未知環型改用基礎環），
+只有「沒有任何可玩的罐頭塔」才 console.error 並阻擋開始。請確保所有引用 id 都存在。
+
+【ring_types】環型（建議 5～8 筆，沒有時引擎補一個錫環）
+- id：唯一字串（重複者略過）
+- name：繁中名稱（新環型提示會顯示）
+- steps_per_tap：整數 0～3（0＝冰封環：點了只會抖動，只能被連動帶動）
+- direction：both｜cw｜ccw（cw＝點左右半都順時針；ccw＝都逆時針）；其他值視為 both
+- gaps：1～2；gap_offset：gaps=2 時 1～11（第二缺口＝第一缺口位置＋gap_offset），gaps=1 時忽略
+- color：#rgb 或 #rrggbb；glyph：取第 1 個字元，畫在環上（空字串＝畫鉚釘）
+- tip：本局第一次出現時顯示在上方（建議 ≤14 字）
+- 必須至少有一筆 steps_per_tap=1、direction=both、gaps=1 的基礎環（未知環型會替換成它）
+
+【lock_blueprints】鎖型（建議 ≤30 筆）
+- id、name、tip（可空，本局首次出現時顯示）
+- rings：環型 id 陣列，外→內，長度 2～5（多的截斷、少的補基礎環）
+- positions：每環格數 4～16（建議 6/8/10/12）；positions^環數 > 300000 時引擎自動遞減格數
+- links：[{from,to,sign}]，from/to 為 rings 索引（0＝最外），sign 1 或 -1；from==to 或越界者略過；
+  沿鏈傳遞、每環每次最多帶動一次（A→B→C→A 環鏈可用，但全部 sign=1 的環鏈會讓三環永遠同轉，建議放一條 -1）
+- scramble：[min,max] 亂轉步數 1～30；min_par：1～20；tier：1～5（僅標籤，引擎不含難度公式）
+- 生成：亂轉 30 次找「≥2 環錯位且 BFS par ≥ min_par」，找不到再從可達狀態抽樣；啟動時每鎖型自檢 20 次
+- steps_per_tap=0 的環必須是某條 link 的 to，否則它永遠不動
+
+【towers】罐頭塔（建議 ≤12 筆）
+- id、name、desc（≤20 字）
+- locks：鎖型 id 陣列（建議 8～14；上限 20），不存在的 id 會被略過
+- cats：[{at,cat}]，at＝第幾道鎖（1 起算，需 ≤ locks 長度），cat＝cats id
+- start_fresh：20～120（建議 45～60 才能保證不操作 60 秒內失敗）
+- refill_base：0～40；refill_per_par：0～15（保鮮上限固定 120）
+- unlock_stars：0～9999（第一座塔強制 0）；palette：{bg,tin,label} hex；daily：true/false
+- 同日每日塔從 daily=true 的塔中以日期為種子挑一座（都沒有就從全部挑）
+
+【cats】圖鑑貓（建議 ≤30 筆）
+- id（必須有 cat_default，缺少時引擎補一隻）、name、quip（≤16 字）、lore（≤30 字）
+- rarity：common｜rare｜legend；body：hex
+- pattern：solid｜stripe｜spot｜tuxedo；eyes：dot｜star｜sleepy；accessory：none｜bow｜crown｜scarf
+- 未知 enum 值一律退回第一個選項
+-->
+<style>
+html,body{margin:0;height:100%;background:#0d1522;overflow:hidden;font-family:"PingFang TC","Microsoft JhengHei","Noto Sans TC",sans-serif}
+#wrap{position:fixed;inset:0;display:flex;align-items:center;justify-content:center}
+canvas{display:block;touch-action:none;-webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent}
+#back{position:fixed;left:6px;top:6px;z-index:5;color:#fff;background:rgba(0,0,0,.4);padding:3px 8px;border-radius:8px;text-decoration:none;font-size:13px}
+</style>
+</head>
+<body>
+<a id="back" href="../../index.html">← 回遊戲區</a>
+<div id="wrap"><canvas id="cv" width="400" height="600"></canvas></div>
+<script id="sc-content">window.SC_CONTENT = {"ring_types": [{"id": "tin", "name": "斑駁錫環", "steps_per_tap": 1, "direction": "both", "gaps": 1, "gap_offset": 0, "color": "#c9ced6", "glyph": "", "tip": "點左半逆轉、右半順轉"}, {"id": "claw", "name": "貓爪扣", "steps_per_tap": 1, "direction": "cw", "gaps": 1, "gap_offset": 0, "color": "#e08a3c", "glyph": "↻", "tip": "只能順時針轉動"}, {"id": "reverse_claw", "name": "逆爪扣", "steps_per_tap": 1, "direction": "ccw", "gaps": 1, "gap_offset": 0, "color": "#c0392b", "glyph": "↺", "tip": "只能逆時針轉動"}, {"id": "spring", "name": "彈簧環", "steps_per_tap": 2, "direction": "both", "gaps": 1, "gap_offset": 0, "color": "#f5d76e", "glyph": "⏫", "tip": "一次跳兩格，奇偶要湊"}, {"id": "ice", "name": "冰封環", "steps_per_tap": 0, "direction": "both", "gaps": 1, "gap_offset": 0, "color": "#5dade2", "glyph": "❄", "tip": "點不動，靠連動才轉"}, {"id": "twin", "name": "雙貓環", "steps_per_tap": 1, "direction": "both", "gaps": 2, "gap_offset": 3, "color": "#8e6bd9", "glyph": "✦", "tip": "兩個缺口都要到頂"}], "cats": [{"id": "cat_default", "name": "罐頭小灰", "rarity": "common", "body": "#9aa3ad", "pattern": "solid", "eyes": "dot", "accessory": "none", "quip": "喵，又是我。", "lore": "住在每個沒被標記的罐頭裡，永遠不嫌擠。"}, {"id": "cat_butter", "name": "奶油胖丁", "rarity": "common", "body": "#f2d9a0", "pattern": "spot", "eyes": "sleepy", "accessory": "none", "quip": "先睡三秒再說。", "lore": "體重跟開罐速度成反比，目前還在研究中。"}, {"id": "cat_soot", "name": "灰煤仔", "rarity": "common", "body": "#4a4a4a", "pattern": "solid", "eyes": "dot", "accessory": "scarf", "quip": "灰塵是我的偽裝。", "lore": "從煙囪滑進倉庫，順手偷了一條圍巾。"}, {"id": "cat_milk", "name": "奶泡", "rarity": "common", "body": "#f5f0e6", "pattern": "solid", "eyes": "sleepy", "accessory": "bow", "quip": "倒出來的都是我。", "lore": "每次開蓋都以為自己是牛奶，其實不是。"}, {"id": "cat_ginger", "name": "薑黃仔", "rarity": "common", "body": "#d97b3f", "pattern": "stripe", "eyes": "dot", "accessory": "none", "quip": "辣一點才夠味！", "lore": "橘色條紋是曬太陽曬出來的，不是天生。"}, {"id": "cat_charcoal", "name": "炭烤黑皮", "rarity": "common", "body": "#2f2f2f", "pattern": "tuxedo", "eyes": "dot", "accessory": "none", "quip": "燒焦的才好吃。", "lore": "喜歡蹲在烤架旁，從沒被真正烤過。"}, {"id": "cat_sandy", "name": "沙茶", "rarity": "common", "body": "#d8b98a", "pattern": "spot", "eyes": "sleepy", "accessory": "none", "quip": "沙灘也算罐頭。", "lore": "毛色跟儲藏室的紙箱幾乎一模一樣。"}, {"id": "cat_frost", "name": "霜白", "rarity": "common", "body": "#cfe3e8", "pattern": "solid", "eyes": "dot", "accessory": "scarf", "quip": "冷藏區是我的家。", "lore": "體溫比一般貓低兩度，據說是裝出來的。"}, {"id": "cat_olive", "name": "橄欖繃帶", "rarity": "common", "body": "#8a9a5b", "pattern": "stripe", "eyes": "sleepy", "accessory": "none", "quip": "橄欖比魚好吃？才怪。", "lore": "堅持要在魚罐頭裡找橄欖，至今沒找到。"}, {"id": "cat_plum", "name": "梅子紫", "rarity": "common", "body": "#7a5c6e", "pattern": "solid", "eyes": "dot", "accessory": "bow", "quip": "紫色最高貴，喵。", "lore": "自認是貴族後代，證據是一條蝴蝶結。"}, {"id": "cat_marble", "name": "大理石紋", "rarity": "rare", "body": "#b08968", "pattern": "spot", "eyes": "star", "accessory": "none", "quip": "紋路都是我天生的。", "lore": "每一隻都花紋不同，收集控的噩夢。"}, {"id": "cat_azure", "name": "藍鯖魚", "rarity": "rare", "body": "#5b8ac9", "pattern": "stripe", "eyes": "dot", "accessory": "scarf", "quip": "藍色系最新鮮。", "lore": "傳說只在鯖魚罐頭全開時才現身。"}, {"id": "cat_coral", "name": "珊瑚貓", "rarity": "rare", "body": "#e8836b", "pattern": "spot", "eyes": "star", "accessory": "bow", "quip": "珊瑚色也是我選的。", "lore": "從海邊罐頭堆裡撿回來的，愛乾淨。"}, {"id": "cat_mint", "name": "薄荷糖", "rarity": "rare", "body": "#7fc9a8", "pattern": "solid", "eyes": "sleepy", "accessory": "scarf", "quip": "涼涼的最舒服。", "lore": "毛髮天生帶薄荷味，蚊子都不敢靠近。"}, {"id": "cat_ember", "name": "炭火橘", "rarity": "rare", "body": "#c1440e", "pattern": "tuxedo", "eyes": "star", "accessory": "none", "quip": "我比爐火還旺。", "lore": "喜歡窩在剛開封的熱罐頭旁取暖。"}, {"id": "cat_violet", "name": "紫羅蘭", "rarity": "rare", "body": "#9b6bce", "pattern": "stripe", "eyes": "star", "accessory": "bow", "quip": "紫色限定，別搶。", "lore": "只在滿月的夜裡從紫色罐頭裡溜出來。"}, {"id": "cat_gold", "name": "金魚罐", "rarity": "rare", "body": "#d4af37", "pattern": "solid", "eyes": "star", "accessory": "scarf", "quip": "閃亮登場，鞠躬。", "lore": "身價跟毛色一樣閃，其實只是塗了油。"}, {"id": "cat_indigo", "name": "靛藍夜貓", "rarity": "rare", "body": "#3f3f74", "pattern": "tuxedo", "eyes": "dot", "accessory": "bow", "quip": "深夜限定的靛藍。", "lore": "只在保鮮條快歸零時才願意現身。"}, {"id": "cat_rose", "name": "玫瑰貓", "rarity": "rare", "body": "#d46a8f", "pattern": "spot", "eyes": "star", "accessory": "scarf", "quip": "玫瑰貓，浪漫登場。", "lore": "堅持每次登場都要有花瓣特效，其實沒有。"}, {"id": "cat_moon", "name": "月光鮭", "rarity": "legend", "body": "#f6d5e0", "pattern": "stripe", "eyes": "star", "accessory": "crown", "quip": "你竟然轉得比月亮還準。", "lore": "只在午夜冷藏塔頂現身，據說縫隙對齊時會哼歌。"}, {"id": "cat_king", "name": "黑曜王", "rarity": "legend", "body": "#1c1c2e", "pattern": "tuxedo", "eyes": "star", "accessory": "crown", "quip": "跪下，朕的罐頭到了。", "lore": "自封塔頂之王，其實只是先搶到位置。"}, {"id": "cat_aurora", "name": "極光魚", "rarity": "legend", "body": "#a0e8d8", "pattern": "spot", "eyes": "star", "accessory": "scarf", "quip": "極光罐，限量登場。", "lore": "毛色隨保鮮條剩餘量變化，越危險越亮。"}, {"id": "cat_phoenix", "name": "鳳尾罐", "rarity": "legend", "body": "#ff6b3d", "pattern": "stripe", "eyes": "star", "accessory": "crown", "quip": "涅槃重開一罐！", "lore": "傳說每次開罐失敗後都會從灰燼裡爬出來。"}, {"id": "cat_crystal", "name": "水晶貓", "rarity": "legend", "body": "#d9f0ff", "pattern": "solid", "eyes": "star", "accessory": "bow", "quip": "冰晶轉軸，永不卡死。", "lore": "全身像玻璃一樣透明，卻從沒被打破過。"}], "lock_blueprints": [{"id": "bp_ginger_single", "name": "薑黃單環罐", "rings": ["tin", "tin"], "positions": 6, "links": [], "scramble": [2, 3], "min_par": 2, "tier": 1, "tip": "轉動左右半環對齊縫隙"}, {"id": "bp_ginger_double", "name": "雙層薑黃罐", "rings": ["tin", "tin"], "positions": 8, "links": [], "scramble": [3, 4], "min_par": 3, "tier": 1, "tip": ""}, {"id": "bp_tri_tin_basic", "name": "三疊清湯罐", "rings": ["tin", "tin", "tin"], "positions": 8, "links": [], "scramble": [3, 5], "min_par": 4, "tier": 1, "tip": ""}, {"id": "bp_link_starter", "name": "牽線奶油罐", "rings": ["tin", "tin", "tin"], "positions": 8, "links": [{"from": 0, "to": 1, "sign": 1}], "scramble": [4, 6], "min_par": 4, "tier": 2, "tip": "外環轉動會帶著中環一起走"}, {"id": "bp_link_double", "name": "雙牽鮪魚罐", "rings": ["tin", "tin", "tin"], "positions": 10, "links": [{"from": 0, "to": 1, "sign": 1}, {"from": 1, "to": 2, "sign": 1}], "scramble": [5, 7], "min_par": 5, "tier": 2, "tip": ""}, {"id": "bp_spring_debut", "name": "彈簧初登罐", "rings": ["tin", "spring", "tin"], "positions": 8, "links": [{"from": 0, "to": 1, "sign": 1}], "scramble": [6, 8], "min_par": 5, "tier": 3, "tip": "彈簧環一次跳兩格"}, {"id": "bp_claw_debut", "name": "貓爪單行罐", "rings": ["claw", "tin", "tin"], "positions": 8, "links": [{"from": 0, "to": 1, "sign": -1}], "scramble": [6, 9], "min_par": 6, "tier": 3, "tip": "貓爪扣只會往同方向轉"}, {"id": "bp_relief_one", "name": "一眼看穿罐", "rings": ["tin", "tin"], "positions": 6, "links": [], "scramble": [2, 3], "min_par": 2, "tier": 1, "tip": ""}, {"id": "bp_link_triple", "name": "三環連心罐", "rings": ["tin", "tin", "tin"], "positions": 10, "links": [{"from": 0, "to": 1, "sign": 1}, {"from": 1, "to": 2, "sign": 1}], "scramble": [6, 8], "min_par": 5, "tier": 2, "tip": ""}, {"id": "bp_claw_reverse_duo", "name": "正反貓爪罐", "rings": ["claw", "reverse_claw", "tin"], "positions": 8, "links": [{"from": 0, "to": 2, "sign": 1}, {"from": 1, "to": 2, "sign": -1}], "scramble": [7, 10], "min_par": 6, "tier": 3, "tip": "兩爪環方向相反要分開算"}, {"id": "bp_ice_debut", "name": "冰封沉眠罐", "rings": ["tin", "tin", "ice", "tin"], "positions": 8, "links": [{"from": 0, "to": 2, "sign": 1}], "scramble": [7, 10], "min_par": 6, "tier": 4, "tip": "冰環自己不動要靠外環帶"}, {"id": "bp_claw_reverse_link", "name": "逆牽虎斑罐", "rings": ["tin", "claw", "ice", "tin"], "positions": 8, "links": [{"from": 0, "to": 1, "sign": -1}, {"from": 1, "to": 2, "sign": 1}], "scramble": [8, 11], "min_par": 7, "tier": 4, "tip": ""}, {"id": "bp_relief_two", "name": "透明玻璃罐", "rings": ["tin", "tin", "tin"], "positions": 8, "links": [], "scramble": [3, 5], "min_par": 4, "tier": 1, "tip": ""}, {"id": "bp_ice_spring_combo", "name": "冰彈雙寒罐", "rings": ["tin", "spring", "ice", "tin"], "positions": 8, "links": [{"from": 1, "to": 2, "sign": 1}], "scramble": [8, 11], "min_par": 7, "tier": 4, "tip": ""}, {"id": "bp_spring_claw_mix", "name": "彈爪糾纏罐", "rings": ["claw", "spring", "tin"], "positions": 8, "links": [{"from": 0, "to": 1, "sign": 1}], "scramble": [7, 10], "min_par": 6, "tier": 3, "tip": ""}, {"id": "bp_ice_reverse_deep", "name": "深封逆冰罐", "rings": ["reverse_claw", "tin", "ice", "tin"], "positions": 10, "links": [{"from": 0, "to": 2, "sign": -1}, {"from": 1, "to": 2, "sign": 1}], "scramble": [9, 12], "min_par": 8, "tier": 4, "tip": ""}, {"id": "bp_five_ring_hard", "name": "五重高塔罐", "rings": ["tin", "claw", "tin", "spring", "tin"], "positions": 8, "links": [{"from": 0, "to": 1, "sign": 1}, {"from": 3, "to": 4, "sign": 1}], "scramble": [10, 13], "min_par": 8, "tier": 5, "tip": "五環齊心才能開罐"}, {"id": "bp_chain_loop", "name": "環環相扣罐", "rings": ["tin", "tin", "tin", "tin"], "positions": 8, "links": [{"from": 0, "to": 1, "sign": 1}, {"from": 1, "to": 2, "sign": 1}, {"from": 2, "to": 0, "sign": -1}], "scramble": [9, 12], "min_par": 8, "tier": 5, "tip": "三環首尾相連成一圈"}, {"id": "bp_relief_three", "name": "安心陶瓷罐", "rings": ["tin", "tin"], "positions": 6, "links": [], "scramble": [2, 3], "min_par": 2, "tier": 1, "tip": ""}, {"id": "bp_twin_choice", "name": "雙貓抉擇罐", "rings": ["twin", "tin", "tin", "tin", "tin"], "positions": 8, "links": [{"from": 1, "to": 2, "sign": 1}, {"from": 3, "to": 4, "sign": 1}], "scramble": [10, 13], "min_par": 8, "tier": 5, "tip": "雙缺口環有兩種解法"}, {"id": "bp_ice_claw_final", "name": "凍爪封魂罐", "rings": ["claw", "reverse_claw", "ice", "tin"], "positions": 8, "links": [{"from": 0, "to": 2, "sign": 1}, {"from": 1, "to": 3, "sign": -1}], "scramble": [9, 12], "min_par": 7, "tier": 4, "tip": ""}, {"id": "bp_twin_chain", "name": "雙貓環鏈罐", "rings": ["twin", "tin", "tin", "tin", "tin"], "positions": 6, "links": [{"from": 0, "to": 1, "sign": 1}, {"from": 1, "to": 2, "sign": 1}, {"from": 2, "to": 0, "sign": -1}], "scramble": [10, 14], "min_par": 9, "tier": 5, "tip": ""}, {"id": "bp_spring_claw_deep", "name": "深彈爪痕罐", "rings": ["claw", "spring", "reverse_claw"], "positions": 8, "links": [{"from": 0, "to": 1, "sign": 1}, {"from": 1, "to": 2, "sign": -1}], "scramble": [8, 11], "min_par": 7, "tier": 3, "tip": ""}, {"id": "bp_final_boss_tin", "name": "塔頂封王罐", "rings": ["reverse_claw", "spring", "ice", "twin", "tin"], "positions": 6, "links": [{"from": 0, "to": 1, "sign": 1}, {"from": 1, "to": 2, "sign": -1}, {"from": 3, "to": 4, "sign": 1}], "scramble": [12, 16], "min_par": 10, "tier": 5, "tip": "最終罐五環齊發考驗全部"}], "towers": [{"id": "tw_dawn_can", "name": "破曉開罐塔", "desc": "晨光下練手，罐蓋喀一聲開", "locks": ["bp_relief_one", "bp_tri_tin_basic", "bp_relief_two", "bp_link_starter", "bp_link_double", "bp_claw_debut", "bp_ginger_double", "bp_relief_three", "bp_ice_debut"], "cats": [{"at": 4, "cat": "cat_milk"}, {"at": 8, "cat": "cat_butter"}, {"at": 9, "cat": "cat_ginger"}], "start_fresh": 60, "refill_base": 10, "refill_per_par": 5, "unlock_stars": 0, "palette": {"bg": "#2b3a55", "tin": "#d7dbe3", "label": "#f2733d"}, "daily": true}, {"id": "tw_noon_sardine", "name": "晌午沙丁塔", "desc": "日正當中，連動齒輪開始咬合", "locks": ["bp_relief_two", "bp_relief_one", "bp_tri_tin_basic", "bp_link_double", "bp_link_starter", "bp_spring_debut", "bp_link_triple", "bp_relief_one", "bp_ice_debut", "bp_ice_reverse_deep"], "cats": [{"at": 4, "cat": "cat_sandy"}, {"at": 8, "cat": "cat_coral"}, {"at": 10, "cat": "cat_gold"}], "start_fresh": 58, "refill_base": 10, "refill_per_par": 5, "unlock_stars": 10, "palette": {"bg": "#3a6ea5", "tin": "#eef1f5", "label": "#ffd23f"}, "daily": true}, {"id": "tw_dusk_tin", "name": "黃昏罐頭塔", "desc": "夕陽西下，雙缺口環考驗耐心", "locks": ["bp_relief_two", "bp_relief_three", "bp_tri_tin_basic", "bp_ginger_single", "bp_link_double", "bp_ginger_double", "bp_claw_debut", "bp_relief_one", "bp_spring_claw_mix", "bp_ice_spring_combo"], "cats": [{"at": 4, "cat": "cat_azure"}, {"at": 8, "cat": "cat_mint"}, {"at": 10, "cat": "cat_moon"}], "start_fresh": 55, "refill_base": 9, "refill_per_par": 5, "unlock_stars": 24, "palette": {"bg": "#4a2f55", "tin": "#cbb9d6", "label": "#ff8c42"}, "daily": true}, {"id": "tw_midnight_claw", "name": "深夜貓爪塔", "desc": "貓爪扣單向逼你算整圈", "locks": ["bp_relief_one", "bp_tri_tin_basic", "bp_relief_two", "bp_link_starter", "bp_ginger_single", "bp_claw_debut", "bp_claw_reverse_duo", "bp_relief_three", "bp_link_triple", "bp_ice_debut", "bp_spring_claw_deep"], "cats": [{"at": 4, "cat": "cat_indigo"}, {"at": 8, "cat": "cat_soot"}, {"at": 11, "cat": "cat_crystal"}], "start_fresh": 60, "refill_base": 11, "refill_per_par": 5, "unlock_stars": 40, "palette": {"bg": "#14213d", "tin": "#a7b6c9", "label": "#e94f37"}, "daily": true}, {"id": "tw_spring_storm", "name": "彈簧風暴塔", "desc": "彈簧環連環爆彈，步步緊繃", "locks": ["bp_relief_two", "bp_relief_one", "bp_tri_tin_basic", "bp_link_double", "bp_ginger_single", "bp_spring_debut", "bp_spring_claw_mix", "bp_relief_three", "bp_claw_reverse_duo", "bp_ice_reverse_deep", "bp_ice_spring_combo"], "cats": [{"at": 4, "cat": "cat_charcoal"}, {"at": 8, "cat": "cat_plum"}, {"at": 11, "cat": "cat_violet"}], "start_fresh": 65, "refill_base": 11, "refill_per_par": 6, "unlock_stars": 60, "palette": {"bg": "#1f3a3d", "tin": "#b8d8d0", "label": "#5fbdb0"}, "daily": false}, {"id": "tw_frost_hall", "name": "冰封殿堂塔", "desc": "冰封環只能靠鄰環帶動它", "locks": ["bp_relief_three", "bp_tri_tin_basic", "bp_relief_one", "bp_link_starter", "bp_link_double", "bp_ice_debut", "bp_ice_reverse_deep", "bp_relief_two", "bp_claw_debut", "bp_claw_reverse_link", "bp_ice_claw_final", "bp_five_ring_hard"], "cats": [{"at": 4, "cat": "cat_frost"}, {"at": 8, "cat": "cat_olive"}, {"at": 12, "cat": "cat_phoenix"}], "start_fresh": 62, "refill_base": 12, "refill_per_par": 6, "unlock_stars": 85, "palette": {"bg": "#0d1b2a", "tin": "#9fb8cf", "label": "#66d9ef"}, "daily": false}, {"id": "tw_twin_choice", "name": "雙貓抉擇塔", "desc": "雙貓環兩條路，你選哪條", "locks": ["bp_relief_one", "bp_relief_two", "bp_tri_tin_basic", "bp_ginger_single", "bp_link_double", "bp_ginger_double", "bp_twin_choice", "bp_relief_three", "bp_claw_reverse_duo", "bp_spring_claw_deep", "bp_twin_chain", "bp_chain_loop"], "cats": [{"at": 4, "cat": "cat_rose"}, {"at": 8, "cat": "cat_ember"}, {"at": 12, "cat": "cat_king"}], "start_fresh": 70, "refill_base": 13, "refill_per_par": 6, "unlock_stars": 110, "palette": {"bg": "#2e1a47", "tin": "#cdb4db", "label": "#ff5da2"}, "daily": false}, {"id": "tw_final_boss", "name": "終極罐王塔", "desc": "罐頭塔頂，五環環鏈見真章", "locks": ["bp_relief_two", "bp_relief_three", "bp_tri_tin_basic", "bp_link_starter", "bp_link_double", "bp_claw_debut", "bp_spring_debut", "bp_relief_one", "bp_ice_debut", "bp_claw_reverse_link", "bp_spring_claw_mix", "bp_ice_claw_final", "bp_final_boss_tin"], "cats": [{"at": 4, "cat": "cat_default"}, {"at": 8, "cat": "cat_aurora"}, {"at": 13, "cat": "cat_marble"}], "start_fresh": 75, "refill_base": 15, "refill_per_par": 7, "unlock_stars": 140, "palette": {"bg": "#1a0f0f", "tin": "#8c8c94", "label": "#ffcc00"}, "daily": false}]};</script>
+<script>
+'use strict';
+// ===== 共用工具 =====
+const W=400,H=600,CX=200,CY=310,TAU=Math.PI*2,Q=Math.PI/2,TAG='[喵鎖層層開]';
+const FONT='"PingFang TC","Microsoft JhengHei","Noto Sans TC",sans-serif';
+const clamp=(v,a,b)=>v<a?a:v>b?b:v;
+const num=(v,d,a,b)=>{v=Number(v);if(!isFinite(v))v=d;return clamp(Math.round(v),a,b);};
+const str=(v,d)=>typeof v==='string'?v:d;
+const hex=(v,d)=>typeof v==='string'&&/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(v)?v:d;
+const mod=(a,k)=>((a%k)+k)%k;
+const fmt=n=>Math.round(n).toLocaleString('zh-TW');
+const easeOutBack=t=>{const c=1.7,x=t-1;return 1+(c+1)*x*x*x+c*x*x;};
+const RC={common:'#b8c2cc',rare:'#6ec6ff',legend:'#ffcf40'},RN={common:'常見',rare:'稀有',legend:'傳說'};
+// 色彩明暗調整
+function shade(h,a){let c=h.replace('#','');if(c.length===3)c=c.split('').map(x=>x+x).join('');const n=parseInt(c,16)||0;let r=n>>16&255,g=n>>8&255,b=n&255;const t=a<0?0:255,p=Math.abs(a);r=Math.round(r+(t-r)*p);g=Math.round(g+(t-g)*p);b=Math.round(b+(t-b)*p);return`rgb(${r},${g},${b})`;}
+// 本地日期字串（off 天偏移）
+function dayStr(o){const d=new Date(Date.now()+o*864e5);return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
+function hashStr(s){let h=2166136261;for(const c of s){h^=c.charCodeAt(0);h=Math.imul(h,16777619);}return h>>>0;}
+
+// ===== rng：mulberry32 =====
+function mkRng(n){return{s:(n>>>0)||1,seed(n){this.s=(n>>>0)||1;},
+ next(){let t=this.s=(this.s+0x6D2B79F5)>>>0;t=Math.imul(t^t>>>15,t|1);t^=t+Math.imul(t^t>>>7,t|61);return((t^t>>>14)>>>0)/4294967296;},
+ int(a,b){return a+Math.floor(this.next()*(b-a+1));},pick(a){return a[Math.floor(this.next()*a.length)];}};}
+
+// ===== content：讀取、正規化、驗證 =====
+const C={packs:{ring_types:[],lock_blueprints:[],towers:[],cats:[]},map:{},errors:[],warns:[],
+ get(p,id){return this.map[p]&&this.map[p][id];},list(p){return this.packs[p];},
+ load(){
+  const raw=(window.SC_CONTENT&&typeof window.SC_CONTENT==='object')?window.SC_CONTENT:{};
+  const arr=k=>Array.isArray(raw[k])?raw[k].filter(o=>o&&typeof o==='object'):[];
+  const warn=m=>this.warns.push(m);
+  const uniq=(list,pre)=>{const seen={};return list.filter((o,i)=>{const id=str(o.id,'')||pre+i;if(seen[id]){warn(`重複 id ${id}，略過`);return false;}seen[id]=1;o.id=id;return true;});};
+  const en=(v,a)=>a.includes(v)?v:a[0];
+  // 環型
+  const rt=uniq(arr('ring_types'),'ring_').map(o=>{const gaps=num(o.gaps,1,1,2);return{id:o.id,name:str(o.name,o.id),steps:num(o.steps_per_tap,1,0,3),dir:en(o.direction,['both','cw','ccw']),gaps,off:gaps===2?num(o.gap_offset,3,1,11):0,color:hex(o.color,'#c9ced6'),glyph:Array.from(str(o.glyph,''))[0]||'',tip:str(o.tip,'').slice(0,20)};});
+  if(!rt.some(r=>r.steps===1&&r.dir==='both'&&r.gaps===1)){rt.push({id:'__tin',name:'錫環',steps:1,dir:'both',gaps:1,off:0,color:'#c9ced6',glyph:'',tip:'點左半逆轉、右半順轉'});warn('缺少基礎環，已補一個錫環');}
+  const rtMap={};rt.forEach(r=>rtMap[r.id]=r);
+  const base=rt.find(r=>r.steps===1&&r.dir==='both'&&r.gaps===1);
+  // 鎖型
+  const bps=uniq(arr('lock_blueprints'),'bp_').map(o=>{
+   const rings=(Array.isArray(o.rings)?o.rings:[]).slice(0,5).map(id=>{if(rtMap[id])return id;warn(`鎖型 ${o.id}：未知環型 ${id}，改用 ${base.id}`);return base.id;});
+   while(rings.length<2)rings.push(base.id);
+   const n=rings.length;let k=num(o.positions,8,4,16);
+   if(Math.pow(k,n)>300000){while(Math.pow(k,n)>300000&&k>4)k--;warn(`鎖型 ${o.id}：狀態數超限，格數降為 ${k}`);}
+   const links=(Array.isArray(o.links)?o.links:[]).map(l=>({from:num(l&&l.from,-1,-1,9),to:num(l&&l.to,-1,-1,9),sign:Number(l&&l.sign)<0?-1:1})).filter(l=>l.from>=0&&l.to>=0&&l.from<n&&l.to<n&&l.from!==l.to);
+   rings.forEach((id,i)=>{if(!rtMap[id].steps&&!links.some(l=>l.to===i))warn(`鎖型 ${o.id}：第 ${i} 環不可點又沒被連動`);});
+   const sc=Array.isArray(o.scramble)?o.scramble:[3,6],smin=num(sc[0],3,1,30),smax=num(sc[1],smin,smin,30);
+   return{id:o.id,name:str(o.name,o.id),rings,k,links,smin,smax,minPar:num(o.min_par,2,1,20),tier:num(o.tier,1,1,5),tip:str(o.tip,'')};});
+  // 貓
+  const cats=uniq(arr('cats'),'cat_').map(o=>({id:o.id,name:str(o.name,o.id),rarity:en(o.rarity,['common','rare','legend']),body:hex(o.body,'#9aa3ad'),pattern:en(o.pattern,['solid','stripe','spot','tuxedo']),eyes:en(o.eyes,['dot','star','sleepy']),acc:en(o.accessory,['none','bow','crown','scarf']),quip:str(o.quip,'喵！'),lore:str(o.lore,'')}));
+  if(!cats.some(c=>c.id==='cat_default')){cats.unshift({id:'cat_default',name:'罐頭小灰',rarity:'common',body:'#9aa3ad',pattern:'solid',eyes:'dot',acc:'none',quip:'喵，又是我。',lore:'住在每個沒被標記的罐頭裡。'});warn('缺少 cat_default，已補上');}
+  const bpMap={},catMap={};bps.forEach(b=>bpMap[b.id]=b);cats.forEach(c=>catMap[c.id]=c);
+  // 罐頭塔
+  const towers=uniq(arr('towers'),'tw_').map(o=>{
+   const locks=(Array.isArray(o.locks)?o.locks:[]).filter(id=>{if(bpMap[id])return true;warn(`罐頭塔 ${o.id}：略過不存在的鎖型 ${id}`);return false;}).slice(0,20);
+   const cs=(Array.isArray(o.cats)?o.cats:[]).map(c=>({at:num(c&&c.at,0,0,99),cat:c&&c.cat})).filter(c=>{if(!catMap[c.cat]){warn(`罐頭塔 ${o.id}：略過不存在的貓 ${c.cat}`);return false;}return c.at>=1&&c.at<=locks.length;});
+   const p=(o.palette&&typeof o.palette==='object')?o.palette:{};
+   return{id:o.id,name:str(o.name,o.id),desc:str(o.desc,''),locks,cats:cs,fresh:num(o.start_fresh,60,20,120),rb:num(o.refill_base,10,0,40),rp:num(o.refill_per_par,5,0,15),unlock:num(o.unlock_stars,0,0,9999),pal:{bg:hex(p.bg,'#243b55'),tin:hex(p.tin,'#c9ced6'),label:hex(p.label,'#e8553d')},daily:o.daily===true};
+  }).filter(t=>{if(t.locks.length)return true;warn(`罐頭塔 ${t.id} 沒有可用的鎖，已停用`);return false;});
+  if(towers.length)towers[0].unlock=0;else this.errors.push('沒有任何可玩的罐頭塔（towers 為空或鎖型 id 全部無效）');
+  this.packs={ring_types:rt,lock_blueprints:bps,towers,cats};
+  for(const p in this.packs){this.map[p]={};this.packs[p].forEach(o=>this.map[p][o.id]=o);}
+  if(this.warns.length)console.warn(TAG+' 內容已自動修正：\n'+this.warns.join('\n'));
+  if(this.errors.length)console.error(TAG+' 內容驗證失敗：\n'+this.errors.join('\n'));
+ }};
+
+// ===== lockgen：操作向量、反向 BFS 距離表、亂轉、解法 =====
+const GEN={cache:{},
+ aligned(t,p,k){return p===0||(t.gaps===2&&mod(p+t.off,k)===0);},
+ // 每個點擊操作對所有環的位移（沿 links 深度優先、每環最多一次）
+ ops(bp){const n=bp.rings.length,res=[];for(let r=0;r<n;r++){const t=C.get('ring_types',bp.rings[r]);if(!t.steps)continue;
+  for(const d of t.dir==='cw'?[1]:t.dir==='ccw'?[-1]:[-1,1]){const dl=new Array(n).fill(0),vis=new Array(n).fill(false);
+   const go=(i,s)=>{vis[i]=true;dl[i]=s;for(const l of bp.links)if(l.from===i&&!vis[l.to])go(l.to,s*l.sign);};go(r,d*t.steps);res.push({ring:r,dir:d,d:dl});}}return res;},
+ // 從所有已解狀態反向 BFS，得到每個狀態到解的最少步數
+ table(bp){if(this.cache[bp.id])return this.cache[bp.id];
+  const n=bp.rings.length,k=bp.k,N=Math.pow(k,n),ops=this.ops(bp),types=bp.rings.map(id=>C.get('ring_types',id)),pw=[];
+  for(let i=0;i<n;i++)pw.push(Math.pow(k,i));
+  const dist=new Uint8Array(N).fill(255),q=new Int32Array(N);let qh=0,qt=0;
+  const al=types.map(t=>{const a=[0];if(t.gaps===2){const p=mod(-t.off,k);if(p)a.push(p);}return a;});
+  const rec=(i,idx)=>{if(i===n){if(dist[idx]===255){dist[idx]=0;q[qt++]=idx;}return;}for(const p of al[i])rec(i+1,idx+p*pw[i]);};rec(0,0);
+  const dg=new Int32Array(n),od=ops.map(o=>o.d.map(v=>mod(-v,k)));
+  while(qh<qt){const s=q[qh++],nd=Math.min(254,dist[s]+1);let x=s;for(let i=0;i<n;i++){dg[i]=x%k;x=(x/k)|0;}
+   for(const o of od){let idx=0;for(let i=0;i<n;i++)idx+=((dg[i]+o[i])%k)*pw[i];if(dist[idx]===255){dist[idx]=nd;q[qt++]=idx;}}}
+  return this.cache[bp.id]={dist,ops,pw,n,k,types};},
+ enc(T,pos){let i=0;for(let r=0;r<T.n;r++)i+=pos[r]*T.pw[r];return i;},
+ dec(T,idx){const p=[];for(let r=0;r<T.n;r++){p.push(idx%T.k);idx=(idx/T.k)|0;}return p;},
+ // 建鎖：亂轉（≥2 環錯位、par ≥ min_par），失敗再抽樣可達狀態
+ build(bp,rng){const T=this.table(bp),n=T.n,k=T.k,N=T.dist.length;let best=null;
+  const mis=p=>p.filter((v,i)=>!this.aligned(T.types[i],v,k)).length;
+  for(let t=0;t<30&&T.ops.length;t++){const pos=new Array(n).fill(0),m=rng.int(bp.smin,bp.smax);
+   for(let s=0;s<m;s++){const o=rng.pick(T.ops);for(let i=0;i<n;i++)pos[i]=mod(pos[i]+o.d[i],k);}
+   const par=T.dist[this.enc(T,pos)];if(par===255||mis(pos)<2)continue;
+   if(par>=bp.minPar){best={pos,par};break;}if(!best||par>best.par)best={pos,par};}
+  if(T.ops.length&&(!best||best.par<bp.minPar))for(let t=0;t<800;t++){const idx=rng.int(0,N-1),d=T.dist[idx];if(d===255||d<bp.minPar)continue;const pos=this.dec(T,idx);if(mis(pos)<2)continue;best={pos,par:d};break;}
+  if(!best)best={pos:new Array(n).fill(0),par:0};
+  return{bp,T,pos:best.pos.slice(),par:best.par,budget:Math.max(6,best.par*2+2)};},
+ next(L){const T=L.T,d=T.dist[this.enc(T,L.pos)];if(!d||d===255)return null;
+  for(const o of T.ops){const p=L.pos.map((v,i)=>mod(v+o.d[i],T.k));if(T.dist[this.enc(T,p)]===d-1)return o;}return null;},
+ solve(L){const c={T:L.T,pos:L.pos.slice()},path=[];let o;while(path.length<60&&(o=this.next(c))){path.push(o);c.pos=c.pos.map((v,i)=>mod(v+o.d[i],c.T.k));}return path;},
+ isSolved(L){return L.pos.every((p,i)=>this.aligned(L.T.types[i],p,L.T.k));}};
+
+// 啟動自檢：每鎖型生成 20 次（非同步，避免卡住標題）
+function selfTest(){const bps=C.list('lock_blueprints'),bad=[];let i=0;
+ const step=()=>{if(i>=bps.length){if(bad.length)console.warn(TAG+' 自檢警告：\n'+bad.join('\n'));return;}
+  const bp=bps[i++];try{for(let s=1;s<=20;s++){const L=GEN.build(bp,mkRng(s*977+i));if(L.par<bp.minPar||L.par===255){bad.push(`鎖型 ${bp.id}：par ${L.par} < min_par ${bp.minPar}`);break;}}}catch(e){bad.push(`鎖型 ${bp.id}：生成失敗`);}
+  setTimeout(step,0);};setTimeout(step,50);}
+
+// ===== progress：localStorage =====
+const P={K:'sc_tinlock_v1',d:null,
+ load(){let d=null;try{d=JSON.parse(localStorage.getItem(this.K)||'null');}catch(e){d=null;}
+  if(!d||typeof d!=='object')d={};
+  d.towers=d.towers&&typeof d.towers==='object'?d.towers:{};d.cats=Array.isArray(d.cats)?d.cats:[];
+  d.daily=d.daily&&typeof d.daily==='object'?d.daily:{};d.best_score=+d.best_score||0;d.muted=!!d.muted;this.d=d;this.recount();},
+ save(){try{localStorage.setItem(this.K,JSON.stringify(this.d));}catch(e){}},
+ tw(id){const t=this.d.towers[id]||(this.d.towers[id]={});if(!Array.isArray(t.best_stars))t.best_stars=[];t.best_score=+t.best_score||0;t.cleared=!!t.cleared;return t;},
+ recount(){let s=0;for(const k in this.d.towers){const b=this.d.towers[k]&&this.d.towers[k].best_stars;if(Array.isArray(b))b.forEach(v=>s+=clamp(+v||0,0,3));}this.d.total_stars=s;},
+ recordLock(tid,i,st){const t=this.tw(tid);if((+t.best_stars[i]||0)<st)t.best_stars[i]=st;for(let j=0;j<t.best_stars.length;j++)t.best_stars[j]=+t.best_stars[j]||0;this.recount();this.save();},
+ unlockCat(id){if(id==='cat_default'||this.d.cats.includes(id))return false;this.d.cats.push(id);this.save();return true;},
+ daily(){const d=this.d.daily,td=dayStr(0);if(d.date!==td){if(d.date){d.prev_best=+d.best||0;d.prev_date=d.date;}d.date=td;d.best=0;}return d;},
+ recordRun(tw,score,win,daily){const t=this.tw(tw.id),dd=this.daily(),td=dayStr(0),prev=daily?(+dd.best||0):t.best_score;
+  if(win)t.cleared=true;t.best_score=Math.max(t.best_score,score);this.d.best_score=Math.max(this.d.best_score,score);
+  if(daily){if(dd.last_play_date!==td){dd.streak=dd.last_play_date===dayStr(-1)?(+dd.streak||0)+1:1;dd.last_play_date=td;}dd.best=Math.max(+dd.best||0,score);}
+  this.save();return prev;}};
+
+// ===== audio：WebAudio 合成 =====
+const AU={ctx:null,muted:false,nb:null,
+ init(){if(this.ctx){if(this.ctx.state==='suspended')this.ctx.resume().catch(()=>{});return;}
+  try{const A=window.AudioContext||window.webkitAudioContext;if(!A)return;this.ctx=new A();const n=Math.floor(this.ctx.sampleRate*.3),b=this.ctx.createBuffer(1,n,this.ctx.sampleRate),c=b.getChannelData(0);for(let i=0;i<n;i++)c[i]=Math.random()*2-1;this.nb=b;}catch(e){this.ctx=null;}},
+ tone(f,dur,type='sine',vol=.2,f2=0,delay=0){const c=this.ctx;if(!c||this.muted)return;try{const t=c.currentTime+delay,o=c.createOscillator(),g=c.createGain();o.type=type;o.frequency.setValueAtTime(f,t);if(f2)o.frequency.exponentialRampToValueAtTime(f2,t+dur);g.gain.setValueAtTime(.0001,t);g.gain.exponentialRampToValueAtTime(vol,t+.008);g.gain.exponentialRampToValueAtTime(.0001,t+dur);o.connect(g);g.connect(c.destination);o.start(t);o.stop(t+dur+.05);}catch(e){}},
+ noise(dur,freq,vol=.2,delay=0){const c=this.ctx;if(!c||this.muted||!this.nb)return;try{const t=c.currentTime+delay,s=c.createBufferSource(),f=c.createBiquadFilter(),g=c.createGain();s.buffer=this.nb;f.type='bandpass';f.frequency.value=freq;f.Q.value=3;g.gain.setValueAtTime(vol,t);g.gain.exponentialRampToValueAtTime(.0001,t+dur);s.connect(f);f.connect(g);g.connect(c.destination);s.start(t);s.stop(t+dur+.02);}catch(e){}},
+ play(n,p=0){if(!this.ctx||this.muted)return;switch(n){
+  case'click':this.noise(.045,2600,.35);this.tone(880-p*40,.05,'square',.07,560);break;
+  case'carry':this.noise(.06,2450*.94,.25,.015);this.tone(830,.08,'triangle',.1,520,.015);break;
+  case'ding':this.tone(1175+p*110,.4,'sine',.14);this.tone(1760+p*165,.25,'sine',.05,0,.02);break;
+  case'thud':this.tone(130,.16,'sine',.3,70);this.noise(.08,400,.2);break;
+  case'jam':this.tone(170,.45,'sawtooth',.12,55);this.noise(.35,300,.3);break;
+  case'pop':this.tone(420+p*110,.09,'square',.06,1300);this.noise(.05,3200,.12);break;
+  case'unlock':[523,659,784,1047,1319].forEach((f,i)=>this.tone(f,.2,'triangle',.13,0,i*.06));break;
+  case'meow':this.tone(650,.28,'sine',.12,1050);this.tone(1050,.25,'sine',.08,560,.2);break;
+  case'heart':this.tone(72,.12,'sine',.4,48);this.tone(66,.12,'sine',.28,44,.17);break;
+  case'break':this.tone(466,.12,'square',.07);this.tone(330,.22,'square',.07,220,.1);break;
+  case'record':[784,988,1319].forEach((f,i)=>this.tone(f,.26,'triangle',.16,0,i*.12));break;
+  case'lose':[392,330,262].forEach((f,i)=>this.tone(f,.3,'triangle',.12,0,i*.2));break;
+  case'ui':this.tone(660,.07,'sine',.1,880);break;
+  case'hint':this.tone(1500,.1,'sine',.06);this.tone(1800,.12,'sine',.05,0,.12);break;
+  case'enter':this.tone(300,.14,'sine',.07,620);break;}},
+ toggleMute(){this.muted=!this.muted;P.d.muted=this.muted;P.save();}};
+
+// ===== fx：粒子、浮字、震動、彩帶 =====
+const FX={ps:[],ts:[],shake:0,
+ burst(x,y,col,n=14,sp=170){for(let i=0;i<n;i++){const a=Math.random()*TAU,v=sp*(.4+Math.random()*.8);this.ps.push({x,y,vx:Math.cos(a)*v,vy:Math.sin(a)*v-40,g:320,t:0,life:.5+Math.random()*.4,col,s:2+Math.random()*3,rot:0,cf:false});}},
+ confetti(n=100){const cs=['#ffcf40','#ff6b8b','#6ec6ff','#8ef08a','#c58bff'];for(let i=0;i<n;i++)this.ps.push({x:Math.random()*W,y:-10-Math.random()*160,vx:(Math.random()-.5)*60,vy:80+Math.random()*120,g:40,t:0,life:3+Math.random()*1.5,col:cs[i%5],s:5+Math.random()*4,rot:Math.random()*6,cf:true});},
+ text(s,x,y,col='#fff',size=20,life=1.1){this.ts.push({s,x,y,col,size,t:0,life});},
+ clear(){this.ps.length=0;this.ts.length=0;this.shake=0;},
+ update(dt){this.shake=Math.max(0,this.shake-dt*30);for(const p of this.ps){p.t+=dt;p.vy+=p.g*dt;p.x+=p.vx*dt;p.y+=p.vy*dt;p.rot+=dt*5;}
+  this.ps=this.ps.filter(p=>p.t<p.life);for(const t of this.ts){t.t+=dt;t.y-=26*dt;}this.ts=this.ts.filter(t=>t.t<t.life);},
+ draw(){for(const p of this.ps){ctx.globalAlpha=Math.max(0,1-p.t/p.life);ctx.fillStyle=p.col;
+   if(p.cf){ctx.save();ctx.translate(p.x,p.y);ctx.rotate(p.rot);ctx.fillRect(-p.s/2,-p.s/4,p.s,p.s/2);ctx.restore();}else{ctx.beginPath();ctx.arc(p.x,p.y,p.s,0,TAU);ctx.fill();}}
+  for(const t of this.ts){const k=t.t/t.life,pop=t.t<.12?.6+t.t/.12*.5:1;ctx.globalAlpha=k>.7?(1-k)/.3:1;ctx.save();ctx.translate(t.x,t.y);ctx.scale(pop,pop);
+   ctx.font=`bold ${t.size}px ${FONT}`;ctx.textAlign='center';ctx.textBaseline='middle';ctx.lineWidth=4;ctx.lineJoin='round';ctx.strokeStyle='rgba(0,0,0,.65)';ctx.strokeText(t.s,0,0);ctx.fillStyle=t.col;ctx.fillText(t.s,0,0);ctx.restore();}
+  ctx.globalAlpha=1;}};
+
+// ===== 畫面基礎 =====
+const cv=document.getElementById('cv'),ctx=cv.getContext('2d');
+let dpr=1,SCL=1,scene='title',BTN=[],usingKB=false,sel=0,selT=0,dexSel=-1,time=0,RES=null,resT=0;
+function resize(){const s=Math.min(innerWidth/W,innerHeight/H);SCL=s;dpr=Math.min(3,window.devicePixelRatio||1);
+ cv.style.width=Math.floor(W*s)+'px';cv.style.height=Math.floor(H*s)+'px';cv.width=Math.round(W*s*dpr);cv.height=Math.round(H*s*dpr);}
+function T(s,x,y,size,col,align='center',bold=true){ctx.font=`${bold?'bold ':''}${size}px ${FONT}`;ctx.fillStyle=col;ctx.textAlign=align;ctx.textBaseline='middle';ctx.fillText(s,x,y);}
+function TS(s,x,y,size,col,align='center'){ctx.font=`bold ${size}px ${FONT}`;ctx.textAlign=align;ctx.textBaseline='middle';ctx.lineWidth=5;ctx.lineJoin='round';ctx.strokeStyle='rgba(0,0,0,.55)';ctx.strokeText(s,x,y);ctx.fillStyle=col;ctx.fillText(s,x,y);}
+function rr(x,y,w,h,r){ctx.beginPath();ctx.moveTo(x+r,y);ctx.arcTo(x+w,y,x+w,y+h,r);ctx.arcTo(x+w,y+h,x,y+h,r);ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);ctx.closePath();}
+function button(x,y,w,h,label,fn,col='#ffcf40',tc='#3a2200',size=18){rr(x,y+3,w,h,Math.min(14,h/2));ctx.fillStyle='rgba(0,0,0,.35)';ctx.fill();rr(x,y,w,h,Math.min(14,h/2));ctx.fillStyle=col;ctx.fill();T(label,x+w/2,y+h/2+1,size,tc);BTN.push({x,y,w,h,fn});}
+function bgFill(col){const g=ctx.createRadialGradient(CX,CY,40,CX,CY,460);g.addColorStop(0,shade(col,.12));g.addColorStop(1,shade(col,-.35));ctx.fillStyle=g;ctx.fillRect(0,0,W,H);}
+function wrap(s,maxW,size){ctx.font=`${size}px ${FONT}`;const out=[];let line='';for(const ch of s){if(ctx.measureText(line+ch).width>maxW){out.push(line);line=ch;}else line+=ch;}if(line)out.push(line);return out;}
+function star(x,y,r,col){ctx.beginPath();for(let i=0;i<10;i++){const a=i*Math.PI/5-Q,rr_=i%2?r*.45:r;ctx.lineTo(x+Math.cos(a)*rr_,y+Math.sin(a)*rr_);}ctx.closePath();ctx.fillStyle=col;ctx.fill();}
+const unlocked=t=>t===C.list('towers')[0]||t.unlock<=P.d.total_stars;
+const owned=c=>c.id==='cat_default'||P.d.cats.includes(c.id);
+function dailyTower(){const all=C.list('towers'),ds=all.filter(t=>t.daily),pool=ds.length?ds:all;return pool[hashStr(dayStr(0))%pool.length];}
+
+// 程式繪製貓（sil＝剪影＋問號）
+function drawCat(x,y,r,c,sil){ctx.save();ctx.translate(x,y);const body=sil?'#141a26':c.body,dk=sil?'#141a26':shade(c.body,-.38);
+ ctx.fillStyle=body;for(const s of[-1,1]){ctx.beginPath();ctx.moveTo(s*r*.92,-r*.2);ctx.lineTo(s*r*.74,-r*1.1);ctx.lineTo(s*r*.16,-r*.78);ctx.closePath();ctx.fill();}
+ ctx.beginPath();ctx.ellipse(0,0,r,r*.86,0,0,TAU);ctx.fill();
+ if(sil){ctx.strokeStyle='rgba(143,163,192,.6)';ctx.lineWidth=2;ctx.stroke();T('?',0,r*.06,r*1.1,'#8fa3c0');ctx.restore();return;}
+ ctx.fillStyle='#f4a7b9';for(const s of[-1,1]){ctx.beginPath();ctx.moveTo(s*r*.76,-r*.38);ctx.lineTo(s*r*.69,-r*.9);ctx.lineTo(s*r*.34,-r*.7);ctx.closePath();ctx.fill();}
+ ctx.save();ctx.beginPath();ctx.ellipse(0,0,r,r*.86,0,0,TAU);ctx.clip();ctx.fillStyle=dk;
+ if(c.pattern==='stripe'){for(const s of[-1,0,1])ctx.fillRect(s*r*.28-r*.06,-r*.9,r*.12,r*.42);ctx.fillRect(-r,-r*.05,r*.3,r*.1);ctx.fillRect(r*.7,-r*.05,r*.3,r*.1);}
+ else if(c.pattern==='spot'){ctx.beginPath();ctx.arc(-r*.58,-r*.38,r*.3,0,TAU);ctx.moveTo(r*.84,r*.3);ctx.arc(r*.62,r*.3,r*.22,0,TAU);ctx.fill();}
+ else if(c.pattern==='tuxedo'){ctx.fillStyle='#f5f5f0';ctx.beginPath();ctx.ellipse(0,r*.58,r*.6,r*.55,0,0,TAU);ctx.fill();}
+ ctx.restore();
+ const ex=r*.38,ey=-r*.08,lw=Math.max(1.2,r*.06);ctx.strokeStyle='#2b1f25';ctx.lineWidth=lw;
+ for(const s of[-1,1]){if(c.eyes==='sleepy'){ctx.beginPath();ctx.arc(s*ex,ey,r*.12,Math.PI*.15,Math.PI*.85);ctx.stroke();}
+  else if(c.eyes==='star'){star(s*ex,ey,r*.17,'#ffd23f');ctx.stroke();}
+  else{ctx.fillStyle='#2b1f25';ctx.beginPath();ctx.arc(s*ex,ey,r*.12,0,TAU);ctx.fill();ctx.fillStyle='#fff';ctx.beginPath();ctx.arc(s*ex+r*.04,ey-r*.04,r*.04,0,TAU);ctx.fill();}}
+ ctx.fillStyle='#e87a90';ctx.beginPath();ctx.moveTo(-r*.08,r*.13);ctx.lineTo(r*.08,r*.13);ctx.lineTo(0,r*.22);ctx.fill();
+ ctx.beginPath();ctx.arc(-r*.09,r*.24,r*.09,0,Math.PI);ctx.moveTo(r*.18,r*.24);ctx.arc(r*.09,r*.24,r*.09,0,Math.PI);ctx.stroke();
+ ctx.strokeStyle='rgba(255,255,255,.7)';ctx.lineWidth=Math.max(1,r*.03);for(const s of[-1,1])for(const dy of[.12,.24]){ctx.beginPath();ctx.moveTo(s*r*.35,r*dy);ctx.lineTo(s*r*1.08,r*(dy*1.6-.05));ctx.stroke();}
+ if(c.acc==='crown'){ctx.fillStyle='#ffd23f';ctx.beginPath();ctx.moveTo(-r*.4,-r*.72);ctx.lineTo(-r*.44,-r*1.12);ctx.lineTo(-r*.2,-r*.92);ctx.lineTo(0,-r*1.2);ctx.lineTo(r*.2,-r*.92);ctx.lineTo(r*.44,-r*1.12);ctx.lineTo(r*.4,-r*.72);ctx.closePath();ctx.fill();}
+ else if(c.acc==='bow'){ctx.fillStyle='#ff6b9a';const bx=r*.5,by=-r*.7;ctx.beginPath();ctx.moveTo(bx,by);ctx.lineTo(bx-r*.26,by-r*.16);ctx.lineTo(bx-r*.26,by+r*.16);ctx.closePath();ctx.moveTo(bx,by);ctx.lineTo(bx+r*.26,by-r*.16);ctx.lineTo(bx+r*.26,by+r*.16);ctx.closePath();ctx.fill();}
+ else if(c.acc==='scarf'){ctx.fillStyle='#e8553d';ctx.beginPath();ctx.ellipse(0,r*.8,r*.72,r*.16,0,0,TAU);ctx.fill();ctx.fillRect(r*.3,r*.8,r*.2,r*.4);}
+ ctx.restore();}
+
+// ===== run／lock：一局狀態 =====
+const R={tower:null,idx:0,fresh:0,score:0,shown:0,streak:0,stars:[],seed:1,daily:false,elapsed:0,L:null,steps:0,phase:'idle',pt:0,jams:0,idle:0,hintT:-1,hintRing:-1,rv:[],lf:[],over:false,newCats:[],tips:[],tipT:0,hb:0,enterT:1,peeled:0,catPop:false,ms:null};
+function ringGeo(n,j){const t=n>=5?20:24,i=n-1-j,r0=52+i*(t+4);return{r0,r1:r0+t};}
+function startRun(tw,daily){if(C.errors.length||!tw)return;AU.init();
+ Object.assign(R,{tower:tw,daily:!!daily,seed:daily?hashStr('tin'+dayStr(0)):(Date.now()>>>0),idx:0,fresh:tw.fresh,score:0,shown:0,streak:0,stars:[],elapsed:0,newCats:[],seenRT:{},seenBP:{},over:false,hb:0});
+ FX.clear();scene='play';loadLock();}
+function loadLock(){const tw=R.tower,bp=C.get('lock_blueprints',tw.locks[R.idx]);R.jams=0;
+ R.L=GEN.build(bp,mkRng(R.seed+R.idx*7919));Object.assign(R,{steps:0,phase:'idle',pt:0,idle:0,hintT:-1,enterT:0,peeled:0,catPop:false});
+ R.lf=bp.links.map(()=>0);R.rv=R.L.pos.map(p=>({a:p,from:p,to:p,t:1,dur:.12,gold:0,shake:0}));sel=Math.min(sel,R.L.T.n-1);
+ const ms=tw.cats.find(c=>c.at===R.idx+1);R.ms=ms?C.get('cats',ms.cat):null;
+ R.tips=[];for(const t of R.L.T.types)if(!R.seenRT[t.id]){R.seenRT[t.id]=1;if(t.tip&&R.tips.length<1)R.tips.push((R.idx>0?`新環型「${t.name}」${t.glyph} `:'')+t.tip);}
+ if(bp.tip&&!R.seenBP[bp.id])R.tips.push(bp.tip);R.seenBP[bp.id]=1;R.tips=R.tips.slice(0,2);R.tipT=R.tips.length?4.5:0;
+ AU.play('enter');}
+// 點擊環：套用操作向量
+function tap(r,side){if(scene!=='play'||R.phase!=='idle')return;const L=R.L,T=L.T,ty=T.types[r];if(!ty)return;
+ R.idle=0;R.hintT=-1;
+ if(!ty.steps){R.rv[r].shake=.35;AU.play('thud');FX.text('點不動，要靠連動帶',CX,CY+ringGeo(T.n,r).r1+14,'#bfe9ff',14,.9);return;}
+ const dir=ty.dir==='cw'?1:ty.dir==='ccw'?-1:side,o=T.ops.find(o=>o.ring===r&&o.dir===dir);if(!o)return;
+ const was=L.pos.map((p,i)=>GEN.aligned(T.types[i],p,T.k));let carried=false;
+ o.d.forEach((d,i)=>{if(!d)return;L.pos[i]=mod(L.pos[i]+d,T.k);const v=R.rv[i];v.from=v.a;v.to+=d;v.t=0;v.dur=.12;if(i!==r)carried=true;});
+ L.bp.links.forEach((l,i)=>{if(o.d[l.from]&&o.d[l.to])R.lf[i]=1;});
+ R.steps++;AU.play('click',r);if(carried)AU.play('carry');
+ let newly=0,cnt=0;L.pos.forEach((p,i)=>{const a=GEN.aligned(T.types[i],p,T.k);if(a)cnt++;if(a&&!was[i]){newly++;R.rv[i].gold=1;const g=ringGeo(T.n,i);FX.burst(CX,CY-(g.r0+g.r1)/2,'#ffd23f',10,120);}});
+ if(newly)AU.play('ding',cnt);
+ if(R.steps>L.budget){jam();return;}
+ if(GEN.isSolved(L))solved();else if(R.steps===L.budget)FX.text('最後一步！',CX,504,'#ff9d5c',16,.9);}
+// 卡死：紅閃、扣 6 秒、稍後重新亂轉
+function jam(){R.phase='jam';R.pt=0;R.fresh-=6;if(R.elapsed<15)R.fresh=Math.max(R.fresh,1);FX.shake=9;AU.play('jam');FX.text('卡死了 −6 秒',CX,CY,'#ff5a5a',26,1.2);}
+function rescramble(){R.jams++;const L=GEN.build(R.L.bp,mkRng(R.seed+R.idx*7919+R.jams*104729)),k=L.T.k;
+ R.rv.forEach((v,i)=>{let d=mod(L.pos[i]-mod(v.to,k),k);if(d>k/2)d-=k;v.from=v.a;v.to+=d;v.t=0;v.dur=.3;});
+ Object.assign(R,{L,steps:0,phase:'idle',idle:0,hintT:-1});}
+// 解開：星級、分數、連開倍率、保鮮回補
+function solved(){const L=R.L,n=L.T.n,st=R.steps<=L.par?3:R.steps<=L.par+2?2:1;Object.assign(R,{phase:'solved',pt:0,peeled:0,catPop:false});R.stars[R.idx]=st;
+ let mul=1;if(st===3){R.streak++;mul=Math.min(2,1+.2*R.streak);}else{if(R.streak>0){AU.play('break');FX.text('斷鏈…',CX,CY+100,'#aab4c4',16);}R.streak=0;}
+ const gain=Math.round(100*n*(st===3?2:st===2?1.5:1)*mul);R.score+=gain;
+ const before=R.fresh;R.fresh=Math.min(120,R.fresh+R.tower.rb+R.tower.rp*L.par);
+ P.recordLock(R.tower.id,R.idx,st);AU.play('unlock');FX.shake=4;
+ FX.text('★'.repeat(st)+'☆'.repeat(3-st)+` ${R.steps} 步！`,CX,CY-84,'#ffe27a',26,1.3);
+ FX.text(`＋${Math.round(R.fresh-before)} 秒`,CX,84,'#8ef08a',18,1.2);FX.text(`+${gain}`,350,32,'#ffe27a',16,1);
+ if(mul>1)FX.text(`喵鎖連開 ×${mul.toFixed(1)}`,CX,CY+84,'#ff9d5c',18,1.2);}
+// 貓從中心跳出（里程碑貓入鑑）
+function catPop(){AU.play('meow');FX.burst(CX,CY,'#fff',16,200);const c=R.ms;if(!c)return;
+ const isNew=P.unlockCat(c.id);if(isNew)R.newCats.push(c.id);
+ FX.text(`「${c.quip}」`,CX,CY+66,'#fff',15,1.2);FX.text(isNew?`新貓入鑑：${c.name}！`:c.name,CX,CY+88,isNew?'#ffcf40':'#cfd8e3',14,1.2);if(isNew)AU.play('record');}
+function endRun(reason){if(R.over)return;R.over=true;const win=reason==='win';if(win)R.score+=500+Math.floor(R.fresh)*10;
+ const prev=P.recordRun(R.tower,R.score,win,R.daily),rec=R.score>prev&&R.score>0;
+ RES={win,score:R.score,prev,rec,diff:Math.max(1,prev-R.score+1),stars:R.stars.slice(),total:R.tower.locks.length,cats:R.newCats.slice(),daily:R.daily,shown:0};
+ scene='result';resT=0;if(rec){FX.confetti();AU.play('record');}else AU.play(win?'unlock':'lose');
+ try {
+  if (window.SC) SC.over(R.score);
+ } catch (e) {}}
+function updPlay(dt){R.elapsed+=dt;R.enterT=Math.min(1,R.enterT+dt/.3);R.tipT=Math.max(0,R.tipT-dt);
+ for(const v of R.rv){if(v.t<1){v.t=Math.min(1,v.t+dt/v.dur);v.a=v.from+(v.to-v.from)*easeOutBack(v.t);}else v.a=v.to;v.gold=Math.max(0,v.gold-dt*2.5);v.shake=Math.max(0,v.shake-dt);}
+ for(let i=0;i<R.lf.length;i++)R.lf[i]=Math.max(0,R.lf[i]-dt*3);
+ R.shown+=(R.score-R.shown)*Math.min(1,dt*8);if(Math.abs(R.score-R.shown)<1)R.shown=R.score;
+ if(R.phase!=='solved'){R.fresh-=dt;if(R.elapsed<15)R.fresh=Math.max(R.fresh,1);
+  if(R.fresh<=0){R.fresh=0;endRun('lose');return;}
+  if(R.fresh<15){R.hb-=dt;if(R.hb<=0){AU.play('heart');R.hb=R.fresh<8?.55:.9;}}}
+ if(R.phase==='idle'){R.idle+=dt;if(R.idle>=20){R.idle=0;const o=GEN.next(R.L);if(o){R.hintRing=o.ring;R.hintT=0;AU.play('hint');}}}
+ if(R.hintT>=0){R.hintT+=dt;if(R.hintT>1.8)R.hintT=-1;}
+ if(R.phase==='jam'){R.pt+=dt;if(R.pt>=.6)rescramble();}
+ else if(R.phase==='solved'){R.pt+=dt;const n=R.L.T.n;
+  while(R.peeled<n&&R.pt>=R.peeled*.08){const g=ringGeo(n,R.peeled);FX.burst(CX,CY-g.r1,R.L.T.types[R.peeled].color,8,150);AU.play('pop',R.peeled);R.peeled++;}
+  if(!R.catPop&&R.pt>=n*.08+.05){R.catPop=true;catPop();}
+  if(R.pt>=1.2){if(R.idx+1>=R.tower.locks.length)endRun('win');else{R.idx++;loadLock();}}}}
+
+// ===== render：環、通道、貓鬚、中心貓、HUD =====
+function drawRing(j){const L=R.L,T=L.T,ty=T.types[j],v=R.rv[j],k=T.k,g=ringGeo(T.n,j),th=g.r1-g.r0,rm=(g.r0+g.r1)/2;
+ let rot=v.a/k*TAU,sc=1,al=1;
+ if(R.phase==='solved'){const p=(R.pt-j*.08)/.45;if(p>=1)return;if(p>0){sc=1+p*.8;rot+=p*2.5;al=1-p;}}
+ const ali=GEN.aligned(ty,L.pos[j],k),d1=Math.min(mod(L.pos[j],k),k-mod(L.pos[j],k)),d2=ty.gaps===2?Math.min(mod(L.pos[j]+ty.off,k),k-mod(L.pos[j]+ty.off,k)):99;
+ let col=ali?'#ffd23f':ty.color;if(R.phase==='jam'&&Math.floor(R.pt*14)%2===0)col='#ff4d4d';
+ ctx.save();ctx.translate(CX,CY);ctx.scale(sc,sc);ctx.globalAlpha=al;if(v.shake>0)ctx.rotate(Math.sin(time*70)*v.shake*.08);
+ const hw=TAU/k/2*.94,gaps=[rot];if(ty.gaps===2)gaps.push(rot+ty.off/k*TAU);const gs=gaps.map(a=>mod(a,TAU)).sort((a,b)=>a-b);
+ ctx.lineCap='butt';
+ for(let i=0;i<gs.length;i++){const a0=gs[i]+hw-Q,a1=(i+1<gs.length?gs[i+1]:gs[0]+TAU)-hw-Q;
+  ctx.beginPath();ctx.arc(0,0,rm,a0,a1);ctx.lineWidth=th;ctx.strokeStyle=col;if(ali){ctx.shadowColor='#ffd23f';ctx.shadowBlur=10+v.gold*16;}ctx.stroke();ctx.shadowBlur=0;
+  if(v.gold>0){ctx.strokeStyle=`rgba(255,255,255,${v.gold*.6})`;ctx.stroke();}
+  ctx.beginPath();ctx.arc(0,0,g.r1-th*.2,a0,a1);ctx.lineWidth=th*.26;ctx.strokeStyle='rgba(255,255,255,.3)';ctx.stroke();
+  ctx.beginPath();ctx.arc(0,0,g.r0+th*.14,a0,a1);ctx.lineWidth=th*.26;ctx.strokeStyle='rgba(0,0,0,.25)';ctx.stroke();}
+ // 格線刻痕
+ ctx.strokeStyle='rgba(0,0,0,.25)';ctx.lineWidth=1.5;
+ for(let c=0;c<k;c++){const a=rot+(c+.5)/k*TAU;if(gs.some(gg=>{const d=Math.abs(mod(a-gg+Math.PI,TAU)-Math.PI);return d<hw+.03;}))continue;
+  ctx.beginPath();ctx.moveTo(Math.sin(a)*(g.r0+3),-Math.cos(a)*(g.r0+3));ctx.lineTo(Math.sin(a)*(g.r1-3),-Math.cos(a)*(g.r1-3));ctx.stroke();}
+ // 標記字元＋鉚釘
+ const ga=rot+Math.PI,gx=Math.sin(ga)*rm,gy=-Math.cos(ga)*rm;ctx.fillStyle='rgba(0,0,0,.35)';ctx.beginPath();ctx.arc(gx,gy,th*.36,0,TAU);ctx.fill();
+ if(ty.glyph)T(ty.glyph,gx,gy+1,th*.5,'#fff');else{ctx.fillStyle='#fff';ctx.beginPath();ctx.arc(gx,gy,2.5,0,TAU);ctx.fill();}
+ for(const s of[-1,1]){const a=rot+s*Q;ctx.fillStyle='rgba(255,255,255,.55)';ctx.beginPath();ctx.arc(Math.sin(a)*rm,-Math.cos(a)*rm,2,0,TAU);ctx.fill();}
+ // 差一格：琥珀微光
+ if(!ali&&(d1===1||d2===1)&&R.phase!=='solved'){ctx.strokeStyle=`rgba(255,179,71,${.45+.35*Math.sin(time*6)})`;ctx.lineWidth=2;ctx.beginPath();ctx.arc(0,0,g.r1+1.5,0,TAU);ctx.stroke();}
+ // 提示：環與貓鬚閃三下
+ if(R.hintRing===j&&R.hintT>=0&&Math.floor(R.hintT/.3)%2===0){ctx.strokeStyle='#fff';ctx.lineWidth=3;ctx.beginPath();ctx.arc(0,0,g.r1+2,0,TAU);ctx.stroke();
+  for(const s of[-1,1])for(const dy of[-7,0,7]){ctx.beginPath();ctx.moveTo(s*(g.r1+4),dy*.6);ctx.lineTo(s*(g.r1+20),dy*1.5);ctx.stroke();}}
+ if(usingKB&&sel===j&&R.phase!=='solved'){ctx.setLineDash([5,4]);ctx.strokeStyle='#fff';ctx.lineWidth=2;ctx.beginPath();ctx.arc(0,0,g.r1+2,0,TAU);ctx.stroke();ctx.beginPath();ctx.arc(0,0,g.r0-2,0,TAU);ctx.stroke();ctx.setLineDash([]);}
+ ctx.restore();}
+// 連動貓鬚：from→to，粉紅＝反向
+function drawLinks(){const L=R.L,ls=L.bp.links,m=ls.length,n=L.T.n;if(R.phase==='solved')return;
+ ls.forEach((l,i)=>{const th=Math.PI+(i-(m-1)/2)*.3,ga=ringGeo(n,l.from),gb=ringGeo(n,l.to),ra=(ga.r0+ga.r1)/2,rb=(gb.r0+gb.r1)/2;
+  const x1=CX+Math.sin(th)*ra,y1=CY-Math.cos(th)*ra,x2=CX+Math.sin(th)*rb,y2=CY-Math.cos(th)*rb,col=l.sign>0?'#ffffff':'#ff79c6',f=R.lf[i]||0;
+  ctx.strokeStyle=col;ctx.globalAlpha=.75+.25*f;ctx.lineWidth=2.5+f*3;ctx.beginPath();ctx.moveTo(x1,y1);ctx.quadraticCurveTo((x1+x2)/2+8,(y1+y2)/2,x2,y2);ctx.stroke();
+  ctx.fillStyle=col;ctx.beginPath();ctx.arc(x1,y1,4,0,TAU);ctx.fill();
+  const a=Math.atan2(y2-y1,x2-x1);ctx.beginPath();ctx.moveTo(x2,y2);ctx.lineTo(x2-Math.cos(a-.5)*9,y2-Math.sin(a-.5)*9);ctx.lineTo(x2-Math.cos(a+.5)*9,y2-Math.sin(a+.5)*9);ctx.closePath();ctx.fill();
+  if(l.sign<0){ctx.beginPath();ctx.arc((x1+x2)/2+4,(y1+y2)/2,8,0,TAU);ctx.fill();T('反',(x1+x2)/2+4,(y1+y2)/2+1,10,'#3a0f28');}ctx.globalAlpha=1;});}
+function drawPlay(){const tw=R.tower,pal=tw.pal,L=R.L,T_=L.T,n=T_.n,out=ringGeo(n,0).r1+10;bgFill(pal.bg);
+ ctx.save();if(FX.shake>0)ctx.translate((Math.random()-.5)*FX.shake,(Math.random()-.5)*FX.shake);
+ const z=R.enterT<1?.3+.7*easeOutBack(R.enterT):1,nearAll=R.phase==='idle'&&L.pos.filter((p,i)=>GEN.aligned(T_.types[i],p,T_.k)).length===n-1&&n>1;
+ ctx.translate(CX,CY);ctx.scale(z*(nearAll?1+.008*Math.sin(time*8):1),z*(nearAll?1+.008*Math.sin(time*8):1));ctx.translate(-CX,-CY);
+ // 罐身：標籤圈、馬口鐵、暗色罐底
+ ctx.fillStyle=pal.label;ctx.beginPath();ctx.arc(CX,CY,out+10,0,TAU);ctx.fill();
+ const tg=ctx.createRadialGradient(CX-40,CY-60,20,CX,CY,out+6);tg.addColorStop(0,shade(pal.tin,.3));tg.addColorStop(1,shade(pal.tin,-.3));ctx.fillStyle=tg;ctx.beginPath();ctx.arc(CX,CY,out+5,0,TAU);ctx.fill();
+ ctx.fillStyle=shade(pal.tin,-.72);ctx.beginPath();ctx.arc(CX,CY,out,0,TAU);ctx.fill();
+ // 通道（藏在環下，對齊的縫隙會透光）
+ const cg=ctx.createLinearGradient(CX-14,0,CX+14,0);cg.addColorStop(0,'rgba(255,230,140,0)');cg.addColorStop(.5,'rgba(255,230,140,.85)');cg.addColorStop(1,'rgba(255,230,140,0)');
+ ctx.fillStyle=cg;ctx.fillRect(CX-14,CY-out,28,out-40);
+ for(let j=n-1;j>=0;j--)drawRing(j);
+ ctx.setLineDash([4,6]);ctx.strokeStyle='rgba(255,240,180,.35)';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(CX,CY-50);ctx.lineTo(CX,CY-out-2);ctx.stroke();ctx.setLineDash([]);
+ T('▼',CX,CY-out-18,16,'#ffe27a');
+ drawLinks();
+ // 中心貓
+ ctx.fillStyle=shade(pal.tin,-.1);ctx.beginPath();ctx.arc(CX,CY,47,0,TAU);ctx.fill();ctx.strokeStyle=shade(pal.tin,-.45);ctx.lineWidth=3;ctx.stroke();
+ const cat=R.ms||C.get('cats','cat_default');let cy=CY,sy=1;
+ if(R.phase==='solved'){const jt=R.pt-(n*.08+.05);if(jt>0){const p=Math.min(1,jt/.55);cy=CY-Math.sin(p*Math.PI)*60;sy=1+.18*Math.sin(jt*22)*Math.exp(-jt*5);}}
+ ctx.save();ctx.translate(CX,cy);ctx.scale(1/sy,sy);drawCat(0,0,33,cat,!!R.ms&&!(R.phase==='solved'&&R.catPop));ctx.restore();
+ FX.draw();ctx.restore();drawHUD();}
+function drawHUD(){const tw=R.tower,L=R.L,N=tw.locks.length;
+ ctx.fillStyle='rgba(0,0,0,.38)';ctx.fillRect(0,0,W,72);ctx.fillRect(0,522,W,78);
+ T(tw.name+(R.daily?'・每日':''),CX,15,14,'#fff');T(fmt(R.shown),390,15,17,'#ffe27a','right');
+ T(`第 ${R.idx+1}／${N} 鎖`,12,33,12,'#cfd8e3','left',false);
+ const gap=Math.min(16,200/N);for(let i=0;i<N;i++){const x=90+i*gap,st=R.stars[i]||0,mk=tw.cats.some(c=>c.at===i+1);
+  ctx.fillStyle=i<R.idx||(i===R.idx&&R.phase==='solved')?['#556','#c98a4b','#dfe4ea','#ffcf40'][st]:i===R.idx?`rgba(255,255,255,${.6+.4*Math.sin(time*6)})`:'#3a4658';
+  ctx.beginPath();ctx.arc(x,33,mk?5:3.5,0,TAU);ctx.fill();if(mk){ctx.strokeStyle=tw.pal.label;ctx.lineWidth=2;ctx.stroke();}}
+ if(R.streak>0)T(`喵鎖連開 ×${Math.min(2,1+.2*R.streak).toFixed(1)}`,390,33,12,'#ff9d5c','right');
+ const fx=14,fw=372,fy=46,fh=18,fr=clamp(R.fresh/120,0,1),low=R.fresh<15,pul=.5+.5*Math.sin(time*10);
+ rr(fx,fy,fw,fh,6);ctx.fillStyle='#161d2b';ctx.fill();
+ if(fr>0){rr(fx+2,fy+2,Math.max(6,(fw-4)*fr),fh-4,4);ctx.fillStyle=low?`rgb(${200+55*pul},${50+30*pul},60)`:R.fresh<40?'#f2b544':'#6fd08c';ctx.fill();}
+ ctx.strokeStyle='rgba(255,255,255,.18)';ctx.lineWidth=1;for(let x=fx+22;x<fx+fw;x+=24){ctx.beginPath();ctx.moveTo(x,fy+3);ctx.lineTo(x,fy+fh-3);ctx.stroke();}
+ T(`保鮮 ${Math.ceil(R.fresh)} 秒`,CX,fy+fh/2+1,12,'#fff');
+ if(R.tipT>0){ctx.globalAlpha=Math.min(1,R.tipT);R.tips.forEach((s,i)=>{const y=92+i*22;ctx.font=`bold 14px ${FONT}`;const w=ctx.measureText(s).width+20;rr(CX-w/2,y-10,w,20,10);ctx.fillStyle='rgba(0,0,0,.55)';ctx.fill();T(s,CX,y+1,14,i===0?'#ffe27a':'#fff');});ctx.globalAlpha=1;}
+ const nA=L.pos.filter((p,i)=>GEN.aligned(L.T.types[i],p,L.T.k)).length;
+ if(R.phase==='idle'&&nA===L.T.n-1&&L.T.n>1)TS('只差 1 環！',CX,500,16+2*Math.sin(time*8),'#ffb347');
+ const warn=R.steps>=L.budget-1;T(`步 ${R.steps}／預算 ${L.budget}　｜　最少 ${L.par}`,CX,540,17,warn?'#ff8a7a':'#fff');
+ T(`★★★ ≤${L.par} 步　★★ ≤${L.par+2} 步　★ 預算內`,CX,562,12,'#ffe27a',undefined,false);
+ T(usingKB?'1-5／↑↓ 選環　←→ 轉動　M 靜音':'點環左半逆轉、右半順轉',185,585,12,'#9fb0c6',undefined,false);
+ T(AU.muted?'🔇':'🔊',378,584,16,'#fff');BTN.push({x:356,y:566,w:44,h:34,fn:()=>AU.toggleMute()});}
+
+// ===== ui：標題／選塔／圖鑑／結算 =====
+function drawTitle(){const tws=C.list('towers'),pal=tws[0]?tws[0].pal:{bg:'#243b55',tin:'#c9ced6',label:'#e8553d'};bgFill(pal.bg);
+ const cx=200,cy=200;ctx.fillStyle=pal.label;ctx.beginPath();ctx.arc(cx,cy,112,0,TAU);ctx.fill();ctx.fillStyle=pal.tin;ctx.beginPath();ctx.arc(cx,cy,106,0,TAU);ctx.fill();ctx.fillStyle=shade(pal.tin,-.7);ctx.beginPath();ctx.arc(cx,cy,100,0,TAU);ctx.fill();
+ [['#c9ced6',88,.5],['#f2b544',70,-.8],['#6fc8f0',52,1.1]].forEach(([c,r,sp],i)=>{const a=Math.sin(time*sp*.6+i)*1.2*(1-Math.min(1,Math.max(0,Math.sin(time*.5)*3-1)));ctx.strokeStyle=c;ctx.lineWidth=14;ctx.beginPath();ctx.arc(cx,cy,r,a+.3-Q,a-.3+TAU-Q);ctx.stroke();});
+ const cs=P.d.cats.map(id=>C.get('cats',id)).filter(Boolean),tc=cs.length?cs[cs.length-1]:C.get('cats','cat_default');drawCat(cx,cy+Math.sin(time*3)*3,30,tc,false);
+ TS('喵鎖層層開',200,52,42,'#ffe27a');
+ T('點環左半／右半轉一格，讓每層縫隙對準上方通道！',200,332,14,'#fff');
+ T('觸控：點環左半＝逆轉、右半＝順轉',200,356,13,'#cfd8e3',undefined,false);
+ T('鍵盤：1-5 選環（1＝最外）↑↓ 切換 ←→ 轉　M 靜音',200,376,12,'#cfd8e3',undefined,false);
+ if(C.errors.length){rr(20,400,360,150,12);ctx.fillStyle='rgba(120,20,20,.8)';ctx.fill();T('內容錯誤，無法開始',200,420,16,'#fff');C.errors.slice(0,4).forEach((e,i)=>wrap(e,340,12).slice(0,2).forEach((l,j)=>T(l,200,446+i*28+j*14,12,'#ffd0d0',undefined,false)));return;}
+ const dd=P.daily(),stk=(dd.last_play_date===dayStr(0)||dd.last_play_date===dayStr(-1))?(+dd.streak||0):0;
+ const taunt=dd.prev_date===dayStr(-1)&&dd.prev_best>0?`昨日 ${fmt(dd.prev_best)} 分，今天贏得了嗎？`:P.d.best_score>0?`本機最高 ${fmt(P.d.best_score)} 分，今天破得了嗎？`:'第一罐，從這裡開始！';
+ T(taunt,200,404,14,'#ffb347');
+ T(`🔥 連續 ${stk} 天　今日最佳 ${fmt(+dd.best||0)}　★ ${P.d.total_stars}`,200,426,12,stk?'#ffcf40':'#9fb0c6',undefined,false);
+ button(90,446,220,50,'開始爬塔',titleStart,'#ffcf40','#3a2200',22);
+ const dt=dailyTower();button(40,508,186,40,`每日塔：${dt.name}`.slice(0,11),()=>startRun(dt,true),'#6ec6ff','#08263a',14);
+ const got=C.list('cats').filter(owned).length;button(236,508,124,40,`圖鑑 ${got}/${C.list('cats').length}`,()=>{dexSel=-1;go('dex');},'#c58bff','#2a0a3a',15);
+ T('點任意處開始',200,572,12,`rgba(255,255,255,${.5+.4*Math.sin(time*4)})`,undefined,false);}
+function titleStart(){const tws=C.list('towers');if(tws.filter(unlocked).length<=1)startRun(tws[0],false);else{selT=0;go('select');}}
+function go(s){scene=s;AU.play('ui');}
+function drawSelect(){bgFill('#1a2a44');T('選一座罐頭塔',200,40,24,'#fff');T(`累計 ★ ${P.d.total_stars}`,200,68,15,'#ffcf40');
+ const tws=C.list('towers'),n=tws.length,top=86,rh=Math.min(66,450/n);
+ tws.forEach((t,i)=>{const y=top+i*rh,un=unlocked(t),rec=P.d.towers[t.id]||{},bs=Array.isArray(rec.best_stars)?rec.best_stars:[],got=bs.reduce((a,b)=>a+(+b||0),0);
+  rr(16,y+2,368,rh-4,10);ctx.fillStyle=un?(i===selT&&usingKB?'rgba(255,255,255,.25)':'rgba(255,255,255,.1)'):'rgba(0,0,0,.3)';ctx.fill();
+  ctx.fillStyle=t.pal.label;rr(16,y+2,8,rh-4,4);ctx.fill();const fs=Math.min(16,rh*.32);
+  T(t.name+(rec.cleared?' 🏁':''),34,y+rh*.28,fs,un?'#fff':'#789','left');
+  if(un){T(`★ ${got}／${t.locks.length*3}`,374,y+rh*.28,fs*.85,'#ffcf40','right');
+   if(rh>=58)T(t.desc+(rec.best_score?`　最佳 ${fmt(rec.best_score)}`:''),34,y+rh*.54,11,'#b8c4d4','left',false);
+   t.locks.forEach((_,li)=>{const s=+bs[li]||0;ctx.fillStyle=['#3a4658','#c98a4b','#dfe4ea','#ffcf40'][s];ctx.fillRect(34+li*14,y+rh*(rh>=58?.74:.62),11,Math.max(4,rh*.12));});
+   BTN.push({x:16,y,w:368,h:rh,fn:()=>startRun(t,false)});}
+  else{T(`🔒 需要 ★ ${t.unlock}`,374,y+rh*.28,fs*.85,'#9aa','right');BTN.push({x:16,y,w:368,h:rh,fn:()=>{AU.play('thud');FX.text(`再收集 ${t.unlock-P.d.total_stars} 顆星解鎖`,200,y+rh/2,'#ffb347',14,1);}});}});
+ button(130,546,140,38,'← 返回',()=>go('title'),'#44536a','#fff',16);FX.draw();}
+function drawDex(){bgFill('#231c38');const cs=C.list('cats'),got=cs.filter(owned).length;T('喵喵圖鑑',200,38,24,'#fff');T(`收集 ${got}／${cs.length}`,200,64,14,'#ffcf40');
+ const cols=4,rows=Math.ceil(cs.length/cols),ch=Math.min(104,410/rows),cw=92,x0=200-cols*cw/2,y0=82;
+ cs.forEach((c,i)=>{const cx=x0+(i%cols)*cw+cw/2,ty=y0+Math.floor(i/cols)*ch,o=owned(c),r=Math.min(26,ch*.28),y=ty+ch*.42;
+  if(dexSel===i){rr(cx-cw/2+3,ty+2,cw-6,ch-4,10);ctx.fillStyle='rgba(255,255,255,.14)';ctx.fill();}
+  drawCat(cx,y,r,c,!o);T(o?c.name:'？？？',cx,y+r+Math.min(14,ch*.2),Math.min(12,ch*.15),o?RC[c.rarity]:'#667');
+  BTN.push({x:cx-cw/2,y:ty,w:cw,h:ch,fn:()=>{dexSel=i;AU.play('ui');}});});
+ rr(16,498,368,52,10);ctx.fillStyle='rgba(0,0,0,.35)';ctx.fill();const c=cs[dexSel];
+ if(c&&owned(c)){T(`${c.name}・${RN[c.rarity]}`,200,512,14,RC[c.rarity]);T(`「${c.quip}」${c.lore}`.slice(0,32),200,534,11,'#dde',undefined,false);}
+ else T(c?'還沒遇見這隻貓，去塔的里程碑鎖找找！':'點一隻貓看介紹',200,524,13,'#9fb0c6');
+ button(130,558,140,36,'← 返回',()=>go('title'),'#44536a','#fff',16);}
+function drawResult(){const r=RES;bgFill(R.tower.pal.bg);ctx.fillStyle='rgba(0,0,0,.35)';ctx.fillRect(0,0,W,H);
+ TS(r.win?'罐頭塔登頂！':'保鮮過期了…',200,78,30,r.win?'#ffe27a':'#ff9d8a');T(R.tower.name+(r.daily?'・每日塔':''),200,110,14,'#cfd8e3');
+ const sc=1+(r.rec?.06*Math.sin(time*6):0);ctx.save();ctx.translate(200,170);ctx.scale(sc,sc);TS(fmt(r.shown),0,0,50,'#fff');ctx.restore();
+ if(r.rec)TS('🎉 新紀錄！',200,222,24,'#ffcf40');else TS(`差 ${fmt(r.diff)} 分破${r.daily?'今日':'本塔'}紀錄！`,200,222,20,'#ffb347');
+ T(`${r.daily?'今日':'本塔'}最佳 ${fmt(Math.max(r.prev,r.score))}　全局最佳 ${fmt(P.d.best_score)}`,200,250,12,'#b8c4d4',undefined,false);
+ const N=r.total,gw=Math.min(26,340/N),x0=200-gw*(N-1)/2;
+ for(let i=0;i<N;i++){const s=r.stars[i]||0,x=x0+i*gw;ctx.fillStyle=['#3a4658','#c98a4b','#dfe4ea','#ffcf40'][s];rr(x-gw*.38,276,gw*.76,24,4);ctx.fill();T(s?String(s):'·',x,289,12,s?'#222':'#789');}
+ T('每道鎖星級',200,312,11,'#9fb0c6',undefined,false);
+ if(r.cats.length){T('新收的貓',200,338,13,'#ffcf40');r.cats.forEach((id,i)=>{const c=C.get('cats',id),x=200+(i-(r.cats.length-1)/2)*90;if(c){drawCat(x,380,22,c,false);T(c.name,x,414,11,RC[c.rarity]);}});}
+ else T(r.win?'把兩星的鎖刷成三星，衝更高分！':'保鮮只怕發呆和亂點——想好再轉！',200,370,13,'#cfd8e3',undefined,false);
+ button(90,440,220,56,'再開一罐',restart,'#ffcf40','#3a2200',24);
+ button(60,516,130,36,'選塔',()=>{selT=0;go('select');},'#44536a','#fff',15);button(210,516,130,36,'標題',()=>go('title'),'#44536a','#fff',15);
+ T('點任意處或按任意鍵重開',200,576,12,`rgba(255,255,255,${.5+.4*Math.sin(time*4)})`,undefined,false);FX.draw();}
+function restart(){if(resT<.4)return;startRun(R.tower,R.daily);}
+
+// ===== input：指標與鍵盤 =====
+function toLogic(e){const r=cv.getBoundingClientRect();return{x:(e.clientX-r.left)/r.width*W,y:(e.clientY-r.top)/r.height*H};}
+function playTap(x,y){const L=R.L;if(!L)return;const d=Math.hypot(x-CX,y-CY);let best=-1,bd=1e9;
+ for(let j=0;j<L.T.n;j++){const g=ringGeo(L.T.n,j);if(d>=g.r0-3&&d<=g.r1+3){const dd=Math.abs(d-(g.r0+g.r1)/2);if(dd<bd){bd=dd;best=j;}}}
+ if(best>=0){sel=best;tap(best,x<CX?-1:1);}}
+cv.addEventListener('pointerdown',e=>{e.preventDefault();AU.init();const p=toLogic(e);if(e.pointerType!=='mouse'||scene!=='play')usingKB=false;
+ for(let i=BTN.length-1;i>=0;i--){const b=BTN[i];if(p.x>=b.x&&p.x<=b.x+b.w&&p.y>=b.y&&p.y<=b.y+b.h){b.fn();return;}}
+ if(scene==='play'){usingKB=false;playTap(p.x,p.y);}else if(scene==='result')restart();else if(scene==='title'&&!C.errors.length)titleStart();});
+cv.addEventListener('pointercancel',()=>{BTN.length=BTN.length;});
+window.addEventListener('blur',()=>{usingKB=false;});
+window.addEventListener('keydown',e=>{const k=e.key;if([' ','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(k))e.preventDefault();if(e.repeat)return;AU.init();
+ if(k==='m'||k==='M'){AU.toggleMute();return;}
+ if(scene==='play'){if(!R.L)return;usingKB=true;const n=R.L.T.n;
+  if(k>='1'&&k<='5')sel=Math.min(+k-1,n-1);else if(k==='ArrowUp')sel=Math.max(0,sel-1);else if(k==='ArrowDown')sel=Math.min(n-1,sel+1);
+  else if(k==='ArrowLeft')tap(sel,-1);else if(k==='ArrowRight')tap(sel,1);}
+ else if(scene==='result')restart();
+ else if(scene==='title'){if((k==='Enter'||k===' ')&&!C.errors.length)titleStart();}
+ else if(scene==='select'){usingKB=true;const tws=C.list('towers');if(k==='ArrowUp')selT=Math.max(0,selT-1);else if(k==='ArrowDown')selT=Math.min(tws.length-1,selT+1);
+  else if(k==='Enter'||k===' '){if(unlocked(tws[selT]))startRun(tws[selT],false);else AU.play('thud');}else if(k==='Escape')go('title');}
+ else if(scene==='dex'&&(k==='Escape'||k==='Enter'||k===' '))go('title');});
+
+// ===== 主迴圈（deltaTime，上限 50ms）=====
+let last=performance.now();
+function frame(now){let dt=(now-last)/1000;last=now;if(!(dt>0))dt=0;if(dt>.05)dt=.05;time+=dt;
+ try{FX.update(dt);if(scene==='play')updPlay(dt);else if(scene==='result'){resT+=dt;RES.shown+=(RES.score-RES.shown)*Math.min(1,dt*6);if(Math.abs(RES.score-RES.shown)<1)RES.shown=RES.score;}
+  ctx.setTransform(SCL*dpr,0,0,SCL*dpr,0,0);BTN=[];
+  if(scene==='play'&&R.L)drawPlay();else if(scene==='select')drawSelect();else if(scene==='dex')drawDex();else if(scene==='result'&&RES)drawResult();else drawTitle();
+ }catch(err){console.warn(TAG,err);scene='title';}
+ requestAnimationFrame(frame);}
+
+// ===== 品管掛鉤 =====
+window.SC_HOOKS={
+ start(){if(C.errors.length)return false;const t=C.list('towers')[0];startRun(t,false);return true;},
+ snapshot(){return{scene,score:R.score,level:R.idx+1,elapsed:+R.elapsed.toFixed(2),fresh:+R.fresh.toFixed(2),tower:R.tower?R.tower.id:null,locks:R.tower?R.tower.locks.length:0,
+  steps:R.steps,budget:R.L?R.L.budget:0,par:R.L?R.L.par:0,pos:R.L?R.L.pos.slice():[],phase:R.phase,streak:R.streak,stars:R.stars.slice(),over:R.over,daily:R.daily,
+  total_stars:P.d?P.d.total_stars:0,best_score:P.d?P.d.best_score:0,errors:C.errors.slice()};}};
+
+// ===== 啟動 =====
+C.load();P.load();AU.muted=P.d.muted;resize();window.addEventListener('resize',resize);
+if(!C.errors.length)selfTest();
+requestAnimationFrame(frame);
+</script>
+<script src="../../sc_config.js"></script>
+<script src="../../stats.js"></script>
+</body>
+</html>
