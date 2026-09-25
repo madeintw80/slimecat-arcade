@@ -409,7 +409,7 @@ def stage_deconstruct(trends: dict, history: dict, past_games: list, pick: str =
 {task_line}，
 然後寫一份**解構筆記**：不是描述它有什麼功能，而是拆解「為什麼會好玩、為什麼讓人上癮」。
 
-輸出格式（嚴格遵守，前四行是標頭，之後是筆記本體；直接印出文字、不要使用任何工具）：
+輸出格式（前四行是標頭、程式會解析，之後是筆記本體）：
 SOURCE: <原作名稱>
 ORIGIN: <appstore 或 steam（它在哪份榜單上；Boss 點名的寫 named）>
 TITLE: <我們的變形版建議中文名（全新命名；不可含原作名，也不可與原作名音近/形近/直譯——商標紅線）>
@@ -512,19 +512,16 @@ def stage_generate(decon: dict, past_games: list, feedback: str = ""):
 - 頁面左上角放回大廳連結：<a href="../../index.html">← 回遊戲區</a>
 - 一局結束（Game Over）時加一行 `if (window.SC) SC.over(最終分數);`（匿名數據回報，SC 由站台注入）
 
-🔴 交付方式：你唯一的交付物是「印出的文字」。不要使用任何工具、不要建立或修改任何檔案
-（你也沒有寫檔權限），把完整 HTML 當純文字印出來就是交稿。**整份交稿放在同一則回覆裡**，
-不要分成兩則、不要中途停下來問問題。
+交付方式：你唯一的交付物是「印出的文字」（沒有工具、也沒有寫檔權限），把完整 HTML 當純文字印出來就是交稿。
+這是無人值守的批次，沒有人能回答問題；需要取捨時照企劃自己決定，一次寫完。
 
 輸出格式（嚴格遵守）：
 - 不要 markdown code fence、不要任何解說文字，直接輸出檔案內容
-- 檔案第一行必須是這個中繼資料註解（JSON 單行）：
+- 檔案第一行是這個中繼資料註解（JSON 單行，程式靠它讀遊戲名與類型）：
 <!--GAMEMETA {{"title":"遊戲中文名","emoji":"一個代表emoji","genre":"{genre}","inspiration":"{decon['source']}","desc":"一句話介紹(30字內)"}}-->
 - 第二行開始就是 <!DOCTYPE html> 起頭的完整網頁
-- 🔴 交稿前最後自檢：輸出的「第 1 行」必須就是那行 <!--GAMEMETA …--> 中繼資料註解
-  （先印它、再印網頁）；漏了這行，整包交稿直接作廢
 """
-    out = run_claude(prompt, GEN_TIMEOUT, model=MODEL_BUILD, stage="build")
+    out = run_claude(prompt, GEN_TIMEOUT, model=MODEL_BUILD, effort="high", stage="build")
     try:
         return extract(out)
     except ValueError as e:
@@ -638,7 +635,7 @@ def stage_critic(html: str, meta: dict):
 {kb_scale}
 
 每維 1-10 分（8 分以上必須真的出色才給；可以給 .5 半分）。只輸出一行 JSON，格式：
-{{"scores":{{"onboarding":n,"juice":n,"goal":n,"difficulty":n,"one_more":n}},"total":n,"fixes":["最重要的改進點1（要具體到工程師能直接改）","改進點2","改進點3"],"verdict":"一句話總評","howto":"給玩家看的一句話怎麼玩（30字內）","design_choices":["這款最關鍵的設計決策或取捨1（從程式碼看得出來的）","決策2"],"pressure_3min":"第 3 分鐘的壓力源是什麼？沒有就寫『無：後期會平掉』（30字內）","scale_up":{{"worth":true或false,"why":"值不值得做成大型版（關卡/波次/升級/圖鑑）的一句理由"}}}}
+{{"scores":{{"onboarding":n,"juice":n,"goal":n,"difficulty":n,"one_more":n}},"fixes":["最重要的改進點1（要具體到工程師能直接改）","改進點2","改進點3"],"verdict":"一句話總評","howto":"給玩家看的一句話怎麼玩（30字內）","design_choices":["這款最關鍵的設計決策或取捨1（從程式碼看得出來的）","決策2"],"pressure_3min":"第 3 分鐘的壓力源是什麼？沒有就寫『無：後期會平掉』（30字內）","scale_up":{{"worth":true或false,"why":"值不值得做成大型版（關卡/波次/升級/圖鑑）的一句理由"}}}}
 
 原始碼：
 {html[:CRITIC_HTML_CAP]}
@@ -703,12 +700,10 @@ def stage_polish(html: str, meta: dict, crit: dict) -> str:
   fixed timestep 不可假設 60fps／DPR 高解析／繁中介面／SC.over 回報／localStorage 最高分）
 - 遊戲名與第一行 GAMEMETA 註解保持原樣
 
-🔴 交付方式：你唯一的交付物是「印出的文字」。不要使用任何工具（你也沒有寫檔權限）。
-整份交稿放在同一則回覆裡，不要分成兩則。
-輸出格式：不要 code fence、不要任何解說文字；第一行是原本的 GAMEMETA 註解，第二行起是完整 HTML。
-交稿前最後自檢：輸出第 1 行必須就是原本那行 <!--GAMEMETA …-->，漏了整包作廢。
+交付方式：你唯一的交付物是「印出的文字」（沒有工具、也沒有寫檔權限），一次寫完。
+輸出格式：不要 code fence、不要任何解說文字；第一行是原本的 GAMEMETA 註解（程式靠它接回遊戲資訊），第二行起是完整 HTML。
 """
-    out = run_claude(prompt, GEN_TIMEOUT, model=MODEL_BUILD, stage="polish")
+    out = run_claude(prompt, GEN_TIMEOUT, model=MODEL_BUILD, effort="high", stage="polish")
     try:
         _, html2 = extract(out)   # meta 一律沿用原版（防模型偷改名），只取修訂後的 HTML
     except ValueError as e:

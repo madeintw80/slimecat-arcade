@@ -142,7 +142,6 @@ def cmd_propose() -> int:
 
     prompt = f"""你是「SlimeCat 遊戲工作室」的首席遊戲策劃。今天不臨摹任何現有遊戲——
 下面是從機制原子庫隨機抽出的 3 個組合，替每一組發想一款「30 秒上手的網頁小遊戲」原創企劃。
-（直接輸出文字、不要使用任何工具）
 
 {chr(10).join(blocks)}
 
@@ -212,7 +211,7 @@ def cmd_build(idx: int) -> int:
     entries = "\n".join(f"### {aid} {lib['atoms'][aid]['name']}\n{lib['atoms'][aid]['body']}"
                         for aid in p["atoms"] if aid in lib["atoms"])
     prompt = f"""你是「SlimeCat 遊戲工作室」的首席遊戲策劃。用戶已從候選中選定這個原創企劃，
-請把它展開成可直接實作的完整企劃書。（直接輸出文字、不要使用任何工具）
+請把它展開成可直接實作的完整企劃書。
 
 一句話企劃：{p['concept']}
 上癮亮點：{p['hook']}

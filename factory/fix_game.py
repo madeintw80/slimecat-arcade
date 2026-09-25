@@ -97,11 +97,9 @@ def build_prompt(g: dict, html: str, bugs: list, feedback: str = "") -> str:
 - 手機觸控與電腦滑鼠都要驗證過你的修法（在腦中實際走一遍事件流）
 - 不可用 alert/confirm/prompt；不可出現 console.error 或未捕捉例外
 
-🔴 交付方式：你唯一的交付物是「印出的文字」。不要使用任何工具、不要建立或修改任何檔案
-（你也沒有寫檔權限），把修復後的完整檔案當純文字印出來就是交稿。
+交付方式：你唯一的交付物是「印出的文字」（沒有工具、也沒有寫檔權限），把修復後的完整檔案當純文字印出來就是交稿。
 輸出格式：不要 markdown code fence、不要任何解說文字，
-第一行是原本的 GAMEMETA 註解，接著就是修復後的完整網頁內容。
-交稿前最後自檢：輸出第 1 行必須就是原本那行 <!--GAMEMETA …-->，漏了整包作廢。
+第一行是原本的 GAMEMETA 註解（程式靠它接回遊戲資訊），接著就是修復後的完整網頁內容。
 """
 
 
@@ -174,7 +172,7 @@ def fix_one(g: dict, data: dict) -> bool:
     for attempt in range(1, MAX_ATTEMPTS + 1):
         log(f"  第 {attempt}/{MAX_ATTEMPTS} 次修復…")
         try:
-            out = run_claude(build_prompt(g, html, bugs, feedback), GEN_TIMEOUT)
+            out = run_claude(build_prompt(g, html, bugs, feedback), GEN_TIMEOUT, effort="high")
             fixed = extract_fixed(out, len(html), html)
         except Exception as e:
             log(f"  ❌ 修復輸出不合格：{e}")

@@ -201,7 +201,6 @@ def build_plan_prompt(decon: dict, past_games: list) -> str:
     return f"""你是「SlimeCat 遊戲工作室」的首席遊戲策劃。任務：把下面這份解構筆記（或原創企劃）展開成
 一份「可直接分工實作」的企劃書＋模組合約。這款要比本站過去所有作品都更好玩，而且要「做大」：
 單局 3～{CAPS['session_max_min']} 分鐘、有跨局進度（解鎖／升級／圖鑑至少一種），玩家關掉再開會想繼續。
-（直接輸出文字、不要使用任何工具）
 
 ═══ 設計聖經（做之前先內化）═══
 {kb}
@@ -229,7 +228,7 @@ def build_plan_prompt(decon: dict, past_games: list) -> str:
 - 手機直式 canvas 400×600，觸控＋鍵盤都能玩；零外部資源；美術完全自由（不必是史萊姆貓）
 版權紅線：只學機制與心理學、不抄表達——命名、特徵性視覺、具體數值表與關卡佈局都不可與原作相同。
 
-篇幅：企劃書本體 3,000～5,000 字（不含合約 JSON）——寫給工程師看的規格，不是論文；每節講清楚就換下一節。
+篇幅：寫給工程師看的規格，不是論文；每節講清楚就換下一節（合約 JSON 另計）。
 
 輸出格式（嚴格遵守）：先是企劃書本體（Markdown，照下面章節），最後一行 ===CONTRACT=== 之後
 接一個 JSON 物件（合法 JSON：不要 code fence、不要註解、不要尾逗號），再以 ===END=== 收尾。
@@ -405,7 +404,6 @@ def build_engine_prompt(plan_doc: str, contract: dict, decon: dict, feedback: st
     line_budget = line_budget or engine_line_budget(contract)
     return f"""你是「SlimeCat 遊戲工作室」的資深遊戲開發者。策劃已完成企劃書與模組合約，你是引擎的**唯一作者**：
 一次寫完整個單檔 HTML5 遊戲引擎（系統＋畫面＋音效），內容資料由別人照合約另外生成。
-（直接輸出文字、不要使用任何工具）
 
 ═══ 設計聖經（實作時逐條對照第三節「出貨檢查清單」）═══
 {kb}
@@ -429,8 +427,7 @@ canvas 畫或 emoji 皆可；絕不可用原作（{decon.get('source', '')}）�
 合約的模組清單是「職責劃分」不是檔案結構：小模組合併成函式、共用工具抽出來、不要重複程式碼、
 註解精簡（每個函式一行說明就好）；寧可少做一個次要系統，也要一次交完整。把力氣花在手感與回饋，不要堆系統。
 
-🔴 交付方式：你唯一的交付物是「印出的文字」。不要使用任何工具、不要建立或修改任何檔案（你也沒有寫檔權限）。
-**整份交稿放在同一則回覆裡**，不要分成兩則、不要中途停下來問問題。想清楚再開始寫，寫的時候一路寫到底。
+交付方式：你唯一的交付物是「印出的文字」（沒有工具、也沒有寫檔權限）。這是無人值守的批次，沒有人能回答問題；需要取捨時照合約自己決定，一次寫完。
 輸出格式（嚴格遵守）：不要 markdown code fence、不要任何解說文字；第一行就是 <!DOCTYPE html>，
 最後一行是 </html>。
 """
@@ -642,7 +639,7 @@ def build_content_prompt(pack: dict, plan_doc: str, contract: dict, notes: str, 
             avail_block = ("\n═══ 🔴 可引用的 id 清單（其他內容包已生成；引用欄位一個都不可自創，自創的引擎會略過、關卡會壞）═══\n"
                            + "\n".join(lines) + "\n")
     return f"""你是「SlimeCat 遊戲工作室」的內容設計師（關卡／數值設計）。引擎已經做好，
-請照合約 schema 填《{contract['title']}》的「{pack['label']}」內容包。（直接輸出文字、不要使用任何工具）
+請照合約 schema 填《{contract['title']}》的「{pack['label']}」內容包。
 
 ═══ 企劃書節錄（核心迴圈／內容包規格／難度曲線／進度）═══
 {plan_excerpt(plan_doc)}
@@ -753,7 +750,7 @@ def stage_content(pack: dict, plan_doc: str, contract: dict, notes: str, availab
 # ================================================================ 評審（sonnet／Echo 共用 prompt）
 REVIEW_SCALE = ("五維量表：上手(不看說明能玩?規則一句話?)、Juice(每個操作有視聽回饋?得分有爽感演出?)、"
                 "目標(隨時知道為何而玩?)、難度(前15秒安全?2分鐘後仍有挑戰?)、再一局(near-miss設計?重開零摩擦?)")
-REVIEW_JSON = ('{"scores":{"onboarding":n,"juice":n,"goal":n,"difficulty":n,"one_more":n},"total":n,'
+REVIEW_JSON = ('{"scores":{"onboarding":n,"juice":n,"goal":n,"difficulty":n,"one_more":n},'
                '"fixes":["最重要的改進點1（具體到工程師能直接改）","改進點2","改進點3"],'
                '"verdict":"一句話總評","howto":"給玩家看的一句話怎麼玩（30字內）",'
                '"design_choices":["從程式碼看得出來的關鍵設計決策1","決策2"],'
@@ -870,7 +867,7 @@ def stage_critic(plan_doc: str, contract: dict, html: str, qa_info: dict = None)
 def build_polish_prompt(html: str, issues: list, contract: dict) -> str:
     items = "\n".join(f"{i}. {t}" for i, t in enumerate(issues, 1))
     return f"""你是「SlimeCat 遊戲工作室」的資深遊戲開發者。你剛完成的《{contract['title']}》經過評審與整合稽核，
-請針對下面這幾條修訂——**用 patch 交稿，不要重印整檔**。（直接輸出文字、不要使用任何工具）
+請針對下面這幾條修訂——**用 patch 交稿，不要重印整檔**。
 
 ═══ 要修的項目（只處理這幾條，其他別動）═══
 {items}
