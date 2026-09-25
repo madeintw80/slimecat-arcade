@@ -1,8 +1,15 @@
 # CHECKPOINT
 
-Updated: 2026-09-23 14:30 Asia/Taipei
+Updated: 2026-09-25 10:15 Asia/Taipei
 Task Lead: Batnini
-Status: complete（9/23：子 Claude 改沙盒 `--restricted --tools ""`＋繁中 system prompt，見下節）；前一輪 complete（9/17：修 9/12 停產事故的跨包引用誤判＋模型分工改版＋內容包引用改「警告放行」，離線測試全綠、`claude -p --model opus` 實跑驗過；**真實端到端驗收＝9/19 02:00 週更那場**，Boss 決定不手動補跑 9/12）；Phase 3 旗艦化待 Boss 開工
+Status: complete（9/25：要 JSON 的六處改走 `--json-schema`，見下節；9/23：子 Claude 改沙盒 `--restricted --tools ""`＋繁中 system prompt）；前一輪 complete（9/17：修 9/12 停產事故的跨包引用誤判＋模型分工改版＋內容包引用改「警告放行」，離線測試全綠、`claude -p --model opus` 實跑驗過；**真實端到端驗收＝9/19 02:00 週更那場**，Boss 決定不手動補跑 9/12）；Phase 3 旗艦化待 Boss 開工
+
+## 2026-09-25 這輪（prompt 稽核；詳見 DECISIONS.md 同日條目）
+
+- 批 3（Session A，`f81568a`）：H7、M10～M13、M19、M20 產線 prompt 對齊新模型。
+- H8（Session B）：企劃書合約／內容包／v3 評審 Claude 退路／v2.2 自評／rescue_meta／每日留言分流改走 `make_game.run_claude_json`（`--json-schema`）。Echo 評審路徑不變。
+- 測試：`python factory/tests/test_v3.py` 101 條全綠（⚠️ 要用 python 直接跑，pytest 會因檔尾 `sys.exit` 報 INTERNALERROR）；六處真 CLI 探針全過；企劃書 A/B 文筆沒變差（兩份原文在 Batnini 該 session 的 scratchpad，數字見 DECISIONS）。
+- 下一步：9/26（六）02:00 週更是整條產線第一次用新版；跑完看 `factory.log` 企劃書／內容包有沒有「沒交結構化結果」或 400 錯誤。不要手動生遊戲。
 
 ## 2026-09-23 這輪（詳見 DECISIONS.md 同日條目）
 

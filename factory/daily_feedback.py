@@ -32,7 +32,7 @@ LEARN_FILE = HERE / "knowledge" / "learnings.md"
 
 sys.path.insert(0, str(HERE))
 import rebuild                                     # noqa: E402
-from make_game import run_claude, log, SMALL_TIMEOUT  # noqa: E402
+from make_game import run_claude_json, log, SMALL_TIMEOUT  # noqa: E402
 from analytics_pull import SHEET_ID, PORTFOLIO_TOKEN  # noqa: E402
 import fix_game                                    # noqa: E402
 
@@ -44,6 +44,17 @@ except Exception:
 
 MAX_FB_PER_GAME = 5      # 大廳每款最多顯示幾條回饋
 FALLBACK_REPLY = "收到！已記進工廠設計筆記，會影響之後的版本 🐱"
+# AI 分流的交稿形狀（claude -p --json-schema；2026-09-25 prompt 稽核 H8，取代逐行 json.loads 硬撈）
+TRIAGE_SCHEMA = {
+    "type": "object",
+    "properties": {"items": {"type": "array", "items": {
+        "type": "object",
+        "properties": {"row": {"type": "integer"}, "action": {"type": "string", "enum": ["fix", "note"]},
+                       "reply": {"type": "string"}, "fix_instruction": {"type": "string"},
+                       "learning": {"type": "string"}},
+        "required": ["row", "action", "reply", "fix_instruction", "learning"]}}},
+    "required": ["items"],
+}
 
 
 def merge_games_json(apply_changes):
@@ -131,20 +142,19 @@ def triage(items, id2title):
   操作卡、看不清楚、文字錯誤）→ 給改款指令（具體、最小侵入，改玩法核心/美術風格不算小幅）
 - action=note：模糊、純情緒（好玩/難玩沒說為什麼）、稱讚、或需要大改玩法 → 只記筆記
 
-每條輸出一行 JSON（嚴格遵守，不要其他文字）：
-{{"row": 列號, "action": "fix"或"note", "reply": "給玩家看的一句回覆（親切、繁中、30字內；fix 的先寫暫定回覆，之後系統會自動加上已更新標記）", "fix_instruction": "改款指令（action=fix 才要，具體到工程師能直接做）", "learning": "一句設計教訓（都要）"}}
+每條留言交一筆（items 陣列），欄位：
+- row：列號；action：fix 或 note
+- reply：給玩家看的一句回覆（親切、繁中、30 字內；fix 的先寫暫定回覆，之後系統會自動加上已更新標記）
+- fix_instruction：改款指令（action=fix 才要，具體到工程師能直接做；note 給空字串）
+- learning：一句設計教訓（每條都要）
 """
-    out = run_claude(prompt, SMALL_TIMEOUT)
+    out = run_claude_json(prompt, SMALL_TIMEOUT, TRIAGE_SCHEMA, stage="daily-feedback")
     plan = {}
-    for line in out.splitlines():
-        line = line.strip().strip("`")
-        if not line.startswith("{"):
-            continue
+    for d in out.get("items") or []:
         try:
-            d = json.loads(line)
             plan[int(d["row"])] = d
-        except Exception:
-            continue
+        except (KeyError, TypeError, ValueError):
+            continue   # 單筆壞掉只影響那條（會走預設回覆），不擋整批
     return plan
 
 

@@ -7,7 +7,8 @@
   內容包 sonnet      —— 照 schema 填資料，便宜又聽話
   評審   Echo（Phase 2，見 echo_review.py）→ 失敗回 sonnet
   打磨   fable high  —— 只印 patch，輸出小
-呼叫都走 make_game.run_claude（stream-json 收全段、記 usage.jsonl、撞額度丟 QuotaError）。
+呼叫都走 make_game.run_claude（stream-json 收全段、記 usage.jsonl、撞額度丟 QuotaError）；
+要 JSON 的階段（企劃書合約／內容包／Claude 評審退路）走 run_claude_json（--json-schema，2026-09-25 起）。
 """
 import json
 import re
@@ -66,6 +67,22 @@ def call(prompt: str, timeout: int, model: str, effort: str, stage: str) -> str:
         raise
 
 
+def call_json(prompt: str, timeout: int, model: str, effort: str, stage: str, schema: dict) -> dict:
+    """同 call，但走 --json-schema：回 CLI 驗過形狀的物件（2026-09-25 prompt 稽核 H8）。"""
+    budget = BUDGET_USD.get(stage.split(":")[0], 0)
+    try:
+        return mg.run_claude_json(prompt, timeout, schema, model=model, effort=effort, stage=stage,
+                                  max_budget_usd=budget)
+    except (mg.QuotaError, mg.OutputLimitError):
+        raise
+    except RuntimeError as e:
+        if effort and "effort" in str(e).lower():
+            mg.log(f"  ⚠️ {stage}：effort={effort} 被拒（{str(e)[:80]}），改用預設 effort 重試")
+            return mg.run_claude_json(prompt, timeout, schema, model=model, effort="", stage=stage,
+                                      max_budget_usd=budget)
+        raise
+
+
 def _strip_fences(text: str) -> str:
     return re.sub(r"^```[a-zA-Z]*\s*$", "", text or "", flags=re.M).strip()
 
@@ -117,52 +134,9 @@ def _first_json_object(text: str):
     return None
 
 
-def parse_json_block(raw: str) -> dict:
-    """合約專用：只認「最外層」那個物件（第一個 { 到配對的 }），壞掉就 raise，不退到內層物件。
-
-    為什麼不用 _first_json_object：外層 JSON 有尾逗號時它會掉到內層第一個合法物件
-    （例如 modules[0]），看起來像「合約沒有內容包」，其實是整份合約沒 parse 到（9/5 首航）。
-    """
-    text = _strip_fences(raw)
-    start = text.find("{")
-    if start < 0:
-        raise ValueError("合約區塊裡沒有 JSON 物件")
-    blob = _balanced_object(text, start)
-    if not blob:
-        raise ValueError("合約 JSON 大括號沒配對（輸出被截斷？）")
-    last_err = None
-    for cand in (blob, _json_cleanup(blob)):
-        try:
-            obj = json.loads(cand)
-            if isinstance(obj, dict):
-                return obj
-            raise ValueError("合約 JSON 不是物件")
-        except ValueError as e:
-            last_err = e
-    raise ValueError(f"合約 JSON 解析失敗：{str(last_err)[:120]}")
-
-
-_KEY_ALIASES = {
-    "contentpacks": "content_packs", "packs": "content_packs", "contentpack": "content_packs",
-    "itemschema": "item_schema", "schema": "item_schema", "fields": "item_schema",
-    "enginelinesbudget": "engine_lines_budget", "linesbudget": "engine_lines_budget",
-    "sessionminutes": "session_minutes", "storagekey": "storage_key", "unlockrule": "unlock_rule",
-}
-
-
-def _normalize_keys(obj):
-    """鍵名容錯：contentPacks／content-packs／packs 都對回合約用的 snake_case（遞迴）。"""
-    if isinstance(obj, dict):
-        out = {}
-        for k, v in obj.items():
-            nk = str(k)
-            flat = re.sub(r"[^a-z0-9]", "", nk.lower())
-            nk = _KEY_ALIASES.get(flat, nk)
-            out[nk] = _normalize_keys(v)
-        return out
-    if isinstance(obj, list):
-        return [_normalize_keys(x) for x in obj]
-    return obj
+# 2026-09-25 prompt 稽核 H8：合約改走 --json-schema，以前的 parse_json_block（撈最外層物件＋清尾逗號）
+# 與 _normalize_keys（contentPacks→content_packs 鍵名容錯）一起退役——鍵名與形狀由 CLI 照 PLAN_SCHEMA 把關。
+# _first_json_object／_json_cleanup 留著：Echo 評審（codex exec，沒有 --json-schema）仍靠 REVIEW: 標記＋撈 JSON。
 
 
 # ================================================================ 企劃書（模組合約）
@@ -228,10 +202,10 @@ def build_plan_prompt(decon: dict, past_games: list) -> str:
 - 手機直式 canvas 400×600，觸控＋鍵盤都能玩；零外部資源；美術完全自由（不必是史萊姆貓）
 版權紅線：只學機制與心理學、不抄表達——命名、特徵性視覺、具體數值表與關卡佈局都不可與原作相同。
 
-篇幅：寫給工程師看的規格，不是論文；每節講清楚就換下一節（合約 JSON 另計）。
+篇幅：寫給工程師看的規格，不是論文；每節講清楚就換下一節（合約另計）。
 
-輸出格式（嚴格遵守）：先是企劃書本體（Markdown，照下面章節），最後一行 ===CONTRACT=== 之後
-接一個 JSON 物件（合法 JSON：不要 code fence、不要註解、不要尾逗號），再以 ===END=== 收尾。
+交稿用結構化輸出，兩個欄位：
+- plan_markdown：企劃書本體（Markdown），照下面章節寫：
 
 # 企劃書：《遊戲名》
 ## 一句話企劃與核心樂趣
@@ -245,30 +219,68 @@ def build_plan_prompt(decon: dict, past_games: list) -> str:
 ## 風險與捨棄（最容易不好玩的點怎麼避；誘人但要忍住不做的）
 ## 驗收清單（8～12 條「可觀察」的行為，評審與品管會逐條對）
 
-===CONTRACT===
+- contract：模組合約，欄位照這份範本（範本裡的值是說明，換成這款的真實內容）：
 {CONTRACT_TEMPLATE}
-===END===
 
-合約 JSON 規則：content_packs 的 key 用小寫英文＋底線；item_schema 每個欄位值寫成「型別｜說明（範圍或可用值）」，
+合約規則：content_packs 的 key 用小寫英文＋底線；item_schema 每個欄位值寫成「型別｜說明（範圍或可用值）」，
 型別只能是 string／int／number／bool／array／object；examples 每筆都要包含 item_schema 全部欄位；
 acceptance 每條都要是「看得見、測得到」的行為。
 """
 
 
-def parse_plan(out: str) -> tuple:
-    """把策劃輸出拆成 (企劃書 Markdown, 合約 dict)。合約撈不到就 raise ValueError。"""
-    text = out.replace("\r\n", "\n")
-    m = re.search(r"^===\s*CONTRACT\s*===\s*$", text, re.M)
-    if not m:
-        raise ValueError("企劃書輸出缺 ===CONTRACT=== 分隔線")
-    doc = text[:m.start()].strip()
-    rest = text[m.end():]
-    end = re.search(r"^===\s*END\s*===\s*$", rest, re.M)
-    raw = rest[:end.start()] if end else rest
-    contract = _normalize_keys(parse_json_block(raw))
+_STR = {"type": "string"}
+_STR_LIST = {"type": "array", "items": _STR}
+# 企劃書交稿形狀（--json-schema）。只管「形狀」；數量上限、examples 欄位齊全、storage_key 等語意仍由
+# validate_contract 把關（不過就帶錯誤訊息重做，見 pipeline._plan）。
+PLAN_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "plan_markdown": _STR,
+        "contract": {
+            "type": "object",
+            "properties": {
+                "title": _STR, "emoji": _STR,
+                "genre": {"type": "string", "enum": list(mg.GENRES)},
+                "desc": _STR,
+                "session_minutes": {"type": "array", "items": {"type": "integer"}, "minItems": 2, "maxItems": 2},
+                "modules": {"type": "array", "items": {
+                    "type": "object", "properties": {"id": _STR, "role": _STR, "state": _STR, "api": _STR},
+                    "required": ["id", "role", "state", "api"]}},
+                "content_packs": {"type": "array", "minItems": 1, "items": {
+                    "type": "object",
+                    "properties": {
+                        "key": {"type": "string", "pattern": PACK_KEY_RE.pattern},
+                        "label": _STR,
+                        "count": {"type": "integer", "minimum": 1},
+                        "item_schema": {"type": "object", "additionalProperties": _STR},
+                        "rules": _STR_LIST,
+                        "examples": {"type": "array", "minItems": 1, "items": {"type": "object"}},
+                    },
+                    "required": ["key", "label", "count", "item_schema", "rules", "examples"]}},
+                "progress": {"type": "object", "properties": {"storage_key": _STR, "saves": _STR, "unlock_rule": _STR},
+                             "required": ["storage_key", "saves", "unlock_rule"]},
+                "acceptance": _STR_LIST,
+                "engine_lines_budget": {"type": "integer"},
+            },
+            "required": ["title", "emoji", "genre", "desc", "session_minutes", "modules", "content_packs",
+                         "progress", "acceptance", "engine_lines_budget"],
+        },
+    },
+    "required": ["plan_markdown", "contract"],
+}
+
+
+def split_plan(out: dict) -> tuple:
+    """結構化交稿 → (企劃書 Markdown, 合約 dict)。企劃書前面若有開場白，從「# 企劃書」切起。"""
+    doc = str(out.get("plan_markdown") or "").replace("\r\n", "\n").strip()
     i = doc.find("# 企劃書")
     if i > 0:
         doc = doc[i:]
+    contract = out.get("contract")
+    if not doc:
+        raise ValueError("企劃書本體是空的")
+    if not isinstance(contract, dict):
+        raise ValueError("合約不是物件")
     return doc, contract
 
 
@@ -345,18 +357,20 @@ def validate_contract(c: dict, decon: dict) -> dict:
 
 
 def stage_plan(decon: dict, past_games: list, feedback: str = "") -> tuple:
-    """企劃書＋合約。回 (plan_doc, contract, raw)；解析／驗證失敗時原始輸出先存 failed_outputs 再 raise。"""
+    """企劃書＋合約。回 (plan_doc, contract, raw)；驗證失敗時原始交稿先存 failed_outputs 再 raise。
+    raw＝結構化交稿的 JSON 原文（pipeline 存成 plan_raw.txt 供驗屍／對帳篇幅）。"""
     prompt = build_plan_prompt(decon, past_games)
     if feedback:
         prompt += f"\n⚠️ 上一次的合約有問題，請修正：{feedback}\n"
-    out = call(prompt, PLAN_TIMEOUT, MODEL_PLAN, EFFORT_PLAN, "v3-plan")
+    out = call_json(prompt, PLAN_TIMEOUT, MODEL_PLAN, EFFORT_PLAN, "v3-plan", PLAN_SCHEMA)
+    raw = json.dumps(out, ensure_ascii=False, indent=1)
     try:
-        doc, contract = parse_plan(out)
+        doc, contract = split_plan(out)
         contract = validate_contract(contract, decon)
     except ValueError as e:
-        p = mg.save_failed_output(out, "v3-plan")
+        p = mg.save_failed_output(raw, "v3-plan")
         raise ValueError(f"{e}（原始輸出 failed_outputs/{p.name}）") from e
-    return doc, contract, out
+    return doc, contract, raw
 
 
 # ================================================================ 引擎
@@ -657,8 +671,35 @@ def build_content_prompt(pack: dict, plan_doc: str, contract: dict, notes: str, 
 - 繁中命名要有個性、貼主題，避免「第一關／第二關」這種占位名
 - 只填 schema／CONTENT-NOTES 列出的欄位（多寫引擎也不會讀）
 
-輸出：只印一個 JSON 陣列（[ {{…}}, {{…}} ]），不要 code fence、不要任何解說。
+交稿：把這 {pack['count']} 筆放進結構化輸出的 items 陣列。
 """
+
+
+# 合約型別 → JSON Schema 型別（合約寫法見 CONTRACT_TEMPLATE 的「型別｜說明」）
+_JSON_TYPES = {"string": "string", "int": "integer", "number": "number", "bool": "boolean",
+               "array": "array", "object": "object"}
+
+
+# API 規定 schema 的欄位名只能是英數 _ . -（中文鍵名實測回 400：Property keys should match pattern…）
+_API_KEY_RE = re.compile(r"^[a-zA-Z0-9_.-]{1,64}$")
+
+
+def content_schema(pack: dict) -> dict:
+    """由合約的 item_schema 動態產生內容包的交稿形狀（--json-schema；2026-09-25 prompt 稽核 H8）。
+    形狀＝欄位齊全＋型別對＋筆數下限（同 validate_pack 的八成）；id 唯一、跨包引用仍由程式驗。
+    合約欄位名是模型取的：萬一不是英數（例如中文），就不放進 schema（不然整個呼叫 400），
+    那幾欄改由 validate_pack 檢查（缺了照樣帶錯誤重生）。"""
+    props = {}
+    for k, spec in pack["item_schema"].items():
+        if not _API_KEY_RE.match(str(k)):
+            continue
+        t = _JSON_TYPES.get(_schema_type(spec))
+        props[k] = {"type": t} if t else {}
+    item = {"type": "object", "properties": props, "required": list(props)}
+    return {"type": "object",
+            "properties": {"items": {"type": "array", "items": item,
+                                     "minItems": max(1, int(pack["count"] * 0.8))}},
+            "required": ["items"]}
 
 
 def validate_pack(items, pack: dict) -> list:
@@ -720,14 +761,10 @@ def stage_content(pack: dict, plan_doc: str, contract: dict, notes: str, availab
     keep, keep_bad = None, []      # 最後一次「schema 過了、只有引用有疑」的成品
     for attempt in (1, 2):
         prompt = build_content_prompt(pack, plan_doc, contract, notes, feedback, available)
-        out = call(prompt, CONTENT_TIMEOUT, MODEL_CONTENT, EFFORT_CONTENT, f"v3-content:{pack['key']}")
-        text = _strip_fences(out)
+        out = call_json(prompt, CONTENT_TIMEOUT, MODEL_CONTENT, EFFORT_CONTENT, f"v3-content:{pack['key']}",
+                        content_schema(pack))
         try:
-            i, j = text.find("["), text.rfind("]")
-            items = json.loads(text[i:j + 1]) if i >= 0 and j > i else None
-            if items is None:
-                raise ValueError("輸出裡找不到 JSON 陣列")
-            items = validate_pack(items, pack)
+            items = validate_pack(out.get("items"), pack)
         except ValueError as e:
             feedback = str(e)[:500]
             mg.log(f"  ⚠️ 內容包 {pack['key']} 第 {attempt} 次驗證失敗：{feedback[:160]}")
@@ -758,6 +795,12 @@ REVIEW_JSON = ('{"scores":{"onboarding":n,"juice":n,"goal":n,"difficulty":n,"one
                '"scale_up":{"worth":true或false,"why":"值不值得再做大的一句理由"},'
                '"audit":{"contract_issues":["合約寫了但成品沒做／做歪的（合約哪一項＋程式碼證據）"],'
                '"bugs":["確定會發生的錯誤（怎麼觸發＋在哪段程式碼）"]}}')
+# Claude 退路的交稿形狀＝v2.2 出廠自評（mg.CRITIC_SCHEMA）＋整合稽核 audit
+REVIEW_SCHEMA = json.loads(json.dumps(mg.CRITIC_SCHEMA))
+REVIEW_SCHEMA["properties"]["audit"] = {"type": "object",
+                                        "properties": {"contract_issues": _STR_LIST, "bugs": _STR_LIST},
+                                        "required": ["contract_issues", "bugs"]}
+REVIEW_SCHEMA["required"].append("audit")
 
 
 def build_review_prompt(plan_doc: str, contract: dict, html: str, qa_info: dict = None,
@@ -769,9 +812,10 @@ def build_review_prompt(plan_doc: str, contract: dict, html: str, qa_info: dict 
     who = ("你是 Echo（Codex 端 agent），受 Batnini 委派擔任 SlimeCat 遊戲工作室的獨立評審兼整合稽核員。"
            "只讀不寫：不要執行任何會修改檔案的指令，直接用文字回覆。" if for_echo
            else "你是嚴格的遊戲評審兼整合稽核員。")
+    # Echo（codex exec）沒有 --json-schema，仍靠 REVIEW: 標記；Claude 退路走結構化輸出（REVIEW_SCHEMA）
     tail = ("回覆：先用 3～6 行繁體中文說明檢查結果，最後「單獨一行」輸出（務必照這個格式）：\n"
             f"REVIEW: {REVIEW_JSON}" if for_echo
-            else f"只輸出一行，格式：\nREVIEW: {REVIEW_JSON}")
+            else f"評審結果用結構化輸出交，欄位與各欄意義：\n{REVIEW_JSON}")
     return f"""{who}
 以下是《{contract['title']}》的模組合約、企劃書驗收清單與完整原始碼（引擎＋內容包已組裝）。
 用讀 code 的方式評估它「實際玩起來」的體驗（想像執行結果，別只看有沒有寫註解），並稽核成品有沒有照合約做。
@@ -849,10 +893,7 @@ def stage_critic(plan_doc: str, contract: dict, html: str, qa_info: dict = None)
     """sonnet 評審（Echo 不可用時的退路；Phase 1 也直接用它）。失敗回 None（不擋出貨）。"""
     prompt = build_review_prompt(plan_doc, contract, html, qa_info, for_echo=False)
     try:
-        out = call(prompt, CRITIC_TIMEOUT, MODEL_CRITIC, EFFORT_CRITIC, "v3-critic")
-        crit = parse_review(out)
-        if crit is None:
-            raise ValueError("輸出裡撈不到 REVIEW JSON")
+        crit = call_json(prompt, CRITIC_TIMEOUT, MODEL_CRITIC, EFFORT_CRITIC, "v3-critic", REVIEW_SCHEMA)
         rev = normalize_review(crit)
         rev["reviewer"] = f"claude:{MODEL_CRITIC}"
         return rev

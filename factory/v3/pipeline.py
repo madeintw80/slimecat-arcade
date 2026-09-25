@@ -76,6 +76,8 @@ def _plan(run: Run, decon: dict, past_games: list, today: str) -> tuple:
             if attempt == MAX_PLAN_ATTEMPTS:
                 raise RuntimeError(f"企劃書兩次都超過輸出上限：{e}")
         except ValueError as e:
+            # 2026-09-25 起合約走 --json-schema，JSON 語法壞掉（尾逗號／截斷）不會再發生；
+            # 這裡剩下的是語意不合格（examples 缺 item_schema 欄位、key 重複…），帶錯誤訊息重做一次。
             feedback = str(e)[:300]
             log(f"  ⚠️ 合約不合格：{feedback}")
             if attempt == MAX_PLAN_ATTEMPTS:

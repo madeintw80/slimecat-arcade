@@ -242,9 +242,34 @@ def run_claude(prompt: str, timeout: int, model: str = MODEL_BUILD,
     截斷後 CLI 會自己重試，沒保險絲一次引擎可以燒到 $15（9/5 首航）。
     輸出上限走環境變數 CLAUDE_CODE_MAX_OUTPUT_TOKENS＝MAX_OUTPUT_TOKENS（預設 64k 不夠 v3 引擎用）。
     """
+    text, _structured = _invoke_claude(prompt, timeout, model, effort, stage, max_budget_usd)
+    return text
+
+
+def run_claude_json(prompt: str, timeout: int, schema: dict, model: str = MODEL_BUILD,
+                    effort: str = "", stage: str = "", max_budget_usd: float = 0) -> dict:
+    """呼叫 claude -p --json-schema，回傳 CLI 驗過形狀的 JSON 物件（result 事件的 structured_output）。
+
+    2026-09-25 prompt 稽核 H8：以前要 JSON 的階段都是「prompt 叮嚀只印 JSON＋程式 find/rfind 硬剝」，
+    模型多講一句話或加尾逗號就解析失敗。--json-schema 由 CLI 保證形狀（不合 schema 會叫模型重交），
+    這裡只讀結果、不再剝字串；欄位的「語意」檢查（id 唯一、跨包引用、分數範圍）仍由呼叫端負責。
+    🔴 不設 --max-turns：交結構化結果本身要多一輪（StructuredOutput 工具呼叫），寫 1 會 error_max_turns。
+    schema 以 list 參數直接交給 claude.exe（不經 cmd.exe），% ^ 這類字元不會被吃掉。
+    """
+    _text, structured = _invoke_claude(prompt, timeout, model, effort, stage, max_budget_usd,
+                                       json_schema=schema)
+    return structured
+
+
+def _invoke_claude(prompt: str, timeout: int, model: str, effort: str, stage: str,
+                   max_budget_usd: float, json_schema: dict = None) -> tuple:
+    """run_claude／run_claude_json 共用的核心：跑 CLI、解析事件流、記用量、把錯誤轉成對應例外。
+    回 (文字, structured_output)；沒帶 json_schema 時 structured_output 是 None。"""
     cmd = [CLAUDE, "-p", "--model", model, *SANDBOX_ARGS, "--append-system-prompt", LANG_GUARD,
            "--strict-mcp-config", "--mcp-config", str(EMPTY_MCP),
            "--output-format", "stream-json", "--verbose"]
+    if json_schema is not None:
+        cmd += ["--json-schema", json.dumps(json_schema, ensure_ascii=False)]
     if effort:
         cmd += ["--effort", effort]
     if max_budget_usd and max_budget_usd > 0:
@@ -256,7 +281,7 @@ def run_claude(prompt: str, timeout: int, model: str = MODEL_BUILD,
                           text=True, encoding="utf-8", errors="replace",
                           timeout=timeout, cwd=str(LLM_CWD), env=env)
 
-    texts, result, reset_at = [], None, None
+    texts, result, reset_at, tool_structured = [], None, None, None
     for line in (proc.stdout or "").splitlines():
         line = line.strip()
         if not line.startswith("{"):
@@ -270,6 +295,8 @@ def run_claude(prompt: str, timeout: int, model: str = MODEL_BUILD,
             for block in (ev.get("message") or {}).get("content") or []:
                 if block.get("type") == "text" and block.get("text"):
                     texts.append(block["text"])
+                elif block.get("type") == "tool_use" and block.get("name") == "StructuredOutput":
+                    tool_structured = block.get("input")   # 備援：result 事件沒帶 structured_output 時用
         elif kind == "result":
             result = ev
         elif kind == "rate_limit_event":
@@ -305,9 +332,16 @@ def run_claude(prompt: str, timeout: int, model: str = MODEL_BUILD,
         if m:
             raise OutputLimitError(f"單次回覆超過 {m.group(1)} tokens 輸出上限（思考也算）：{err.strip()[:160]}")
         raise RuntimeError(f"claude -p 失敗 (code {proc.returncode})：{err}")
+    if json_schema is not None:
+        structured = (result or {}).get("structured_output")
+        if structured is None:
+            structured = tool_structured
+        if not isinstance(structured, dict):
+            raise RuntimeError("claude -p 沒交結構化結果（result 事件缺 structured_output）")
+        return text, structured
     if not text.strip():
         raise RuntimeError("claude -p 回傳空白（stream-json 裡沒有任何文字塊）")
-    return text
+    return text, None
 
 
 def tail(path: Path, lines: int = 60) -> str:
@@ -592,21 +626,44 @@ def save_failed_output(out: str, stage: str) -> Path:
     return p
 
 
+# ---- 結構化輸出的形狀（claude -p --json-schema；2026-09-25 prompt 稽核 H8）----
+# 形狀由 CLI 把關（不合就叫模型重交）；值的語意（分數四捨五入、字數截斷）仍由下面的程式整理。
+_STR = {"type": "string"}
+_STR_LIST = {"type": "array", "items": _STR}
+REVIEW_DIMS = ("onboarding", "juice", "goal", "difficulty", "one_more")
+SCORES_SCHEMA = {"type": "object",
+                 "properties": {d: {"type": "number", "minimum": 1, "maximum": 10} for d in REVIEW_DIMS},
+                 "required": list(REVIEW_DIMS)}
+CRITIC_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "scores": SCORES_SCHEMA,
+        "fixes": {"type": "array", "items": _STR, "maxItems": 3},
+        "verdict": _STR, "howto": _STR,
+        "design_choices": _STR_LIST,
+        "pressure_3min": _STR,
+        "scale_up": {"type": "object", "properties": {"worth": {"type": "boolean"}, "why": _STR},
+                     "required": ["worth", "why"]},
+    },
+    "required": ["scores", "fixes", "verdict", "howto", "design_choices", "pressure_3min", "scale_up"],
+}
+RESCUE_META_SCHEMA = {"type": "object", "properties": {"title": _STR, "emoji": _STR, "desc": _STR},
+                      "required": ["title", "emoji", "desc"]}
+
+
 def rescue_meta(body: str, decon: dict):
     """開發者漏交 GAMEMETA 時，用便宜模型從成品 HTML 反推補一份 meta。
 
     genre/inspiration 不用問模型——解構筆記本來就知道；只要它從成品
     讀出 title/emoji/desc。回傳格式同 extract()：(meta, 含標頭的完整 HTML)。
     """
-    prompt = f"""以下是一款 canvas 小遊戲的完整原始碼。讀完後只輸出一行 JSON（不要解說、不要 code fence）：
-{{"title":"遊戲中文名(從標題畫面或<title>取)","emoji":"一個代表emoji","desc":"一句話介紹(30字內)"}}
+    prompt = f"""以下是一款 canvas 小遊戲的完整原始碼。讀完後交三個欄位：
+title＝遊戲中文名（從標題畫面或 <title> 取）；emoji＝一個代表 emoji；desc＝一句話介紹（30 字內）。
 
 原始碼：
 {body[:45000]}
 """
-    out = run_claude(prompt, SMALL_TIMEOUT, model=MODEL_CRITIC, stage="rescue-meta")
-    i, j = out.find("{"), out.rfind("}")
-    got = json.loads(out[i:j + 1])
+    got = run_claude_json(prompt, SMALL_TIMEOUT, RESCUE_META_SCHEMA, model=MODEL_CRITIC, stage="rescue-meta")
     meta = {
         "title": str(got.get("title", "")).strip(),
         "emoji": str(got.get("emoji", "")).strip() or "🎮",
@@ -634,16 +691,18 @@ def stage_critic(html: str, meta: dict):
 
 {kb_scale}
 
-每維 1-10 分（8 分以上必須真的出色才給；可以給 .5 半分）。只輸出一行 JSON，格式：
-{{"scores":{{"onboarding":n,"juice":n,"goal":n,"difficulty":n,"one_more":n}},"fixes":["最重要的改進點1（要具體到工程師能直接改）","改進點2","改進點3"],"verdict":"一句話總評","howto":"給玩家看的一句話怎麼玩（30字內）","design_choices":["這款最關鍵的設計決策或取捨1（從程式碼看得出來的）","決策2"],"pressure_3min":"第 3 分鐘的壓力源是什麼？沒有就寫『無：後期會平掉』（30字內）","scale_up":{{"worth":true或false,"why":"值不值得做成大型版（關卡/波次/升級/圖鑑）的一句理由"}}}}
+每維 1-10 分（8 分以上必須真的出色才給；可以給 .5 半分）。評審結果用結構化輸出交，各欄位意義：
+- fixes：最重要的改進點，最多 3 條，要具體到工程師能直接改
+- verdict：一句話總評；howto：給玩家看的一句話怎麼玩（30 字內）
+- design_choices：這款最關鍵的設計決策或取捨（從程式碼看得出來的），1～2 條
+- pressure_3min：第 3 分鐘的壓力源是什麼？沒有就寫『無：後期會平掉』（30 字內）
+- scale_up：值不值得做成大型版（關卡/波次/升級/圖鑑），worth＋一句理由 why
 
 原始碼：
 {html[:CRITIC_HTML_CAP]}
 """
     try:
-        out = run_claude(prompt, SMALL_TIMEOUT, model=MODEL_CRITIC, stage="critic")
-        i, j = out.find("{"), out.rfind("}")
-        crit = json.loads(out[i:j + 1])
+        crit = run_claude_json(prompt, SMALL_TIMEOUT, CRITIC_SCHEMA, model=MODEL_CRITIC, stage="critic")
         # 🔴 不信模型自報的 total：haiku 常把單維 1-10 分當成總分回（例 total=7），
         # 被當成 50 分制上架 → 公開卡片顯示 6/7/8 這種假分數。
         # 改成先驗五維齊全且各在 1-10，再一律自己加總（忽略模型自報 total）。

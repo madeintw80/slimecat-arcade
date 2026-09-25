@@ -31,8 +31,9 @@ def check(name, cond, info=""):
 
 TMP = Path(tempfile.mkdtemp(prefix="slimecat_v3_test_"))
 
-# ---------------------------------------------------------------- 1. 企劃書＋合約解析
-SAMPLE_PLAN = """先講幾句廢話。
+# ---------------------------------------------------------------- 1. 企劃書＋合約（結構化交稿，2026-09-25 H8）
+SAMPLE_OUT = {
+    "plan_markdown": """先講幾句廢話。
 # 企劃書：《潮汐倉庫》
 ## 一句話企劃與核心樂趣
 守住碼頭。
@@ -44,29 +45,25 @@ SAMPLE_PLAN = """先講幾句廢話。
 第 3 分鐘鯊魚。
 ## 驗收清單
 - 前 15 秒不會死
-===CONTRACT===
-```json
-{"title": "潮汐倉庫", "emoji": "🌊", "genre": "塔防 混合", "desc": "守住碼頭的撈魚塔防",
- "session_minutes": [4, 12],
- "modules": [{"id": "spawner", "role": "生怪", "state": "wave", "api": "next()"}],
- "content_packs": [
-   {"key": "Levels", "label": "關卡", "count": 40,
-    "item_schema": {"id": "string｜唯一 id", "name": "string｜名", "waves": "int｜1-30", "boss": "bool｜頭目"},
-    "rules": ["前 3 關不會死"],
-    "examples": [{"id": "l01", "name": "晨霧碼頭", "waves": 3, "boss": false}]},
-   {"key": "upgrades", "label": "升級", "count": 8,
-    "item_schema": {"id": "string｜id", "cost": "int｜10-500"},
-    "examples": [{"id": "u1", "cost": 10}]}
- ],
- "progress": {"storage_key": "sc_tide_v1", "saves": "解鎖關卡"},
- "acceptance": ["前 15 秒不會死", "第 3 分鐘出現鯊魚"],
- "engine_lines_budget": 5000}
-```
-===END===
-"""
-doc, raw = stages.parse_plan(SAMPLE_PLAN)
-check("parse_plan 企劃書從 # 企劃書 開始", doc.startswith("# 企劃書：《潮汐倉庫》"))
-check("parse_plan 合約解析", raw.get("title") == "潮汐倉庫")
+""",
+    "contract": {"title": "潮汐倉庫", "emoji": "🌊", "genre": "塔防 混合", "desc": "守住碼頭的撈魚塔防",
+                 "session_minutes": [4, 12],
+                 "modules": [{"id": "spawner", "role": "生怪", "state": "wave", "api": "next()"}],
+                 "content_packs": [
+                     {"key": "Levels", "label": "關卡", "count": 40,
+                      "item_schema": {"id": "string｜唯一 id", "name": "string｜名", "waves": "int｜1-30", "boss": "bool｜頭目"},
+                      "rules": ["前 3 關不會死"],
+                      "examples": [{"id": "l01", "name": "晨霧碼頭", "waves": 3, "boss": False}]},
+                     {"key": "upgrades", "label": "升級", "count": 8,
+                      "item_schema": {"id": "string｜id", "cost": "int｜10-500"},
+                      "examples": [{"id": "u1", "cost": 10}]}],
+                 "progress": {"storage_key": "sc_tide_v1", "saves": "解鎖關卡"},
+                 "acceptance": ["前 15 秒不會死", "第 3 分鐘出現鯊魚"],
+                 "engine_lines_budget": 5000},
+}
+doc, raw = stages.split_plan(SAMPLE_OUT)
+check("split_plan 企劃書從 # 企劃書 開始", doc.startswith("# 企劃書：《潮汐倉庫》"))
+check("split_plan 合約取出", raw.get("title") == "潮汐倉庫")
 c = stages.validate_contract(raw, {"title": "x", "genre": "益智"})
 check("validate_contract key 轉小寫", c["content_packs"][0]["key"] == "levels")
 check("validate_contract count 夾上限", c["content_packs"][0]["count"] == stages.CAPS["items"], str(c["content_packs"][0]["count"]))
@@ -84,23 +81,28 @@ try:
     check("validate_contract 型別不合法應 raise", False)
 except ValueError as e:
     check("validate_contract 型別不合法應 raise", True, str(e)[:50])
+for bad_out, label in (({"plan_markdown": "", "contract": {}}, "企劃書空白"),
+                       ({"plan_markdown": "# 企劃書：x", "contract": "不是物件"}, "合約不是物件")):
+    try:
+        stages.split_plan(bad_out)
+        check(f"split_plan {label} 應 raise", False)
+    except ValueError:
+        check(f"split_plan {label} 應 raise", True)
+ps = stages.PLAN_SCHEMA["properties"]["contract"]
+check("PLAN_SCHEMA genre＝類型清單 enum", ps["properties"]["genre"]["enum"] == list(mg.GENRES))
+check("PLAN_SCHEMA 內容包 key 用同一條 regex", ps["properties"]["content_packs"]["items"]["properties"]["key"]["pattern"] == stages.PACK_KEY_RE.pattern)
+check("PLAN_SCHEMA 合約欄位全必填", set(ps["required"]) == set(ps["properties"]))
+# stage_plan 走 call_json：交稿 JSON 原文當 raw 回傳（pipeline 存 plan_raw.txt）
+_saved_cj = stages.call_json
+_seen_plan = {}
+stages.call_json = lambda prompt, timeout, model, effort, stage, schema: (_seen_plan.update(prompt=prompt, schema=schema) or SAMPLE_OUT)
 try:
-    stages.parse_plan("沒有分隔線的輸出")
-    check("parse_plan 缺分隔線應 raise", False)
-except ValueError:
-    check("parse_plan 缺分隔線應 raise", True)
-# 外層 JSON 有尾逗號＋行尾註解＋鍵名別名：以前會掉到內層 modules[0]、變成「沒有內容包」
-DIRTY = SAMPLE_PLAN.replace('```json\n', '').replace('\n```', '').replace(
-    '"modules": [{"id": "spawner", "role": "生怪", "state": "wave", "api": "next()"}],',
-    '"modules": [{"id": "spawner", "role": "生怪", "state": "wave", "api": "next()"},],\n // 註解行\n').replace(
-    '"content_packs": [', '"contentPacks": [').replace('"item_schema"', '"itemSchema"')
-doc_d, raw_d = stages.parse_plan(DIRTY)
-check("parse_plan 尾逗號＋註解＋別名鍵仍解析", raw_d.get("content_packs") and "item_schema" in raw_d["content_packs"][0], str(list(raw_d.keys()))[:80])
-try:
-    stages.parse_json_block('{"a": [1, 2}')
-    check("parse_json_block 壞 JSON 應 raise 不退內層", False)
-except ValueError as e:
-    check("parse_json_block 壞 JSON 應 raise 不退內層", True, str(e)[:50])
+    p_doc, p_c, p_raw = stages.stage_plan({"title": "x", "genre": "益智", "doc": "解構"}, [])
+    check("stage_plan 用 PLAN_SCHEMA", _seen_plan["schema"] is stages.PLAN_SCHEMA)
+    check("stage_plan prompt 不再要 ===CONTRACT=== 分隔線", "===CONTRACT===" not in _seen_plan["prompt"] and "plan_markdown" in _seen_plan["prompt"])
+    check("stage_plan 回企劃書＋驗過的合約＋JSON 原文", p_doc.startswith("# 企劃書") and p_c["genre"] == "塔防" and json.loads(p_raw)["contract"]["title"] == "潮汐倉庫")
+finally:
+    stages.call_json = _saved_cj
 excerpt = stages.plan_excerpt(doc)
 check("plan_excerpt 抓到核心迴圈＋內容包＋難度", "撈→蓋→守" in excerpt and "關卡 12 個" in excerpt and "鯊魚" in excerpt)
 
@@ -167,30 +169,41 @@ check("ref_fields examples 不是 id 格式就不當引用", stages.ref_fields(c
       str(stages.ref_fields(ctpl2["content_packs"][1], ctpl2)))
 
 # 2026-09-17 Boss 拍板：跨包引用不過＝重試一次後警告放行；解析／schema 不過仍然致命
-_saved_call, _outs = stages.call, []
-stages.call = lambda prompt, timeout, model, effort, stage: _outs.pop(0)
+_saved_call, _outs, _schemas = stages.call_json, [], []
+stages.call_json = lambda prompt, timeout, model, effort, stage, schema: (_schemas.append(schema) or _outs.pop(0))
 try:
     scenes = cref["content_packs"][1]
-    bad_json = json.dumps([
+    bad_json = {"items": [
         {"id": "r1", "spawn": [{"obj": "mug", "n": 1}], "boss": "crumb", "palette": {"bg": "#000"}},
         {"id": "r2", "spawn": [{"obj": "sock", "n": 1}], "boss": "crumb", "palette": {"bg": "#111"}},
-    ], ensure_ascii=False)
+    ]}
     _outs[:] = [bad_json, bad_json]
     sink = []
     got = stages.stage_content(scenes, "# 企劃書", {"title": "t", "content_packs": cref["content_packs"]},
                                "", {"objects": {"crumb", "sock"}}, warn_sink=sink)
     check("引用不過重試一次後放行出廠", len(got) == 2 and len(_outs) == 0, f"items={len(got)}")
     check("放行有寫進警告清單給評審", len(sink) == 1 and "mug" in sink[0], str(sink))
+    sch = _schemas[0]["properties"]["items"]
+    check("content_schema 由 item_schema 產生（型別＋全必填＋筆數下限）",
+          sch["items"]["properties"]["spawn"] == {"type": "array"} and sch["items"]["properties"]["palette"] == {"type": "object"}
+          and set(sch["items"]["required"]) == {"id", "spawn", "boss", "palette"} and sch["minItems"] == 1, str(sch)[:120])
+    check("content_schema int→integer、bool→boolean",
+          stages.content_schema(pack)["properties"]["items"]["items"]["properties"]["waves"] == {"type": "integer"}
+          and stages.content_schema(pack)["properties"]["items"]["items"]["properties"]["boss"] == {"type": "boolean"})
 
-    _outs[:] = ["這不是 JSON", "還是不是 JSON"]
+    zh_pack = {"key": "zh", "count": 2, "item_schema": {"id": "string｜id", "名稱": "string｜中文欄位名"}}
+    zs = stages.content_schema(zh_pack)["properties"]["items"]["items"]
+    check("content_schema 非英數欄位名不放進 schema（API 會 400）", list(zs["properties"]) == ["id"] and zs["required"] == ["id"], str(zs))
+
+    _outs[:] = [{"items": "不是陣列"}, {}]
     try:
         stages.stage_content(scenes, "# 企劃書", {"title": "t", "content_packs": cref["content_packs"]},
                              "", {"objects": {"crumb", "sock"}})
-        check("解析不出 JSON 仍應 raise", False)
+        check("items 不是陣列仍應 raise", False)
     except ValueError as e:
-        check("解析不出 JSON 仍應 raise", True, str(e)[:50])
+        check("items 不是陣列仍應 raise", True, str(e)[:50])
 finally:
-    stages.call = _saved_call
+    stages.call_json = _saved_call
 
 # ---------------------------------------------------------------- 3. 組裝
 ENGINE = """<!DOCTYPE html><html><head><meta charset="utf-8"><title>t</title>
@@ -261,6 +274,19 @@ check("parse_review + normalize 半分四捨五入＋自己加總", r["scores"][
 check("normalize_review audit", r["audit"]["contract_issues"] == ["升級沒讀"] and r["audit"]["bugs"] == [])
 check("parse_review 沒標記也撈得到", stages.parse_review('{"scores":{"onboarding":5,"juice":5,"goal":5,"difficulty":5,"one_more":5}}') is not None)
 check("parse_review 撈不到回 None", stages.parse_review("nothing") is None)
+# Claude 退路（Echo 不可用時）走 --json-schema：直接吃結構化物件，不再找 REVIEW: 標記
+_saved_cj, _seen_rev = stages.call_json, {}
+stages.call_json = lambda prompt, timeout, model, effort, stage, schema: (
+    _seen_rev.update(prompt=prompt, schema=schema) or stages.parse_review(rev_text))
+try:
+    rv = stages.stage_critic("# 企劃書", c, "<html></html>")
+    check("stage_critic 用 REVIEW_SCHEMA（含 audit）", _seen_rev["schema"] is stages.REVIEW_SCHEMA and "audit" in stages.REVIEW_SCHEMA["required"])
+    check("stage_critic prompt 不再要 REVIEW: 單行", "REVIEW: {" not in _seen_rev["prompt"])
+    check("stage_critic 結構化結果照常 normalize", rv and rv["total"] == 35 and rv["reviewer"] == f"claude:{stages.MODEL_CRITIC}")
+    check("Echo 版 prompt 仍保留 REVIEW: 標記", "REVIEW: {" in stages.build_review_prompt("# 企劃書", c, "<html></html>", for_echo=True))
+    check("CRITIC_SCHEMA 不含 audit（v2.2 自評）", "audit" not in mg.CRITIC_SCHEMA["properties"])
+finally:
+    stages.call_json = _saved_cj
 r["total"] = 30
 check("_polish_issues bug 優先", pipeline._polish_issues({"audit": {"bugs": ["b1", "b2", "b3"], "contract_issues": ["c1"]}, "total": 45, "fixes": ["f"]}) == ["[bug] b1", "[bug] b2", "[合約缺陷] c1"])
 check("_polish_issues 低分修第一條", pipeline._polish_issues({"audit": {}, "total": 30, "fixes": ["f1", "f2"]}) == ["[評審改進點] f1"])
@@ -372,6 +398,72 @@ try:
         check("撞額度 → QuotaError", False, "沒丟例外")
     except mg.QuotaError as e:
         check("撞額度 → QuotaError＋resetsAt", e.resets_at == 1790157600.0, str(e.resets_at))
+
+    # ---- run_claude_json（--json-schema，2026-09-25 H8）
+    so = {"title": "喵艙", "emoji": "🐱", "desc": "一句話"}
+    json_lines = [{"type": "system", "subtype": "init", "tools": ["StructuredOutput"]},
+                  {"type": "assistant", "message": {"content": [{"type": "text", "text": "讀完了。"}]}},
+                  {"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "StructuredOutput", "input": so}]}},
+                  {"type": "result", "is_error": False, "num_turns": 2, "total_cost_usd": 0.02,
+                   "usage": {"input_tokens": 10, "output_tokens": 7}, "result": "", "structured_output": so}]
+    mg.subprocess.run, seen = _fake_claude(json_lines)
+    got = mg.run_claude_json("x", 60, mg.RESCUE_META_SCHEMA, model="sonnet", stage="t-json")
+    cmd = seen["cmd"]
+    check("run_claude_json 回 structured_output", got == so, str(got))
+    check("run_claude_json 帶 --json-schema（JSON 字串）", json.loads(cmd[cmd.index("--json-schema") + 1]) == mg.RESCUE_META_SCHEMA)
+    check("run_claude_json 不設 --max-turns（寫 1 會 error_max_turns）", "--max-turns" not in cmd)
+    check("run_claude_json 仍帶沙盒＋stream-json", "--restricted" in cmd and "stream-json" in cmd)
+    mg.subprocess.run, seen_plain = _fake_claude(ok_lines)
+    mg.run_claude("x", 60, stage="t-plain")
+    check("run_claude（純文字交稿）不加 --json-schema", "--json-schema" not in seen_plain["cmd"])
+    no_so = [dict(x) for x in json_lines]
+    no_so[-1] = {k: v for k, v in no_so[-1].items() if k != "structured_output"}
+    mg.subprocess.run, _ = _fake_claude(no_so)
+    check("result 缺 structured_output → 退用 StructuredOutput 工具呼叫的 input", mg.run_claude_json("x", 60, {}, stage="t-json") == so)
+    mg.subprocess.run, _ = _fake_claude([json_lines[0], json_lines[1], no_so[-1]])
+    try:
+        mg.run_claude_json("x", 60, {}, stage="t-json")
+        check("完全沒結構化結果應 raise", False)
+    except RuntimeError as e:
+        check("完全沒結構化結果應 raise", "structured_output" in str(e), str(e)[:60])
+
+    # rescue_meta／v2.2 出廠自評／每日留言分流 改走 run_claude_json
+    orig_rcj = mg.run_claude_json
+    calls = []
+    try:
+        mg.run_claude_json = lambda prompt, timeout, schema, **kw: (calls.append((schema, kw)) or so)
+        meta_r, html_r = mg.rescue_meta("<!DOCTYPE html><html><canvas></canvas></html>", {"genre": "益智", "source": "原作"})
+        check("rescue_meta 用 RESCUE_META_SCHEMA", calls[-1][0] is mg.RESCUE_META_SCHEMA and meta_r["title"] == "喵艙" and html_r.startswith("<!--GAMEMETA"))
+        crit_so = {"scores": {"onboarding": 7.5, "juice": 8, "goal": 6, "difficulty": 7, "one_more": 6}, "fixes": ["a", "b"],
+                   "verdict": "v", "howto": "h", "design_choices": ["d"], "pressure_3min": "p", "scale_up": {"worth": True, "why": "w"}}
+        mg.run_claude_json = lambda prompt, timeout, schema, **kw: (calls.append((schema, kw)) or json.loads(json.dumps(crit_so)))
+        crit_r = mg.stage_critic("<html></html>", {"title": "t"})
+        check("v2.2 stage_critic 用 CRITIC_SCHEMA＋自己加總", calls[-1][0] is mg.CRITIC_SCHEMA and crit_r["total"] == 35, str(crit_r and crit_r.get("total")))
+    finally:
+        mg.run_claude_json = orig_rcj
+    import daily_feedback                          # noqa: E402
+    orig_df = daily_feedback.run_claude_json
+    try:
+        daily_feedback.run_claude_json = lambda prompt, timeout, schema, **kw: {"items": [
+            {"row": 5, "action": "fix", "reply": "收到", "fix_instruction": "調慢", "learning": "L"},
+            {"row": "壞列號", "action": "note", "reply": "x", "fix_instruction": "", "learning": ""}]}
+        tri = daily_feedback.triage([{"row": 5, "game": "g", "score": 3, "note": "太快"}], {"g": "遊戲"})
+        check("daily_feedback.triage 吃 items 陣列、壞列跳過", list(tri) == [5] and tri[5]["action"] == "fix", str(tri))
+        check("TRIAGE_SCHEMA action 是 fix/note enum",
+              daily_feedback.TRIAGE_SCHEMA["properties"]["items"]["items"]["properties"]["action"]["enum"] == ["fix", "note"])
+
+        def _keys(s):
+            for k, v in (s.get("properties") or {}).items():
+                yield k
+                if isinstance(v, dict):
+                    yield from _keys(v)
+                    if isinstance(v.get("items"), dict):
+                        yield from _keys(v["items"])
+        all_schemas = (stages.PLAN_SCHEMA, stages.REVIEW_SCHEMA, mg.CRITIC_SCHEMA, mg.RESCUE_META_SCHEMA, daily_feedback.TRIAGE_SCHEMA)
+        check("所有固定 schema 欄位名都是英數（API 規定，中文鍵回 400）",
+              all(stages._API_KEY_RE.match(k) for s in all_schemas for k in _keys(s)))
+    finally:
+        daily_feedback.run_claude_json = orig_df
 finally:
     mg.subprocess.run, mg.USAGE_LOG = orig_run, orig_usage
 
