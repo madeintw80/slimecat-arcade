@@ -168,7 +168,7 @@ const P={K:'sc_tinlock_v1',d:null,
  load(){let d=null;try{d=JSON.parse(localStorage.getItem(this.K)||'null');}catch(e){d=null;}
   if(!d||typeof d!=='object')d={};
   d.towers=d.towers&&typeof d.towers==='object'?d.towers:{};d.cats=Array.isArray(d.cats)?d.cats:[];
-  d.daily=d.daily&&typeof d.daily==='object'?d.daily:{};d.best_score=+d.best_score||0;d.muted=!!d.muted;this.d=d;this.recount();},
+  d.daily=d.daily&&typeof d.daily==='object'?d.daily:{};d.best_score=+d.best_score||0;d.muted=!!d.muted;d.tut_link=!!d.tut_link;this.d=d;this.recount();},
  save(){try{localStorage.setItem(this.K,JSON.stringify(this.d));}catch(e){}},
  tw(id){const t=this.d.towers[id]||(this.d.towers[id]={});if(!Array.isArray(t.best_stars))t.best_stars=[];t.best_score=+t.best_score||0;t.cleared=!!t.cleared;return t;},
  recount(){let s=0;for(const k in this.d.towers){const b=this.d.towers[k]&&this.d.towers[k].best_stars;if(Array.isArray(b))b.forEach(v=>s+=clamp(+v||0,0,3));}this.d.total_stars=s;},
@@ -258,20 +258,22 @@ function drawCat(x,y,r,c,sil){ctx.save();ctx.translate(x,y);const body=sil?'#141
  ctx.restore();}
 
 // ===== run／lock：一局狀態 =====
-const R={tower:null,idx:0,fresh:0,score:0,shown:0,streak:0,stars:[],seed:1,daily:false,elapsed:0,L:null,steps:0,phase:'idle',pt:0,jams:0,idle:0,hintT:-1,hintRing:-1,rv:[],lf:[],over:false,newCats:[],tips:[],tipT:0,hb:0,enterT:1,peeled:0,catPop:false,ms:null};
+const R={tower:null,idx:0,fresh:0,score:0,shown:0,streak:0,stars:[],seed:1,daily:false,elapsed:0,L:null,steps:0,phase:'idle',pt:0,jams:0,idle:0,hintT:-1,hintRing:-1,rv:[],lf:[],over:false,newCats:[],tips:[],tipT:0,hb:0,enterT:1,peeled:0,catPop:false,ms:null,paused:false,help:false,tutOn:false,tutOp:null,tutFx:[],tutFade:0};
 function ringGeo(n,j){const t=n>=5?20:24,i=n-1-j,r0=52+i*(t+4);return{r0,r1:r0+t};}
 function startRun(tw,daily){if(C.errors.length||!tw)return;AU.init();
- Object.assign(R,{tower:tw,daily:!!daily,seed:daily?hashStr('tin'+dayStr(0)):(Date.now()>>>0),idx:0,fresh:tw.fresh,score:0,shown:0,streak:0,stars:[],elapsed:0,newCats:[],seenRT:{},seenBP:{},over:false,hb:0});
+ Object.assign(R,{tower:tw,daily:!!daily,seed:daily?hashStr('tin'+dayStr(0)):(Date.now()>>>0),idx:0,fresh:tw.fresh,score:0,shown:0,streak:0,stars:[],elapsed:0,newCats:[],seenRT:{},seenBP:{},over:false,hb:0,paused:false,help:false,tutOn:!P.d.tut_link,tutFade:0});
  FX.clear();scene='play';loadLock();}
 function loadLock(){const tw=R.tower,bp=C.get('lock_blueprints',tw.locks[R.idx]);R.jams=0;
  R.L=GEN.build(bp,mkRng(R.seed+R.idx*7919));Object.assign(R,{steps:0,phase:'idle',pt:0,idle:0,hintT:-1,enterT:0,peeled:0,catPop:false});
  R.lf=bp.links.map(()=>0);R.rv=R.L.pos.map(p=>({a:p,from:p,to:p,t:1,dur:.12,gold:0,shake:0}));sel=Math.min(sel,R.L.T.n-1);
+ // 連動教學：挑一個「會帶動別環」的操作當示範（沒有可示範的連動就不顯示）
+ R.tutFx=[];R.tutFade=0;R.tutOp=null;for(const l of bp.links){const os=R.L.T.ops.filter(o=>o.ring===l.from),o=os.find(o=>o.dir===1)||os[0];if(o&&o.d[l.to]){R.tutOp=o;break;}}
  const ms=tw.cats.find(c=>c.at===R.idx+1);R.ms=ms?C.get('cats',ms.cat):null;
  R.tips=[];for(const t of R.L.T.types)if(!R.seenRT[t.id]){R.seenRT[t.id]=1;if(t.tip&&R.tips.length<1)R.tips.push((R.idx>0?`新環型「${t.name}」${t.glyph} `:'')+t.tip);}
  if(bp.tip&&!R.seenBP[bp.id])R.tips.push(bp.tip);R.seenBP[bp.id]=1;R.tips=R.tips.slice(0,2);R.tipT=R.tips.length?4.5:0;
  AU.play('enter');}
 // 點擊環：套用操作向量
-function tap(r,side){if(scene!=='play'||R.phase!=='idle')return;const L=R.L,T=L.T,ty=T.types[r];if(!ty)return;
+function tap(r,side){if(scene!=='play'||R.phase!=='idle'||R.paused)return;const L=R.L,T=L.T,ty=T.types[r];if(!ty)return;
  R.idle=0;R.hintT=-1;
  if(!ty.steps){R.rv[r].shake=.35;AU.play('thud');FX.text('點不動，要靠連動帶',CX,CY+ringGeo(T.n,r).r1+14,'#bfe9ff',14,.9);return;}
  const dir=ty.dir==='cw'?1:ty.dir==='ccw'?-1:side,o=T.ops.find(o=>o.ring===r&&o.dir===dir);if(!o)return;
@@ -279,6 +281,8 @@ function tap(r,side){if(scene!=='play'||R.phase!=='idle')return;const L=R.L,T=L.
  o.d.forEach((d,i)=>{if(!d)return;L.pos[i]=mod(L.pos[i]+d,T.k);const v=R.rv[i];v.from=v.a;v.to+=d;v.t=0;v.dur=.12;if(i!==r)carried=true;});
  L.bp.links.forEach((l,i)=>{if(o.d[l.from]&&o.d[l.to])R.lf[i]=1;});
  R.steps++;AU.play('click',r);if(carried)AU.play('carry');
+ // 連動教學：第一次成功帶動內圈時，標示被帶動的環與方向，之後教學自動消失
+ if(R.tutOn&&carried){R.tutFx=o.d.map((d,i)=>d?{t:1.4,dir:Math.sign(d),src:i===r,same:Math.sign(d)===dir}:null);R.tutOn=false;R.tutFade=1.4;if(!P.d.tut_link){P.d.tut_link=true;P.save();}}
  let newly=0,cnt=0;L.pos.forEach((p,i)=>{const a=GEN.aligned(T.types[i],p,T.k);if(a)cnt++;if(a&&!was[i]){newly++;R.rv[i].gold=1;const g=ringGeo(T.n,i);FX.burst(CX,CY-(g.r0+g.r1)/2,'#ffd23f',10,120);}});
  if(newly)AU.play('ding',cnt);
  if(R.steps>L.budget){jam();return;}
@@ -308,7 +312,8 @@ function endRun(reason){if(R.over)return;R.over=true;const win=reason==='win';if
  try {
   if (window.SC) SC.over(R.score);
  } catch (e) {}}
-function updPlay(dt){R.elapsed+=dt;R.enterT=Math.min(1,R.enterT+dt/.3);R.tipT=Math.max(0,R.tipT-dt);
+function updPlay(dt){if(R.paused)return;R.elapsed+=dt;R.enterT=Math.min(1,R.enterT+dt/.3);R.tipT=Math.max(0,R.tipT-dt);
+ R.tutFade=Math.max(0,R.tutFade-dt);for(const f of R.tutFx)if(f)f.t-=dt;
  for(const v of R.rv){if(v.t<1){v.t=Math.min(1,v.t+dt/v.dur);v.a=v.from+(v.to-v.from)*easeOutBack(v.t);}else v.a=v.to;v.gold=Math.max(0,v.gold-dt*2.5);v.shake=Math.max(0,v.shake-dt);}
  for(let i=0;i<R.lf.length;i++)R.lf[i]=Math.max(0,R.lf[i]-dt*3);
  R.shown+=(R.score-R.shown)*Math.min(1,dt*8);if(Math.abs(R.score-R.shown)<1)R.shown=R.score;
@@ -360,6 +365,21 @@ function drawLinks(){const L=R.L,ls=L.bp.links,m=ls.length,n=L.T.n;if(R.phase===
   ctx.fillStyle=col;ctx.beginPath();ctx.arc(x1,y1,4,0,TAU);ctx.fill();
   const a=Math.atan2(y2-y1,x2-x1);ctx.beginPath();ctx.moveTo(x2,y2);ctx.lineTo(x2-Math.cos(a-.5)*9,y2-Math.sin(a-.5)*9);ctx.lineTo(x2-Math.cos(a+.5)*9,y2-Math.sin(a+.5)*9);ctx.closePath();ctx.fill();
   if(l.sign<0){ctx.beginPath();ctx.arc((x1+x2)/2+4,(y1+y2)/2,8,0,TAU);ctx.fill();T('反',(x1+x2)/2+4,(y1+y2)/2+1,10,'#3a0f28');}ctx.globalAlpha=1;});}
+// 轉向箭頭：沿圓周流動的三段弧箭頭（dir>0＝順時針）
+function turnArrows(cx,cy,r,dir,col,al,lw){ctx.save();ctx.globalAlpha=al;ctx.lineCap='round';ctx.lineJoin='round';const ph=time*1.6*dir;
+ for(const [c,w] of [['rgba(0,0,0,.55)',lw+3],[col,lw]]){ctx.strokeStyle=c;ctx.fillStyle=c;ctx.lineWidth=w;
+  for(let i=0;i<3;i++){const s=ph+i*TAU/3,e=s+dir*.55,hs=lw*2.2;ctx.beginPath();ctx.arc(cx,cy,r,Math.min(s,e),Math.max(s,e));ctx.stroke();
+   const hx=cx+Math.cos(e)*r,hy=cy+Math.sin(e)*r,tx=-Math.sin(e)*dir,ty=Math.cos(e)*dir,nx=Math.cos(e),ny=Math.sin(e);
+   ctx.beginPath();ctx.moveTo(hx+tx*hs,hy+ty*hs);ctx.lineTo(hx-tx*hs*.5+nx*hs*.8,hy-ty*hs*.5+ny*hs*.8);ctx.lineTo(hx-tx*hs*.5-nx*hs*.8,hy-ty*hs*.5-ny*hs*.8);ctx.closePath();if(w>lw)ctx.stroke();else ctx.fill();}}
+ ctx.restore();}
+// 教學高亮：環內外框發光＋轉向箭頭（與 drawRing 共用 ringGeo）
+function tutRing(n,j,dir,col,al){const g=ringGeo(n,j);ctx.save();ctx.globalAlpha=al*.85;ctx.strokeStyle=col;ctx.lineWidth=2;ctx.shadowColor=col;ctx.shadowBlur=8;
+ ctx.beginPath();ctx.arc(CX,CY,g.r1+2,0,TAU);ctx.stroke();ctx.beginPath();ctx.arc(CX,CY,g.r0-2,0,TAU);ctx.stroke();ctx.restore();turnArrows(CX,CY,(g.r0+g.r1)/2,dir,col,al,3);}
+// 連動教學：未操作前預覽示範操作；第一次帶動成功後標示實際被帶動的環
+function drawTut(){const n=R.L.T.n;if(R.phase==='solved')return;
+ if(R.tutFx.some(f=>f&&f.t>0)){R.tutFx.forEach((f,i)=>{if(!f||f.t<=0)return;tutRing(n,i,f.dir,f.src?'#ffffff':f.same?'#6ef2ff':'#ff79c6',Math.min(1,f.t/.4));});return;}
+ if(!R.tutOn||!R.tutOp)return;const o=R.tutOp,al=.5+.3*Math.sin(time*4);
+ o.d.forEach((d,i)=>{if(!d)return;tutRing(n,i,Math.sign(d),i===o.ring?'#ffffff':Math.sign(d)===o.dir?'#6ef2ff':'#ff79c6',al);});}
 function drawPlay(){const tw=R.tower,pal=tw.pal,L=R.L,T_=L.T,n=T_.n,out=ringGeo(n,0).r1+10;bgFill(pal.bg);
  ctx.save();if(FX.shake>0)ctx.translate((Math.random()-.5)*FX.shake,(Math.random()-.5)*FX.shake);
  const z=R.enterT<1?.3+.7*easeOutBack(R.enterT):1,nearAll=R.phase==='idle'&&L.pos.filter((p,i)=>GEN.aligned(T_.types[i],p,T_.k)).length===n-1&&n>1;
@@ -375,12 +395,13 @@ function drawPlay(){const tw=R.tower,pal=tw.pal,L=R.L,T_=L.T,n=T_.n,out=ringGeo(
  ctx.setLineDash([4,6]);ctx.strokeStyle='rgba(255,240,180,.35)';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(CX,CY-50);ctx.lineTo(CX,CY-out-2);ctx.stroke();ctx.setLineDash([]);
  T('▼',CX,CY-out-18,16,'#ffe27a');
  drawLinks();
+ drawTut();
  // 中心貓
  ctx.fillStyle=shade(pal.tin,-.1);ctx.beginPath();ctx.arc(CX,CY,47,0,TAU);ctx.fill();ctx.strokeStyle=shade(pal.tin,-.45);ctx.lineWidth=3;ctx.stroke();
  const cat=R.ms||C.get('cats','cat_default');let cy=CY,sy=1;
  if(R.phase==='solved'){const jt=R.pt-(n*.08+.05);if(jt>0){const p=Math.min(1,jt/.55);cy=CY-Math.sin(p*Math.PI)*60;sy=1+.18*Math.sin(jt*22)*Math.exp(-jt*5);}}
  ctx.save();ctx.translate(CX,cy);ctx.scale(1/sy,sy);drawCat(0,0,33,cat,!!R.ms&&!(R.phase==='solved'&&R.catPop));ctx.restore();
- FX.draw();ctx.restore();drawHUD();}
+ FX.draw();ctx.restore();drawHUD();if(R.paused)drawPause();}
 function drawHUD(){const tw=R.tower,L=R.L,N=tw.locks.length;
  ctx.fillStyle='rgba(0,0,0,.38)';ctx.fillRect(0,0,W,72);ctx.fillRect(0,522,W,78);
  T(tw.name+(R.daily?'・每日':''),CX,15,14,'#fff');T(fmt(R.shown),390,15,17,'#ffe27a','right');
@@ -395,12 +416,38 @@ function drawHUD(){const tw=R.tower,L=R.L,N=tw.locks.length;
  ctx.strokeStyle='rgba(255,255,255,.18)';ctx.lineWidth=1;for(let x=fx+22;x<fx+fw;x+=24){ctx.beginPath();ctx.moveTo(x,fy+3);ctx.lineTo(x,fy+fh-3);ctx.stroke();}
  T(`保鮮 ${Math.ceil(R.fresh)} 秒`,CX,fy+fh/2+1,12,'#fff');
  if(R.tipT>0){ctx.globalAlpha=Math.min(1,R.tipT);R.tips.forEach((s,i)=>{const y=92+i*22;ctx.font=`bold 14px ${FONT}`;const w=ctx.measureText(s).width+20;rr(CX-w/2,y-10,w,20,10);ctx.fillStyle='rgba(0,0,0,.55)';ctx.fill();T(s,CX,y+1,14,i===0?'#ffe27a':'#fff');});ctx.globalAlpha=1;}
+ // 連動教學說明（排在提示下方，提示淡出後往上補位）
+ if((R.tutOn&&R.tutOp&&R.phase!=='solved')||R.tutFade>0){const s='👆 外圈轉動會帶動內圈一起轉',y=92+22*R.tips.length*Math.min(1,R.tipT);ctx.globalAlpha=R.tutOn?1:Math.min(1,R.tutFade/.5);
+  ctx.font=`bold 14px ${FONT}`;const w=ctx.measureText(s).width+24;rr(CX-w/2,y-11,w,22,11);ctx.fillStyle='rgba(0,0,0,.6)';ctx.fill();ctx.strokeStyle='#6ef2ff';ctx.lineWidth=1.5;ctx.stroke();T(s,CX,y+1,14,'#6ef2ff');ctx.globalAlpha=1;}
  const nA=L.pos.filter((p,i)=>GEN.aligned(L.T.types[i],p,L.T.k)).length;
  if(R.phase==='idle'&&nA===L.T.n-1&&L.T.n>1)TS('只差 1 環！',CX,500,16+2*Math.sin(time*8),'#ffb347');
  const warn=R.steps>=L.budget-1;T(`步 ${R.steps}／預算 ${L.budget}　｜　最少 ${L.par}`,CX,540,17,warn?'#ff8a7a':'#fff');
  T(`★★★ ≤${L.par} 步　★★ ≤${L.par+2} 步　★ 預算內`,CX,562,12,'#ffe27a',undefined,false);
  T(usingKB?'1-5／↑↓ 選環　←→ 轉動　M 靜音':'點環左半逆轉、右半順轉',185,585,12,'#9fb0c6',undefined,false);
+ T('⏸',24,584,16,'#fff');BTN.push({x:0,y:566,w:48,h:34,fn:()=>setPause(true)});
  T(AU.muted?'🔇':'🔊',378,584,16,'#fff');BTN.push({x:356,y:566,w:44,h:34,fn:()=>AU.toggleMute()});}
+// ===== 暫停選單／玩法說明 =====
+function setPause(on){R.paused=on;R.help=false;AU.play('ui');}
+function closeHelp(){R.help=false;R.tutOn=true;AU.play('ui');}
+function drawPause(){BTN=[];ctx.fillStyle='rgba(8,12,20,.75)';ctx.fillRect(0,0,W,H);if(R.help){drawHelp();return;}
+ TS('暫停中',CX,200,32,'#ffe27a');T('保鮮計時已停止',CX,236,13,'#cfd8e3',undefined,false);
+ button(110,264,180,52,'繼續',()=>setPause(false),'#ffcf40','#3a2200',22);
+ button(110,332,180,46,'玩法說明',()=>{R.help=true;AU.play('ui');},'#6ec6ff','#08263a',18);
+ T('鍵盤：Esc／P 繼續　H 玩法說明',CX,404,12,'#9fb0c6',undefined,false);}
+function drawHelp(){rr(28,96,344,410,14);ctx.fillStyle='rgba(22,32,52,.96)';ctx.fill();ctx.strokeStyle='#6ef2ff';ctx.lineWidth=2;ctx.stroke();
+ TS('玩法說明',CX,126,24,'#ffe27a');
+ T('點環左半逆轉、右半順轉',CX,162,14,'#fff');
+ T('讓每層縫隙對準上方通道，放貓鑽出來！',CX,186,13,'#cfd8e3',undefined,false);
+ // 示意圖：外圈帶著內圈同方向轉
+ const cx=CX,cy=278,rot=time*.9;ctx.fillStyle='#161d2b';ctx.beginPath();ctx.arc(cx,cy,74,0,TAU);ctx.fill();
+ ctx.lineCap='butt';[[60,16,'#c9ced6'],[36,14,'#f2b544']].forEach(([r,w,c])=>{ctx.strokeStyle=c;ctx.lineWidth=w;ctx.beginPath();ctx.arc(cx,cy,r,rot-Q+.3,rot-Q+TAU-.3);ctx.stroke();});
+ turnArrows(cx,cy,60,1,'#ffffff',1,2.5);turnArrows(cx,cy,36,1,'#6ef2ff',1,2.5);
+ ctx.strokeStyle='#fff';ctx.fillStyle='#fff';ctx.lineWidth=2.5;ctx.beginPath();ctx.moveTo(cx,cy+60);ctx.lineTo(cx,cy+44);ctx.stroke();
+ ctx.beginPath();ctx.arc(cx,cy+60,4,0,TAU);ctx.fill();ctx.beginPath();ctx.moveTo(cx,cy+36);ctx.lineTo(cx-5,cy+45);ctx.lineTo(cx+5,cy+45);ctx.closePath();ctx.fill();
+ T('外圈轉動會帶動內圈一起轉',CX,374,15,'#6ef2ff');
+ T('白色貓鬚＝同方向帶動',CX,400,13,'#fff',undefined,false);
+ T('粉紅「反」貓鬚＝反方向帶動',CX,422,13,'#ff79c6',undefined,false);
+ button(130,448,140,42,'知道了',closeHelp,'#ffcf40','#3a2200',17);}
 
 // ===== ui：標題／選塔／圖鑑／結算 =====
 function drawTitle(){const tws=C.list('towers'),pal=tws[0]?tws[0].pal:{bg:'#243b55',tin:'#c9ced6',label:'#e8553d'};bgFill(pal.bg);
@@ -466,12 +513,15 @@ function playTap(x,y){const L=R.L;if(!L)return;const d=Math.hypot(x-CX,y-CY);let
  if(best>=0){sel=best;tap(best,x<CX?-1:1);}}
 cv.addEventListener('pointerdown',e=>{e.preventDefault();AU.init();const p=toLogic(e);if(e.pointerType!=='mouse'||scene!=='play')usingKB=false;
  for(let i=BTN.length-1;i>=0;i--){const b=BTN[i];if(p.x>=b.x&&p.x<=b.x+b.w&&p.y>=b.y&&p.y<=b.y+b.h){b.fn();return;}}
- if(scene==='play'){usingKB=false;playTap(p.x,p.y);}else if(scene==='result')restart();else if(scene==='title'&&!C.errors.length)titleStart();});
+ if(scene==='play'){usingKB=false;if(!R.paused)playTap(p.x,p.y);}else if(scene==='result')restart();else if(scene==='title'&&!C.errors.length)titleStart();});
 cv.addEventListener('pointercancel',()=>{BTN.length=BTN.length;});
 window.addEventListener('blur',()=>{usingKB=false;});
 window.addEventListener('keydown',e=>{const k=e.key;if([' ','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(k))e.preventDefault();if(e.repeat)return;AU.init();
  if(k==='m'||k==='M'){AU.toggleMute();return;}
- if(scene==='play'){if(!R.L)return;usingKB=true;const n=R.L.T.n;
+ if(scene==='play'){if(!R.L)return;
+  if(k==='Escape'||k==='p'||k==='P'){if(R.help)closeHelp();else setPause(!R.paused);return;}
+  if(R.paused){if(k==='h'||k==='H'){if(!R.help){R.help=true;AU.play('ui');}}else if(k==='Enter'||k===' '){if(R.help)closeHelp();else setPause(false);}return;}
+  usingKB=true;const n=R.L.T.n;
   if(k>='1'&&k<='5')sel=Math.min(+k-1,n-1);else if(k==='ArrowUp')sel=Math.max(0,sel-1);else if(k==='ArrowDown')sel=Math.min(n-1,sel+1);
   else if(k==='ArrowLeft')tap(sel,-1);else if(k==='ArrowRight')tap(sel,1);}
  else if(scene==='result')restart();
