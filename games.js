@@ -1121,9 +1121,9 @@ const GAMES = [
       }
     ],
     "stats": {
-      "opens": 15,
+      "opens": 16,
       "devices": 7,
-      "med_session_sec": 251.0,
+      "med_session_sec": 194.5,
       "return_rate": 0.43,
       "plays_reported": 4,
       "web_score_med": 7,
@@ -1644,10 +1644,10 @@ const GAMES = [
     "desc": "拋肉球鉤攔截漂走的魚乾拼大貓窩，鯊魚來了就得取捨！",
     "ai_score": 38,
     "stats": {
-      "opens": 4,
-      "devices": 4,
-      "med_session_sec": 14.0,
-      "return_rate": 0.25,
+      "opens": 5,
+      "devices": 5,
+      "med_session_sec": 20.5,
+      "return_rate": 0.4,
       "plays_reported": 0
     }
   },
@@ -1681,10 +1681,10 @@ const GAMES = [
     ],
     "polished": "連吞里程碑加時可無限重複刷：達10連吞後等窗口耗盡會呼叫breakCombo()；「連續兩間房零危險物」會被非連續房間誤解鎖：doorEnter()僅在乾淨房執",
     "stats": {
-      "opens": 7,
-      "devices": 7,
-      "med_session_sec": 85.0,
-      "return_rate": 0.14,
+      "opens": 8,
+      "devices": 8,
+      "med_session_sec": 98.0,
+      "return_rate": 0.25,
       "plays_reported": 0
     }
   },
@@ -1705,7 +1705,23 @@ const GAMES = [
     "ai_score": 34,
     "reviewer": "echo:gpt-5.6-sol",
     "howto": "按住減速、左右拖修正，對準綠燈輕落。",
-    "polished": "開局持續按住噴射即可觸發：z01 的 ay=90-(260/1)=-170，且程；燃料歸零或過熱時仍能免費側噴：step 以 canThrust 為 false ；內容包合約要求 zones/pad_types/boons/pods 為 12/"
+    "polished": "開局持續按住噴射即可觸發：z01 的 ay=90-(260/1)=-170，且程；燃料歸零或過熱時仍能免費側噴：step 以 canThrust 為 false ；內容包合約要求 zones/pad_types/boons/pods 為 12/",
+    "feedback": [
+      {
+        "date": "2026-09-26",
+        "note": "有點太複雜",
+        "reply": "謝謝回饋！能說說哪個部分最讓你卡住嗎？我們會參考改進～"
+      }
+    ],
+    "stats": {
+      "opens": 1,
+      "devices": 1,
+      "med_session_sec": 120.0,
+      "return_rate": 1.0,
+      "plays_reported": 3,
+      "web_score_med": 4,
+      "web_raters": 1
+    }
   },
   {
     "id": "2026-09-26-001",
@@ -1739,6 +1755,22 @@ const GAMES = [
         "date": "2026-09-26",
         "summary": "新增第一關轉圈教學提示，讓你一看就懂外圈怎麼帶動內圈囉！"
       }
-    ]
+    ],
+    "feedback": [
+      {
+        "date": "2026-09-26",
+        "note": "有點不知道外圈怎麼影響內圈 沒說明？",
+        "reply": "✅ 已更新（2026-09-26）：謝謝提醒！我們會補上外圈連動內圈的說明，讓規則更清楚～"
+      }
+    ],
+    "stats": {
+      "opens": 6,
+      "devices": 3,
+      "med_session_sec": 5.5,
+      "return_rate": 0.33,
+      "plays_reported": 0,
+      "web_score_med": 4,
+      "web_raters": 1
+    }
   }
 ];
