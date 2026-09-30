@@ -86,3 +86,10 @@
 - **改成**：`make_game.run_claude_json`（共用 `_invoke_claude`，讀 result 事件的 `structured_output`，退路＝`StructuredOutput` 工具呼叫的 input）；`run_claude` 對外不變（引擎／打磨仍串接文字）。改走 schema 的六處：企劃書合約（`PLAN_SCHEMA`＝`{plan_markdown, contract}`，genre 用類型清單 enum、內容包 key 用同一條 regex）、內容包（`content_schema` 由合約 item_schema 動態產生）、v3 評審 Claude 退路（`REVIEW_SCHEMA`）、v2.2 出廠自評（`CRITIC_SCHEMA`）、`rescue_meta`、每日留言分流（`TRIAGE_SCHEMA`）。`parse_plan`／`parse_json_block`／`_normalize_keys` 退役；Echo 評審（codex exec 沒有 schema）仍走 `REVIEW:` 標記＋`parse_review`。
 - **照建議自決（Batnini）**：① 不設 `--max-turns`（交結構化結果要多一輪，寫 1 會 error_max_turns）。② `pipeline._plan` 的兩次重試保留：JSON 語法錯不會再發生，但 `validate_contract` 的語意不合格（examples 缺欄位等）仍要帶錯誤重做。③ 🔴 API 規定 schema 欄位名只能英數 `_.-`（中文鍵實測回 400）：固定 schema 全用英文鍵；`content_schema` 遇到模型取的非英數欄位名就不放進 schema，改由 `validate_pack` 檢查。
 - **驗證**：`tests/test_v3.py` 離線 101 條全綠。真 CLI 探針（資料導到暫存資料夾、不推播、不動正式檔）：內容包 zones 6 筆、v3 評審退路 35 分含 audit、v2.2 自評 37 分、rescue_meta、留言分流（含注入留言判成 note）全過。**企劃書 A/B**（同一份 9/19 解構筆記、fable high 各一次）：舊版 328 秒／6,667 字／$1.35，新版 395 秒／6,877 字／$1.55；章節 10 節齊、驗收 12 條、合約 4 包都通過 `validate_contract`，Batnini 讀完兩份判定文筆沒有變差。整條產線等 9/26（六）02:00 週更驗收。
+
+## 2026-09-30 — Echo 獨立評審型號改 `gpt-6.1-sol`（Boss 拍板、Batnini 落地，經 Echo handoff 1824）
+
+- **決定**：Boss 拍板「Codex 相關工具預設改 gpt-6.1-sol、既有 effort 不變」。`v3/echo_review.py` 的 `PREFERRED_MODEL` 與 `FALLBACK_MODELS` 都改成 `gpt-6.1-sol`，`ECHO_EFFORT` 維持 `high`，沙盒維持 read-only、無網路。候選順序照舊是「Boss 指定 → `~/.codex/config.toml` 現役 → 退路」去重；config 目前同為 `gpt-6.1-sol`，所以每場只委派一次。
+- **不再保留舊代型號當候選**：舊的 `gpt-5.6-sol` 不留作退路。Echo 跑不動（CLI 太舊或型號下架）就照 9/5 規則丟 `EchoUnavailableError`、fail-open 回 sonnet 評審，生產不停；reviewer 欄會寫 `claude:sonnet`，對帳時照舊分開看。
+- **CLI 能不能跑**：runner（`Invoke-Echo.ps1`）挑 Codex app 內建 codex，2026-09-30 冒煙實測內建 0.159.2 跑 `gpt-6.1-sol` 回 OK；PATH 上的 standalone 0.157.0 同題回 400。9/5 那條「Echo 評估升級 codex CLI」因 runner 早已改用內建版而不再卡生產。
+- **驗證**：`factory/tests/test_v3.py` 新增 5b 節 4 條（預設型號＋effort、候選去重、讀不到 config 不退舊代、委派指令列 `-Model`／`-Effort`／`-Sandbox`），離線 105 條全綠；沒有真委派 Echo、沒有生遊戲。歷史評審紀錄（`games.json` 的 `reviewer: echo:gpt-5.6-sol`、`learnings.md`）不回改。

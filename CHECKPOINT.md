@@ -1,8 +1,15 @@
 # CHECKPOINT
 
-Updated: 2026-09-25 10:15 Asia/Taipei
+Updated: 2026-09-30 18:45 Asia/Taipei
 Task Lead: Batnini
-Status: complete（9/25：要 JSON 的六處改走 `--json-schema`，見下節；9/23：子 Claude 改沙盒 `--restricted --tools ""`＋繁中 system prompt）；前一輪 complete（9/17：修 9/12 停產事故的跨包引用誤判＋模型分工改版＋內容包引用改「警告放行」，離線測試全綠、`claude -p --model opus` 實跑驗過；**真實端到端驗收＝9/19 02:00 週更那場**，Boss 決定不手動補跑 9/12）；Phase 3 旗艦化待 Boss 開工
+Status: complete（9/30：Echo 獨立評審型號改 `gpt-6.1-sol`，見下節；9/25：要 JSON 的六處改走 `--json-schema`；9/23：子 Claude 改沙盒 `--restricted --tools ""`＋繁中 system prompt）；Phase 3 旗艦化待 Boss 開工
+
+## 2026-09-30 這輪（Echo 評審型號；詳見 DECISIONS.md 同日條目）
+
+- Boss 拍板 Codex 工具預設改 `gpt-6.1-sol`、effort 不變，經 Echo handoff `2026-09-30-1824-echo-to-batnini-codex-default-model.md` 交辦。`v3/echo_review.py` 的 `PREFERRED_MODEL`／`FALLBACK_MODELS` 都改 `gpt-6.1-sol`，`ECHO_EFFORT` 維持 high、沙盒維持 read-only；不再留舊代型號當候選，跑不動就照舊 fail-open 回 sonnet。
+- runner 用 Codex app 內建 codex，冒煙實測 0.159.2 跑 `gpt-6.1-sol` 回 OK（PATH 上的 0.157.0 回 400，runner 不會挑它）。
+- 測試：`python factory/tests/test_v3.py` 離線 105 條全綠（新增 5b 節 4 條）；沒有真委派 Echo、沒有生遊戲。
+- 沒有常駐程序：下一場週更（10/3（六）02:00）就會用新型號評審；跑完看 `factory.log` 的評審行是 `model=gpt-6.1-sol`、產出的 reviewer 是 `echo:gpt-6.1-sol`，若寫 `claude:sonnet` 就是 Echo 不可用、翻委派記錄查原因。
 
 ## 2026-09-25 這輪（prompt 稽核；詳見 DECISIONS.md 同日條目）
 
@@ -62,7 +69,7 @@ Kickoff 決策：1A 全鏈試產並上架→成功切排程、2A 靈感一榜合
 
 ## Risks / blockers
 
-- Echo 評審讀 60k 字元原始碼約 2～3 分鐘、gpt-5.6-sol；Echo 若整個不可用→sonnet（分數口徑會不同，對帳時分開看 `reviewer`）。
+- Echo 評審讀 60k 字元原始碼約 2～3 分鐘，9/30 起型號是 gpt-6.1-sol（9/17～9/29 的場次是 gpt-5.6-sol，對帳時別混在一起比）；Echo 若整個不可用→sonnet（分數口徑會不同，對帳時分開看 `reviewer`）。
 - 引擎 640 行卻 60k 字元（長行）：patch 的 SEARCH 段要對到整行，模型改長行容易對不上；再打磨若失敗會維持現版。
 - 品管壓力測試只保證「不炸＋內容載入」，不保證可通關；可通關性靠 Echo 稽核＋玩家留言。
 - `factory/runs/` gitignored：本機才有完整落檔；企劃書副本在 `knowledge/plans/`（公開 repo）。

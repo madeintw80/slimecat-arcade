@@ -10,7 +10,7 @@
   - Echo 不可用（沒裝 codex／runner 失敗／逾時／撈不到 JSON）→ 丟 EchoUnavailableError，
     呼叫端 fail-open 回 sonnet 評審；「評得差」是正常回傳不是錯誤
   - 每次委派留 ~/agent-workspace/runs/<run-id>/（runner 自動建四檔，PROTOCOL 第十二節）
-  - requested model 讀 Echo 本機 config（~/.codex/config.toml 的 model=），跟 EarningsCard 一樣對齊現役模型
+  - requested model＝PREFERRED_MODEL（Boss 拍板的 Codex 預設），Echo 本機 config（~/.codex/config.toml 的 model=）排第二
 
 範式來源：EarningsCard/verify_card.py（排程自動委派 Echo 首例）。
 """
@@ -28,12 +28,12 @@ from v3 import stages    # noqa: E402
 
 RUNNER = Path("C:/Users/User/agent-workspace/runners/Invoke-Echo.ps1")
 CODEX_CONFIG = Path("C:/Users/User/.codex/config.toml")
-# 2026-09-17 Boss 拍板：評審固定用 gpt-5.6-sol。原本是「先試 Echo config 現役模型」，但 config 常比
-# 本機 codex CLI 新（2026-09-05 實測：codex-cli 0.144.1 跑 gpt-6-astra 回「requires a newer version
-# of Codex」），每場都先浪費一次委派才退。改成 sol 優先、config 現役留作第二順位——哪天 sol 被下架，
-# 還找得到能跑的模型，不會整個評審掉回 sonnet。
-PREFERRED_MODEL = "gpt-5.6-sol"
-FALLBACK_MODELS = ["gpt-5.6-sol"]
+# 2026-09-30 Boss 拍板：Codex 工具預設統一 gpt-6.1-sol、effort 不變。評審先試 PREFERRED、再試 Echo config
+# 現役（~/.codex/config.toml，目前同為 gpt-6.1-sol，去重後只委派一次）；不再保留舊代型號當候選，跑不動
+# （CLI 太舊／型號下架）就照原規則 EchoUnavailableError 回 sonnet。runner 用 Codex app 內建 codex
+# （0.159.2 實測可跑 gpt-6.1-sol；PATH 上的 0.157.0 會回 400）。
+PREFERRED_MODEL = "gpt-6.1-sol"
+FALLBACK_MODELS = ["gpt-6.1-sol"]
 ECHO_EFFORT = "high"             # 評審＋稽核值得花；xhigh 留給對帳後決定
 ECHO_TIMEOUT = 900               # 15 分鐘上限（原始碼 2,000 行、xhigh 以下夠用）
 _NEEDS_UPGRADE_RE = re.compile(r"requires a newer version of Codex|Model metadata for .* not found|"

@@ -9,7 +9,7 @@
   - 2026-09-17 Boss 已依**單價**先定一輪（引擎／打磨／v2 實作 fable→opus、解構 opus→fable、內容包維持 sonnet、Echo 固定 sol high，見 DECISIONS 同日）；**尚未對帳的是「換模型之後品質有沒有掉」**——9/19 起累積三～四款後，比評審分數與玩家數據，確認 opus 寫的引擎撐不撐得住。
 - [ ] Phase 3：旗艦化「做大 <名>」走 session 手工做（候選：貓客滿樓無限模式、貓灶封潮夜關卡／波次；v3 首款若評審 `scale_up.worth` 也列候選）。
 - [x] Boss：建 Telegram 群組「SlimeCat Studio」→ **2026-09-05 21:05 Boss 拍板不建**，所有推播（含新作兩則介紹）全走 Boss 私訊（DECISIONS 9/5 第四條）；`factory/studio_setup.py` 留著當選配，想拉朋友再設。
-- [ ] Echo：評估升級 codex CLI（0.144.1 跑不了 config 的 gpt-6-astra）。**2026-09-17 起評審已固定 `gpt-5.6-sol`**（config 現役降第二順位），所以這條不再影響每場生產，只剩「想不想用更新的模型評審」；handoff `2026-09-05-1705-batnini-to-echo-slimecat-v3-echo-review.md`。
+- [x] Echo：評估升級 codex CLI（原本 0.144.1 跑不了新型號）。2026-09-30 結：runner 用的是 Codex app 內建 codex（當天 0.159.2），Boss 拍板的新預設 `gpt-6.1-sol` 實測可跑，評審已改用它（DECISIONS 9/30）；PATH 上的舊 CLI 不影響工廠。原 handoff `2026-09-05-1705-batnini-to-echo-slimecat-v3-echo-review.md`。
 - [ ] Boss：bridge 分冊關鍵字（解構／用量）要等 Batnini Bridge 下次重啟才生效（CLAUDE.md 路由已即時生效）；方便時雙擊 `scripts/batnini_bridge.bat` 或等機器重開。
 
 ## Completed

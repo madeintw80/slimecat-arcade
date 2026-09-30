@@ -292,6 +292,39 @@ check("_polish_issues bug 優先", pipeline._polish_issues({"audit": {"bugs": ["
 check("_polish_issues 低分修第一條", pipeline._polish_issues({"audit": {}, "total": 30, "fixes": ["f1", "f2"]}) == ["[評審改進點] f1"])
 check("_polish_issues 達標不修", pipeline._polish_issues({"audit": {}, "total": 45, "fixes": ["f1"]}) == [])
 
+# ---------------------------------------------------------------- 5b. Echo 評審型號候選（假 config、假 Popen，不真委派）
+from v3 import echo_review as er               # noqa: E402
+
+_saved_cfg, _saved_popen = er.CODEX_CONFIG, er.subprocess.Popen
+try:
+    er.CODEX_CONFIG = TMP / "config.toml"
+    er.CODEX_CONFIG.write_text('model = "gpt-6.1-sol"\nmodel_reasoning_effort = "medium"\n', encoding="utf-8")
+    check("Echo 評審預設 gpt-6.1-sol、effort high 不變（Boss 2026-09-30 拍板）",
+          er.PREFERRED_MODEL == "gpt-6.1-sol" and er.ECHO_EFFORT == "high")
+    check("候選去重後只剩 gpt-6.1-sol（config 同型號）", er.model_candidates() == ["gpt-6.1-sol"], str(er.model_candidates()))
+    er.CODEX_CONFIG = TMP / "no-such-config.toml"
+    check("讀不到 config 也不退回舊代型號", er.model_candidates() == ["gpt-6.1-sol"], str(er.model_candidates()))
+    _seen_cmd = []
+
+    class _StopLaunch(Exception):
+        pass
+
+    def _fake_popen(cmd, **_kw):
+        _seen_cmd.append(cmd)
+        raise _StopLaunch
+
+    er.subprocess.Popen = _fake_popen
+    try:
+        er._delegate(er.PREFERRED_MODEL, "t", "task", TMP, TMP / "echo_prompt.txt")
+    except _StopLaunch:
+        pass
+    _cmd = _seen_cmd[0] if _seen_cmd else []
+    _arg = lambda flag: _cmd[_cmd.index(flag) + 1] if flag in _cmd else None   # noqa: E731
+    check("委派指令列：-Model gpt-6.1-sol／-Effort high／-Sandbox read-only（唯讀不變）",
+          (_arg("-Model"), _arg("-Effort"), _arg("-Sandbox")) == ("gpt-6.1-sol", "high", "read-only"), str(_cmd[-12:]))
+finally:
+    er.CODEX_CONFIG, er.subprocess.Popen = _saved_cfg, _saved_popen
+
 # ---------------------------------------------------------------- 6. 榜單合併＋解構筆記存讀
 trends = {"source": "appstore-tw-legacy", "games": [{"rank": 1, "name": "A", "artist": "x", "summary": "s"}],
           "steam": {"games": [{"rank": 1, "name": "B", "list": "熱銷", "genres": ["動作"], "summary": "ss"}]}}
