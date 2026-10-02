@@ -1772,5 +1772,24 @@ const GAMES = [
       "web_score_med": 4,
       "web_raters": 1
     }
+  },
+  {
+    "id": "2026-10-03-001",
+    "title": "喵掌上架王",
+    "emoji": "📦",
+    "genre": "放鬆",
+    "date": "2026-10-03",
+    "desc": "拖雜物上對的貨架，整排擺滿就出貨，整回颱風掃過的倉庫！",
+    "pipeline": "v3",
+    "packs": {
+      "skills": 10,
+      "treasures": 18,
+      "goods": 6,
+      "shifts": 12
+    },
+    "ai_score": 35,
+    "reviewer": "echo:gpt-6.1-sol",
+    "howto": "拖貨上對的架子，擺滿出貨，別讓地板淹滿！",
+    "polished": "取得一爪抱三或貓掌大抱後，將一件貨放入any排，地面其他同類但不同色的貨也會一起；取得護爪繃帶並建立連擊後，放錯任何貨架仍立即歸零：drop的失敗分支呼叫comb；content模組與未知id驗收要求錯誤阻擋開局：C.load對未知goods引"
   }
 ];
