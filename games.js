@@ -1121,10 +1121,10 @@ const GAMES = [
       }
     ],
     "stats": {
-      "opens": 16,
-      "devices": 7,
-      "med_session_sec": 194.5,
-      "return_rate": 0.43,
+      "opens": 17,
+      "devices": 8,
+      "med_session_sec": 138.0,
+      "return_rate": 0.5,
       "plays_reported": 4,
       "web_score_med": 7,
       "web_raters": 1
