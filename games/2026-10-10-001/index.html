@@ -1,0 +1,652 @@
+<!--GAMEMETA {"title": "喵沙橫流", "emoji": "🏖️", "genre": "消除", "inspiration": "Sand Blocks: Drop Puzzle", "desc": "拖放貓砂塊碎成流砂，同色砂連通左右牆整條沖走，淹到耳朵前拚連流！"}-->
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>喵沙橫流</title>
+<!--CONTENT-NOTES
+《喵沙橫流》引擎內容規格：window.SC_CONTENT = { shapes, stages, cats, trials }，每包為物件陣列，筆數不限（5 筆或 30 筆皆可）。
+共通：缺包／空包、重複 id、enum 未知值、trials.shape_ids 引用不存在的形狀 → console.error 並阻擋開始（標題頁顯示錯誤）。
+      其餘數值超出範圍一律 clamp，缺欄位套預設值。
+砂場 60 欄 × 88 行（行數由底往上數），顏色依序：1 粉、2 青、3 黃、4 紫；灰砂為獨立灰色。
+
+[shapes] 砂塊
+  id 字串唯一（建議 sh_ 開頭）｜name 顯示名｜flavor 一句註解（目前只保存）
+  cells [[col,row],…] 1~5 格，座標 0~3（超出 clamp、重複格去除、第 6 格起忽略），請保持相連
+  grain 6~10（預設 8）：每格 grain×grain 粒；cells×grain² > 400 時引擎自動降 grain。建議總粒數 100~320
+  tier 1~4（預設 1）：stage.max_tier ≥ tier 才抽得到；若無可用形狀退回最低 tier
+  每個階段最多新增 2 型：同時解鎖超過 2 型時，依 tier→陣列順序順延到後續階段
+  weight 0.05~10（預設 1）抽牌權重｜rotations 1/2/4（其他值就近取，缺省＝1）
+  生成時用 cells 原始方向（生成點被擋才改用最扁方向）→ 長條請橫著寫
+
+[stages] 階段（依 start_sec 排序，第一筆強制 0 秒；階段數＝陣列長度）
+  id｜name（進階段大字橫幅）｜start_sec 0~3600
+  colors 2~4｜fall_rps 8~120 行/秒（34 ≈ 2.6 秒落到底）｜max_tier 1~4
+  dirt_chance／bicolor_chance／clump_chance 0~1：每塊機率，各至多改一格（場上結塊最多 2 個）
+  wind_every_sec 0（關）或 5~120 側風週期；wind_sec 0~10 每次吹幾秒（週期>0 且秒數 0 → 4 秒）；提前 2 秒預告
+  ear_row 24~78：耳線（由底往上數）；靜止砂高過耳線 0.5 秒＝翻倒。改變時以每秒 2 行平滑移動
+  new_element ∈ "" / rotate / ability / bicolor / dirt / wind / clump / shrink
+    rotate：該階前旋轉鎖住；ability：該階前技能鍵鎖住（整包都沒寫 rotate/ability 時開局即開放）
+    其他值只觸發一次性教學卡（首次見到暫停 1.2 秒）；實際效果完全由數值欄位決定
+  banner：教學卡／橫幅文字（空字串時用引擎內建說明）。進入新階段 +200 分（乘 score_mul）
+
+[cats] 助陣喵（標題頁 4×3 一頁，超過 12 隻自動分頁）
+  id｜name｜emoji 一個｜color 主色 hex（翻卡底色）｜desc 標題頁顯示｜flavor
+  passive.kind ∈ score_mul(總分×) / charge_mul(充能×) / dirt_rate_mul(灰砂機率×) / fall_mul(落速×) /
+                 preview_count(NEXT 多顯示 value 格，value 1~3，預設顯示 2 格) / wind_mul(風力×) /
+                 thick_mul(厚流倍率＝1.5×value，最低 1)
+     value clamp 0.3~2（建議 0.6~1.4）；value＝1 顯示「無被動」
+  active.kind ∈ flatten(搬 power×80 粒：最高處→最低谷) / blow(頂層 power 行砂往最高柱反向吹 2 秒) /
+                sweep_dirt(由上而下移除 power×20 粒灰砂) / recolor_next(接下來 power 塊換成最接近貫通的顏色) /
+                melt(power 個結塊化為流砂) / slow(power 秒內落速 ×0.5)
+     power 1~30｜cost 50~5000 沖走粒數（一條帶約 200~600 粒）｜name 技能名
+  unlock.kind ∈ start / grains_total / best_score / best_chain / runs / stage_idx(到達的階段索引，0 起算) / daily_done
+     沒有任何 start 時第一隻自動可用
+
+[trials] 每日砂盆（取 trials[一年中第幾天 % 筆數]）
+  id｜name｜desc（標題頁顯示）｜duration_sec 0＝無盡；30~1800 限時，時間到即結算
+  colors 2~4 覆蓋階段色數｜fall_mul 0.5~2 乘在 fall_rps
+  dirt_chance／clump_chance 0~1、wind_every_sec 0~120：有填就覆蓋整局（0＝整局關閉）
+  shape_ids 限定形狀 id（空陣列＝全部，仍受 tier 限制；限定後若都超過 tier 則忽略 tier）
+  start_stage_sec 0~3600 從階段時間軸第幾秒起跳｜goal_score 100~10000000（結算顯示達標）
+  seed_mode date（當日 YYYYMMDD）/ fixed（用 seed）｜seed 整數
+-->
+<style>
+html,body{margin:0;height:100%;background:#0d0918;overflow:hidden}
+body{display:flex;align-items:center;justify-content:center}
+canvas{display:block;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent}
+#back{position:fixed;left:6px;top:4px;z-index:5;color:#fff;font:600 13px sans-serif;text-decoration:none;background:rgba(0,0,0,.5);padding:3px 9px;border-radius:10px;opacity:.85}
+</style>
+</head>
+<body>
+<a id="back" href="../../index.html">← 回遊戲區</a>
+<canvas id="c" width="400" height="600"></canvas>
+<script id="sc-content">window.SC_CONTENT = {"stages": [{"id": "st_warm", "name": "暖砂開盆", "start_sec": 0, "colors": 2, "fall_rps": 34, "max_tier": 1, "dirt_chance": 0, "bicolor_chance": 0, "wind_every_sec": 0, "wind_sec": 0, "clump_chance": 0, "ear_row": 76, "new_element": "", "banner": ""}, {"id": "st_twirl", "name": "轉一轉，剛剛好", "start_sec": 20, "colors": 2, "fall_rps": 36, "max_tier": 2, "dirt_chance": 0, "bicolor_chance": 0, "wind_every_sec": 0, "wind_sec": 0, "clump_chance": 0, "ear_row": 76, "new_element": "rotate", "banner": "L 和 T 來了！旋轉砂塊，才塞得進那些小坑"}, {"id": "st_tri", "name": "三色拌砂", "start_sec": 45, "colors": 3, "fall_rps": 38, "max_tier": 2, "dirt_chance": 0, "bicolor_chance": 0, "wind_every_sec": 0, "wind_sec": 0, "clump_chance": 0, "ear_row": 76, "new_element": "", "banner": ""}, {"id": "st_paw", "name": "肉球蓄力", "start_sec": 80, "colors": 4, "fall_rps": 40, "max_tier": 3, "dirt_chance": 0, "bicolor_chance": 0, "wind_every_sec": 0, "wind_sec": 0, "clump_chance": 0, "ear_row": 76, "new_element": "ability", "banner": "第四色登場，技能鍵亮起，沖走夠多砂就能充能解圍"}, {"id": "st_twin", "name": "一塊兩味", "start_sec": 110, "colors": 4, "fall_rps": 43, "max_tier": 3, "dirt_chance": 0, "bicolor_chance": 0.25, "wind_every_sec": 0, "wind_sec": 0, "clump_chance": 0, "ear_row": 76, "new_element": "bicolor", "banner": "一塊兩種顏色，想好哪一側接哪一色再放"}, {"id": "st_dust", "name": "灰砂飄進來了", "start_sec": 160, "colors": 4, "fall_rps": 46, "max_tier": 3, "dirt_chance": 0.3, "bicolor_chance": 0.25, "wind_every_sec": 0, "wind_sec": 0, "clump_chance": 0, "ear_row": 76, "new_element": "dirt", "banner": "灰砂不會自己消，讓沖流貼著它流過才帶得走"}, {"id": "st_gust", "name": "貓鬍鬚的側風", "start_sec": 240, "colors": 4, "fall_rps": 49, "max_tier": 4, "dirt_chance": 0.2, "bicolor_chance": 0.3, "wind_every_sec": 25, "wind_sec": 4, "clump_chance": 0, "ear_row": 76, "new_element": "wind", "banner": "側風會把砂吹偏，看到箭頭先在逆風側預放"}, {"id": "st_clump", "name": "毛球結塊", "start_sec": 330, "colors": 4, "fall_rps": 52, "max_tier": 4, "dirt_chance": 0.25, "bicolor_chance": 0.3, "wind_every_sec": 25, "wind_sec": 4, "clump_chance": 0.15, "ear_row": 76, "new_element": "clump", "banner": "結塊落地變硬，把它當橋納入帶，別讓底下留空洞"}, {"id": "st_shrink", "name": "耳線下沉", "start_sec": 420, "colors": 4, "fall_rps": 56, "max_tier": 4, "dirt_chance": 0.2, "bicolor_chance": 0.35, "wind_every_sec": 30, "wind_sec": 4, "clump_chance": 0.12, "ear_row": 70, "new_element": "shrink", "banner": "耳線正在下沉，求快不求厚，別讓砂面碰到貓耳"}, {"id": "st_storm", "name": "喵砂暴", "start_sec": 540, "colors": 4, "fall_rps": 60, "max_tier": 4, "dirt_chance": 0.5, "bicolor_chance": 0.4, "wind_every_sec": 12, "wind_sec": 4, "clump_chance": 0.2, "ear_row": 62, "new_element": "", "banner": ""}], "cats": [{"id": "cat_milk", "name": "奶油團長", "emoji": "🐱", "color": "#f6e7c1", "desc": "沒有被動；拍平：最高 3 柱砂搬到低谷", "passive": {"kind": "score_mul", "value": 1}, "active": {"kind": "flatten", "name": "拍平", "power": 3, "cost": 500}, "unlock": {"kind": "start", "value": 0}, "flavor": "牠說砂盆就是牠的王座"}, {"id": "cat_ink", "name": "墨汁偵探", "emoji": "🐈‍⬛", "color": "#3b3b4f", "desc": "多看一格 NEXT；換色：下 2 塊變近貫通色", "passive": {"kind": "preview_count", "value": 3}, "active": {"kind": "recolor_next", "name": "墨色魔法", "power": 2, "cost": 350}, "unlock": {"kind": "runs", "value": 3}, "flavor": "牠早就知道下一塊是長條"}, {"id": "cat_mochi", "name": "麻糬糰糰", "emoji": "🍡", "color": "#f4d6e0", "desc": "充能快兩成；慢動作：10 秒內落速減半", "passive": {"kind": "charge_mul", "value": 1.2}, "active": {"kind": "slow", "name": "黏黏時間", "power": 6, "cost": 610}, "unlock": {"kind": "grains_total", "value": 6000}, "flavor": "連時間都被牠黏住了"}, {"id": "cat_tiger", "name": "虎斑阿厚", "emoji": "🐯", "color": "#e8a040", "desc": "厚流加成更高；融砂：2 個結塊化為流砂", "passive": {"kind": "thick_mul", "value": 1.2}, "active": {"kind": "melt", "name": "虎爪融砂", "power": 2, "cost": 350}, "unlock": {"kind": "best_chain", "value": 2}, "flavor": "做事要厚，貓掌也要厚"}, {"id": "cat_cloud", "name": "雲朵棉花", "emoji": "☁️", "color": "#cfe3f5", "desc": "風力減弱三成；拍平：搬 400 粒到低谷", "passive": {"kind": "wind_mul", "value": 0.7}, "active": {"kind": "flatten", "name": "雲朵壓平", "power": 5, "cost": 580}, "unlock": {"kind": "stage_idx", "value": 3}, "flavor": "風來了牠就當作被子蓋"}, {"id": "cat_storm", "name": "颶風小灰", "emoji": "🌪️", "color": "#9aa7b8", "desc": "灰砂少四成；一口氣：頂層 12 行砂吹向空側", "passive": {"kind": "dirt_rate_mul", "value": 0.6}, "active": {"kind": "blow", "name": "一口氣", "power": 12, "cost": 700}, "unlock": {"kind": "grains_total", "value": 30000}, "flavor": "打噴嚏的時候請遠離砂盆"}, {"id": "cat_broom", "name": "掃帚阿福", "emoji": "🧹", "color": "#b98b5e", "desc": "充能略快；掃灰：清除 200 粒灰砂", "passive": {"kind": "charge_mul", "value": 1.15}, "active": {"kind": "sweep_dirt", "name": "大掃除", "power": 10, "cost": 680}, "unlock": {"kind": "stage_idx", "value": 5}, "flavor": "灰砂在牠眼裡都是待辦事項"}, {"id": "cat_orange", "name": "連環橘子", "emoji": "🍊", "color": "#f28c28", "desc": "厚流倍率更高；一口氣：頂層 8 行砂吹開", "passive": {"kind": "thick_mul", "value": 1.35}, "active": {"kind": "blow", "name": "橘子噴嚏", "power": 8, "cost": 650}, "unlock": {"kind": "best_chain", "value": 4}, "flavor": "一顆接一顆，停不下來"}, {"id": "cat_hourglass", "name": "沙漏長老", "emoji": "⏳", "color": "#d9b66b", "desc": "落速慢兩成；慢動作：10 秒內落速減半", "passive": {"kind": "fall_mul", "value": 0.8}, "active": {"kind": "slow", "name": "時間打盹", "power": 10, "cost": 680}, "unlock": {"kind": "daily_done", "value": 3}, "flavor": "牠的一秒等於別貓的兩秒"}, {"id": "cat_bell", "name": "金鈴財神", "emoji": "🔔", "color": "#f2c14e", "desc": "總分高三成；換色：下 4 塊變近貫通色", "passive": {"kind": "score_mul", "value": 1.3}, "active": {"kind": "recolor_next", "name": "招財鈴響", "power": 4, "cost": 540}, "unlock": {"kind": "best_score", "value": 20000}, "flavor": "叮鈴一響，分數自己跑來"}, {"id": "cat_nian", "name": "年糕老爺", "emoji": "🍘", "color": "#e9dcc3", "desc": "風力減弱兩成；融砂：3 個結塊化為流砂", "passive": {"kind": "wind_mul", "value": 0.8}, "active": {"kind": "melt", "name": "蒸熱化糕", "power": 3, "cost": 500}, "unlock": {"kind": "runs", "value": 25}, "flavor": "硬邦邦只是還沒蒸熟"}, {"id": "cat_queen", "name": "砂暴女王", "emoji": "👑", "color": "#7a5cc4", "desc": "落速快兩成；掃灰：清除 300 粒灰砂", "passive": {"kind": "fall_mul", "value": 1.2}, "active": {"kind": "sweep_dirt", "name": "女王清場", "power": 15, "cost": 800}, "unlock": {"kind": "stage_idx", "value": 8}, "flavor": "暴風中央最安靜，牠最愛"}], "shapes": [{"id": "sh_bar", "name": "長條肉乾", "cells": [[0, 0], [1, 0], [2, 0], [3, 0]], "grain": 8, "tier": 1, "weight": 1.6, "rotations": 2, "flavor": "一整條，橫著鋪底最省心"}, {"id": "sh_block", "name": "貓墊方糕", "cells": [[0, 0], [1, 0], [0, 1], [1, 1]], "grain": 8, "tier": 1, "weight": 1.4, "rotations": 1, "flavor": "方方正正，貓咪最愛踩上去揉兩下"}, {"id": "sh_hook", "name": "勾爪", "cells": [[0, 0], [0, 1], [0, 2], [1, 2]], "grain": 8, "tier": 2, "weight": 1, "rotations": 4, "flavor": "轉對方向才勾得進坑"}, {"id": "sh_tee", "name": "炸毛耳", "cells": [[0, 0], [1, 0], [2, 0], [1, 1]], "grain": 8, "tier": 2, "weight": 1.1, "rotations": 4, "flavor": "尖尖的耳朵，專補中間凹下去的那一撮"}, {"id": "sh_zig", "name": "甩尾閃電", "cells": [[1, 0], [2, 0], [0, 1], [1, 1]], "grain": 8, "tier": 3, "weight": 0.9, "rotations": 2, "flavor": "尾巴一甩，兩層階梯就蓋好了"}, {"id": "sh_pebble", "name": "毛球", "cells": [[0, 0]], "grain": 10, "tier": 3, "weight": 0.6, "rotations": 1, "flavor": "最後一粒縫隙，就靠牠滾進去"}, {"id": "sh_corner", "name": "縮角小窩", "cells": [[0, 0], [0, 1], [1, 1]], "grain": 9, "tier": 3, "weight": 0.8, "rotations": 4, "flavor": "三格剛好窩進牆角，喵～"}, {"id": "sh_plus", "name": "肉球十字", "cells": [[1, 0], [0, 1], [1, 1], [2, 1], [1, 2]], "grain": 7, "tier": 4, "weight": 0.5, "rotations": 1, "flavor": "四隻腳掌大張，落下就是一個大洞"}, {"id": "sh_stair", "name": "貓跳台", "cells": [[0, 0], [0, 1], [1, 1], [1, 2], [2, 2]], "grain": 7, "tier": 4, "weight": 0.6, "rotations": 4, "flavor": "一階一階往上，擺歪了會卡住整排"}, {"id": "sh_cradle", "name": "窩籃", "cells": [[0, 0], [2, 0], [0, 1], [1, 1], [2, 1]], "grain": 7, "tier": 4, "weight": 0.4, "rotations": 4, "flavor": "中間留個窩，灰砂最愛躲進去"}], "trials": [{"id": "tr_bar_day", "name": "長條日", "desc": "只出長條，鋪得好就爽翻", "duration_sec": 0, "colors": 3, "fall_mul": 1, "dirt_chance": 0, "wind_every_sec": 0, "clump_chance": 0, "shape_ids": ["sh_bar"], "start_stage_sec": 45, "goal_score": 6000, "seed_mode": "date", "seed": 0}, {"id": "tr_breeze_90", "name": "微風九十秒", "desc": "90 秒限時，每 15 秒一陣風", "duration_sec": 90, "colors": 3, "fall_mul": 1, "dirt_chance": 0, "wind_every_sec": 15, "clump_chance": 0, "shape_ids": [], "start_stage_sec": 45, "goal_score": 2200, "seed_mode": "date", "seed": 0}, {"id": "tr_dust_bath", "name": "灰砂澡堂", "desc": "灰砂多一倍，慢慢洗乾淨", "duration_sec": 0, "colors": 4, "fall_mul": 1, "dirt_chance": 0.45, "wind_every_sec": 0, "clump_chance": 0, "shape_ids": [], "start_stage_sec": 120, "goal_score": 7000, "seed_mode": "date", "seed": 0}, {"id": "tr_dash_120", "name": "貓爪疾奔", "desc": "120 秒限時，落得特別快", "duration_sec": 120, "colors": 3, "fall_mul": 1.3, "dirt_chance": 0, "wind_every_sec": 0, "clump_chance": 0, "shape_ids": [], "start_stage_sec": 45, "goal_score": 3200, "seed_mode": "date", "seed": 0}, {"id": "tr_clump_bridge", "name": "結塊搭橋", "desc": "結塊變多，當橋用別留洞", "duration_sec": 0, "colors": 4, "fall_mul": 1, "dirt_chance": 0, "wind_every_sec": 0, "clump_chance": 0.28, "shape_ids": [], "start_stage_sec": 90, "goal_score": 8000, "seed_mode": "date", "seed": 0}, {"id": "tr_squad_150", "name": "方塊小隊", "desc": "150 秒，只有方塊小圓石長條", "duration_sec": 150, "colors": 3, "fall_mul": 1, "dirt_chance": 0, "wind_every_sec": 0, "clump_chance": 0, "shape_ids": ["sh_block", "sh_pebble", "sh_bar"], "start_stage_sec": 45, "goal_score": 3600, "seed_mode": "fixed", "seed": 7714}, {"id": "tr_slow_night", "name": "慢砂長夜", "desc": "落速放慢，灰砂與風照來", "duration_sec": 0, "colors": 4, "fall_mul": 0.8, "dirt_chance": 0.3, "wind_every_sec": 25, "clump_chance": 0, "shape_ids": [], "start_stage_sec": 240, "goal_score": 11000, "seed_mode": "date", "seed": 0}, {"id": "tr_dirt_storm", "name": "灰砂暴雨", "desc": "180 秒，每塊半數帶灰砂", "duration_sec": 180, "colors": 4, "fall_mul": 1, "dirt_chance": 0.5, "wind_every_sec": 0, "clump_chance": 0, "shape_ids": [], "start_stage_sec": 160, "goal_score": 5000, "seed_mode": "date", "seed": 0}, {"id": "tr_twirl_day", "name": "彎彎拐拐日", "desc": "只出轉角型，轉到順手", "duration_sec": 0, "colors": 2, "fall_mul": 1, "dirt_chance": 0, "wind_every_sec": 0, "clump_chance": 0, "shape_ids": ["sh_tee", "sh_corner", "sh_hook", "sh_stair"], "start_stage_sec": 20, "goal_score": 5000, "seed_mode": "date", "seed": 0}, {"id": "tr_nap_90", "name": "午後小憩", "desc": "90 秒悠閒款，落速放慢", "duration_sec": 90, "colors": 2, "fall_mul": 0.85, "dirt_chance": 0, "wind_every_sec": 0, "clump_chance": 0, "shape_ids": [], "start_stage_sec": 0, "goal_score": 1800, "seed_mode": "fixed", "seed": 20260101}, {"id": "tr_headwind", "name": "逆風長跑", "desc": "風每 10 秒來，預放補縫", "duration_sec": 0, "colors": 4, "fall_mul": 1, "dirt_chance": 0, "wind_every_sec": 10, "clump_chance": 0, "shape_ids": [], "start_stage_sec": 90, "goal_score": 9000, "seed_mode": "date", "seed": 0}, {"id": "tr_clump_rush", "name": "結塊搶修", "desc": "150 秒，結塊機率三成五", "duration_sec": 150, "colors": 4, "fall_mul": 1, "dirt_chance": 0.3, "wind_every_sec": 0, "clump_chance": 0.35, "shape_ids": [], "start_stage_sec": 160, "goal_score": 4500, "seed_mode": "date", "seed": 0}, {"id": "tr_odd_shapes", "name": "怪形砂盆", "desc": "十字、搖籃、閃電，怪塊專場", "duration_sec": 0, "colors": 4, "fall_mul": 1, "dirt_chance": 0, "wind_every_sec": 0, "clump_chance": 0, "shape_ids": ["sh_plus", "sh_cradle", "sh_zig"], "start_stage_sec": 120, "goal_score": 7500, "seed_mode": "date", "seed": 0}, {"id": "tr_meow_storm_90", "name": "喵砂暴衝刺", "desc": "90 秒直入終局暴風", "duration_sec": 90, "colors": 4, "fall_mul": 1, "dirt_chance": 0.5, "wind_every_sec": 12, "clump_chance": 0.15, "shape_ids": [], "start_stage_sec": 540, "goal_score": 3500, "seed_mode": "date", "seed": 0}]};</script>
+<script>
+(()=>{
+'use strict';
+// ===== 常數與工具 =====
+const W=60,H=88,N=W*H,GS=5,FX=50,FY=64,CW=400,CH=600,FW=W*GS,FH=H*GS,STEP=1/120;
+const cv=document.getElementById('c'),ctx=cv.getContext('2d');
+const clamp=(v,a,b)=>v<a?a:v>b?b:v;
+const num=(v,d,a,b)=>{v=Number(v);return clamp(isFinite(v)?v:d,a,b);};
+const str=(v,d)=>typeof v==='string'&&v.trim()?v:d;
+const fmt=n=>Math.round(n).toLocaleString('en-US');
+const mmss=s=>{s=Math.max(0,s);const m=Math.floor(s/60),x=Math.floor(s%60);return m+':'+(x<10?'0':'')+x;};
+const mixc=(a,b,t)=>'rgb('+a.map((v,i)=>Math.round(v+(b[i]-v)*t)).join(',')+')';
+const COLS=['#000','#ff6fa8','#34d1c4','#ffc93c','#9c7bff','#8b8478'],CNAME=['','粉','青','黃','紫','灰'];
+const FONT='"PingFang TC","Microsoft JhengHei","Noto Sans TC",system-ui,sans-serif';
+function rngOf(s){let a=(s>>>0)||1;return()=>{a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
+function ymd(){const d=new Date();return d.getFullYear()*10000+(d.getMonth()+1)*100+d.getDate();}
+function dayNum(n){return Math.round(Date.UTC(Math.floor(n/10000),Math.floor(n/100)%100-1,n%100)/864e5);}
+function doy(){const d=new Date();return Math.round((Date.UTC(d.getFullYear(),d.getMonth(),d.getDate())-Date.UTC(d.getFullYear(),0,1))/864e5);}
+
+// ===== 版面縮放（DPR 高解析）=====
+let SCL=1,DPR=1;
+function resize(){DPR=Math.min(3,window.devicePixelRatio||1);SCL=Math.min(innerWidth/CW,innerHeight/CH);cv.style.width=CW*SCL+'px';cv.style.height=CH*SCL+'px';cv.width=Math.round(CW*SCL*DPR);cv.height=Math.round(CH*SCL*DPR);}
+addEventListener('resize',resize);resize();
+
+// ===== content：讀取並驗證 SC_CONTENT =====
+const EN={p:['score_mul','charge_mul','dirt_rate_mul','fall_mul','preview_count','wind_mul','thick_mul'],a:['flatten','blow','sweep_dirt','recolor_next','melt','slow'],u:['start','grains_total','best_score','best_chain','runs','stage_idx','daily_done'],e:['','rotate','ability','bicolor','dirt','wind','clump','shrink']};
+const CT={ok:false,errors:[],shapes:[],stages:[],cats:[],trials:[]};
+function normCells(cs){let mx=9,my=9;cs.forEach(c=>{mx=Math.min(mx,c[0]);my=Math.min(my,c[1]);});const c=cs.map(p=>[p[0]-mx,p[1]-my]);let w=0,h=0;c.forEach(p=>{w=Math.max(w,p[0]+1);h=Math.max(h,p[1]+1);});return{c,w,h};}
+function loadContent(){
+ const src=window.SC_CONTENT||{},E=[],ids=new Set();
+ const pack=k=>{const a=src[k];if(!Array.isArray(a)||!a.length){E.push('缺少內容包：'+k);return[];}return a.filter(o=>o&&typeof o==='object');};
+ const uid=(o,pre,i)=>{const id=str(o.id,pre+i);if(ids.has(id))E.push('重複 id：'+id);ids.add(id);return id;};
+ CT.shapes=pack('shapes').map((s,i)=>{
+  const id=uid(s,'sh_',i),seen=new Set();
+  let cs=(Array.isArray(s.cells)?s.cells:[]).filter(p=>Array.isArray(p)).map(p=>[clamp(Math.round(+p[0]||0),0,3),clamp(Math.round(+p[1]||0),0,3)]).filter(p=>!seen.has(p+'')&&seen.add(p+'')).slice(0,5);
+  if(!cs.length){E.push('形狀 '+id+' 缺少 cells');cs=[[0,0]];}
+  let g=Math.round(num(s.grain,8,6,10));while(cs.length*g*g>400&&g>5)g--;
+  const rc=+s.rotations,nr=rc>=3?4:rc>=2?2:1,rots=[normCells(cs)];
+  for(let r=1;r<nr;r++)rots.push(normCells(rots[r-1].c.map(p=>[-p[1],p[0]])));
+  return{id,name:str(s.name,id),g,tier:Math.round(num(s.tier,1,1,4)),weight:num(s.weight,1,0.05,10),rots,n:cs.length};
+ });
+ CT.stages=pack('stages').map((s,i)=>{
+  const id=uid(s,'st_',i),ne=s.new_element==null?'':String(s.new_element);
+  if(!EN.e.includes(ne))E.push('階段 '+id+' 未知 new_element：'+ne);
+  let we=Math.round(num(s.wind_every_sec,0,0,120));if(we&&we<5)we=5;
+  return{id,name:str(s.name,'第 '+(i+1)+' 階'),start:num(s.start_sec,i*60,0,3600),colors:Math.round(num(s.colors,2,2,4)),fall:num(s.fall_rps,34,8,120),tier:Math.round(num(s.max_tier,1,1,4)),dirt:num(s.dirt_chance,0,0,1),bi:num(s.bicolor_chance,0,0,1),windEvery:we,windSec:num(s.wind_sec,0,0,10)||(we?4:0),clump:num(s.clump_chance,0,0,1),ear:Math.round(num(s.ear_row,76,24,78)),el:ne,banner:str(s.banner,'')};
+ }).sort((a,b)=>a.start-b.start);
+ if(CT.stages.length)CT.stages[0].start=0;
+ const shq=CT.shapes.slice().sort((a,b)=>a.tier-b.tier),shOn=new Set(); // 每階最多新增 2 型，超額順延到後面階段
+ CT.stages.forEach(st=>{let k=0;for(const s of shq)if(k<2&&s.tier<=st.tier&&!shOn.has(s)){shOn.add(s);k++;}st.pool=new Set(shOn);});
+ CT.cats=pack('cats').map((c,i)=>{
+  const id=uid(c,'cat_',i),p=c.passive||{},a=c.active||{},u=c.unlock||{};
+  const pk=p.kind==null?'score_mul':String(p.kind),ak=String(a.kind),uk=u.kind==null?'start':String(u.kind);
+  if(!EN.p.includes(pk))E.push('貓 '+id+' 未實作的被動：'+pk);
+  if(!EN.a.includes(ak))E.push('貓 '+id+' 未實作的主動：'+ak);
+  if(!EN.u.includes(uk))E.push('貓 '+id+' 未實作的解鎖條件：'+uk);
+  return{id,name:str(c.name,id),emoji:str(c.emoji,'🐱'),color:/^#[0-9a-f]{3,8}$/i.test(c.color)?c.color:'#f6e7c1',desc:str(c.desc,''),flavor:str(c.flavor,''),
+   pk,pv:pk==='preview_count'?Math.round(num(p.value,1,1,3)):num(p.value,1,0.3,2),ak,aname:str(a.name,'技能'),pow:Math.round(num(a.power,3,1,30)),cost:Math.round(num(a.cost,600,50,5000)),uk,uv:num(u.value,0,0,1e9)};
+ });
+ const shIds=new Set(CT.shapes.map(s=>s.id)),opt=(v,a,b)=>v==null||v===''||!isFinite(+v)?null:clamp(+v,a,b);
+ CT.trials=pack('trials').map((t,i)=>{
+  const id=uid(t,'tr_',i),sids=(Array.isArray(t.shape_ids)?t.shape_ids:[]).map(String);
+  sids.forEach(s=>{if(!shIds.has(s))E.push('砂盆 '+id+' 引用未知形狀：'+s);});
+  let d=Math.round(num(t.duration_sec,0,0,1800));if(d&&d<30)d=30;
+  return{id,name:str(t.name,id),desc:str(t.desc,''),dur:d,colors:t.colors==null?0:Math.round(num(t.colors,3,2,4)),fallMul:num(t.fall_mul,1,0.5,2),dirt:opt(t.dirt_chance,0,1),windEvery:opt(t.wind_every_sec,0,120),clump:opt(t.clump_chance,0,1),shapes:sids,startSec:num(t.start_stage_sec,0,0,3600),goal:Math.round(num(t.goal_score,5000,100,1e7)),seedMode:t.seed_mode==='fixed'?'fixed':'date',seed:Math.round(num(t.seed,0,0,2e9))};
+ });
+ CT.errors=E;CT.ok=!E.length;
+ E.forEach(e=>console.error('[喵沙橫流] 內容錯誤：'+e));
+ return{ok:CT.ok,errors:E};
+}
+
+// ===== save：localStorage 進度 =====
+const SKEY='sc_meow_sandflow_v1';let S={};
+function saveLoad(){
+ let d=null;try{d=JSON.parse(localStorage.getItem(SKEY)||'null');}catch(e){d=null;}
+ if(!d||typeof d!=='object')d={};
+ const n=v=>isFinite(+v)?+v:0,arr=v=>Array.isArray(v)?v.map(String):[],ob=(v,def)=>Object.assign(def,v&&typeof v==='object'?v:{});
+ S={best:n(d.best),bestChain:n(d.bestChain),grainsTotal:n(d.grainsTotal),runs:n(d.runs),maxStageIdx:n(d.maxStageIdx),unlockedCats:arr(d.unlockedCats),selectedCat:String(d.selectedCat||''),
+  daily:ob(d.daily,{date:0,trialId:'',best:0,done:false}),dailyDoneCount:n(d.dailyDoneCount),streak:n(d.streak),lastDay:n(d.lastDay),seenTips:arr(d.seenTips),mute:!!d.mute,
+  day:ob(d.day,{date:0,best:0}),prevDay:ob(d.prevDay,{date:0,best:0})};
+ S.daily.date=+S.daily.date||0;rollDay();
+}
+function saveCommit(){try{localStorage.setItem(SKEY,JSON.stringify(S));}catch(e){}}
+function rollDay(){const t=ymd();if(+S.day.date!==t){if(S.day.date&&S.day.best>0)S.prevDay={date:+S.day.date,best:S.day.best};S.day={date:t,best:0};}}
+function streakNow(){return S.lastDay&&dayNum(ymd())-dayNum(S.lastDay)<=1?S.streak:0;}
+function dailyTrial(){return CT.trials.length?CT.trials[doy()%CT.trials.length]:null;}
+function dailyDoneToday(){return S.daily.date===ymd()&&S.daily.done;}
+function catUnlocked(c){return c.uk==='start'||S.unlockedCats.includes(c.id);}
+function catStat(c){return{grains_total:S.grainsTotal,best_score:S.best,best_chain:S.bestChain,runs:S.runs,stage_idx:S.maxStageIdx,daily_done:S.dailyDoneCount}[c.uk]||0;}
+function checkUnlocks(){const out=[];CT.cats.forEach(c=>{if(!catUnlocked(c)&&catStat(c)>=c.uv){S.unlockedCats.push(c.id);out.push(c);}});return out;}
+function availCats(){const a=CT.cats.filter(catUnlocked);return a.length?a:CT.cats.slice(0,1);}
+function curCat(){const a=availCats();return a.find(c=>c.id===S.selectedCat)||a[0];}
+function unlockText(c){const v=fmt(c.uv);return{start:'一開始就有',grains_total:'累積沖走 '+v+' 粒',best_score:'最高分達 '+v,best_chain:'連流達 ×'+v,runs:'玩滿 '+v+' 局',stage_idx:'到達第 '+(c.uv+1)+' 階段',daily_done:'完成每日砂盆 '+v+' 次'}[c.uk]||'';}
+function progText(c){const s=catStat(c);return c.uk==='start'?'':'（目前 '+(c.uk==='stage_idx'?'第 '+(s+1)+' 階':fmt(s))+'）';}
+const PNAME={score_mul:'分數',charge_mul:'充能',dirt_rate_mul:'灰砂率',fall_mul:'落速',wind_mul:'風力',thick_mul:'厚流'};
+function pasText(c){if(c.pk==='preview_count')return['預覽','+'+c.pv+' 格'];if(c.pv===1)return['無被動',''];return[PNAME[c.pk],'×'+(+c.pv.toFixed(2))];}
+
+// ===== audio：WebAudio 合成 =====
+const AU={c:null};
+function auInit(){
+ if(AU.c){if(AU.c.state==='suspended')AU.c.resume().catch(()=>{});return;}
+ try{const A=window.AudioContext||window.webkitAudioContext;if(!A)return;const c=new A();AU.c=c;
+  AU.m=c.createGain();AU.m.gain.value=S.mute?0:0.8;AU.m.connect(c.destination);
+  const b=c.createBuffer(1,c.sampleRate,c.sampleRate),d=b.getChannelData(0);for(let i=0;i<d.length;i++)d[i]=Math.random()*2-1;AU.nb=b;
+  const loop=(type,f,q)=>{const s=c.createBufferSource();s.buffer=b;s.loop=true;const fl=c.createBiquadFilter();fl.type=type;fl.frequency.value=f;fl.Q.value=q;const g=c.createGain();g.gain.value=0;s.connect(fl);fl.connect(g);g.connect(AU.m);s.start();return g;};
+  AU.flow=loop('bandpass',2600,0.6);AU.wind=loop('lowpass',520,1.2);
+  const o=c.createOscillator(),lf=c.createBiquadFilter();o.type='sawtooth';o.frequency.value=55;lf.type='lowpass';lf.frequency.value=160;AU.hum=c.createGain();AU.hum.gain.value=0;o.connect(lf);lf.connect(AU.hum);AU.hum.connect(AU.m);o.start();
+ }catch(e){AU.c=null;}
+}
+function auSet(g,v){if(AU.c&&g)try{g.gain.setTargetAtTime(v,AU.c.currentTime,0.06);}catch(e){}}
+function tone(f0,f1,dur,type,vol,dl){const c=AU.c;if(!c)return;try{const t=c.currentTime+(dl||0),o=c.createOscillator(),g=c.createGain();o.type=type||'sine';o.frequency.setValueAtTime(f0,t);o.frequency.exponentialRampToValueAtTime(Math.max(20,f1),t+dur);g.gain.setValueAtTime(0.0001,t);g.gain.exponentialRampToValueAtTime(vol,t+0.01);g.gain.exponentialRampToValueAtTime(0.0001,t+dur);o.connect(g);g.connect(AU.m);o.start(t);o.stop(t+dur+0.05);}catch(e){}}
+function nz(dur,type,f0,f1,vol,pan,dl){const c=AU.c;if(!c||!AU.nb)return;try{const t=c.currentTime+(dl||0),s=c.createBufferSource(),f=c.createBiquadFilter(),g=c.createGain();s.buffer=AU.nb;f.type=type;f.frequency.setValueAtTime(f0,t);f.frequency.exponentialRampToValueAtTime(f1,t+dur);g.gain.setValueAtTime(vol,t);g.gain.exponentialRampToValueAtTime(0.0001,t+dur);s.connect(f);let l=f;if(pan&&c.createStereoPanner){const p=c.createStereoPanner();p.pan.setValueAtTime(-pan,t);p.pan.linearRampToValueAtTime(pan,t+dur);f.connect(p);l=p;}l.connect(g);g.connect(AU.m);s.start(t);s.stop(t+dur+0.05);}catch(e){}}
+const NOTES=[523,587,659,784,880,1047,1175,1319,1568];
+function sfx(n,a){if(!AU.c||S.mute)return;switch(n){
+ case'poof':tone(150,45,0.2,'sine',0.55);nz(0.16,'lowpass',900,180,0.35);break;
+ case'hard':tone(260,70,0.12,'triangle',0.3);nz(0.1,'highpass',2000,600,0.15);break;
+ case'move':tone(1100,1000,0.02,'square',0.025);break;
+ case'rot':tone(620,940,0.07,'triangle',0.14);break;
+ case'bonk':tone(190,120,0.09,'square',0.07);break;
+ case'wash':{const k=NOTES[Math.min(a||0,8)];nz(0.55,'bandpass',350,4200,0.45,0.9);tone(k,k*1.005,0.4,'triangle',0.22,0.04);if(a>0)tone(k*1.5,k*1.5,0.35,'sine',0.1,0.1);break;}
+ case'stage':[0,2,4].forEach((k,i)=>tone(NOTES[k],NOTES[k],0.22,'triangle',0.15,i*0.08));break;
+ case'meow':tone(520,860,0.13,'sawtooth',0.09);tone(860,460,0.24,'sawtooth',0.09,0.12);break;
+ case'record':[0,2,4,7].forEach((k,i)=>tone(NOTES[k],NOTES[k],0.32,'square',0.09,i*0.12));break;
+ case'over':tone(420,90,0.7,'sawtooth',0.14);break;
+ case'flip':tone(1200,1700,0.16,'sine',0.15);break;
+ case'skill':nz(0.45,'highpass',500,4500,0.25);sfx('meow');break;
+ case'warn':tone(320,320,0.1,'square',0.07);tone(320,320,0.1,'square',0.07,0.18);break;
+ case'tip':tone(700,1050,0.16,'sine',0.15);break;
+}}
+function toggleMute(){S.mute=!S.mute;saveCommit();if(AU.m)AU.m.gain.value=S.mute?0:0.8;}
+
+// ===== fx：粒子、震動、橫幅、浮字 =====
+const FXS={parts:[],banners:[],floats:[],shake:0,flash:0,slow:0,bump:0,catFlash:0,btn:[0,0,0]};
+function burst(x,y,n,col,sp,ang,spread,grav,life,size){for(let i=0;i<n&&FXS.parts.length<1400;i++){const a=ang+(Math.random()-.5)*spread,v=sp*(0.4+Math.random()*0.8),l=life*(0.6+Math.random()*0.6);FXS.parts.push({x,y,vx:Math.cos(a)*v,vy:Math.sin(a)*v,g:grav,l,ml:l,c:col,s:size||2.5});}}
+function grainFx(p,v){burst(FX+(p%W+.5)*GS,FY+((p/W|0)+.5)*GS,1,COLS[v&7],320,0,0.6,60,0.35,3);}
+function banner(text,col,size,life){FXS.banners.push({text,col:col||'#fff',size:size||28,life:life||1.2,t:0});if(FXS.banners.length>4)FXS.banners.shift();}
+function floatT(text,x,y,col,size){FXS.floats.push({text,x,y,col:col||'#fff',size:size||16,t:0});if(FXS.floats.length>8)FXS.floats.shift();}
+function fxUpdate(dt){
+ const P=FXS.parts;for(let i=P.length-1;i>=0;i--){const q=P[i];q.l-=dt;if(q.l<=0){P[i]=P[P.length-1];P.pop();continue;}q.vy+=q.g*dt;q.x+=q.vx*dt;q.y+=q.vy*dt;}
+ FXS.banners=FXS.banners.filter(b=>(b.t+=dt)<b.life);FXS.floats=FXS.floats.filter(f=>(f.t+=dt)<1.1);
+ FXS.shake=Math.max(0,FXS.shake-dt*25);FXS.flash=Math.max(0,FXS.flash-dt*2);FXS.bump=Math.max(0,FXS.bump-dt*4);FXS.catFlash=Math.max(0,FXS.catFlash-dt);FXS.btn=FXS.btn.map(v=>Math.max(0,v-dt));
+ if(R)R.wig=Math.max(0,R.wig-dt);
+ if(G.phase==='title'&&Math.random()<0.6)P.push({x:Math.random()*CW,y:-4,vx:(Math.random()-.5)*10,vy:60+Math.random()*80,g:0,l:8,ml:8,c:COLS[1+(Math.random()*4|0)],s:3});
+}
+
+// ===== sand：細胞自動機 =====
+// 格值：低 3 位元＝種類（1~4 色、5 灰砂）；3~4 位元＝明暗；64＝結塊；128＝沖刷中（凍結）
+const VIS=new Uint8Array(N),STK=new Int32Array(N);let PAR=0;
+function caStep(g,wd){PAR^=1;let m=0;const pr=wd>0?0.85:wd<0?0.15:0.5;
+ for(let y=H-2;y>=0;y--){const row=y*W;for(let i=0;i<W;i++){const x=PAR?i:W-1-i,p=row+x,v=g[p];if(!v||(v&192))continue;const b=p+W;
+  if(!g[b]){g[b]=v;g[p]=0;m++;continue;}
+  const l=x>0&&!g[p-1]&&!g[b-1],r=x<W-1&&!g[p+1]&&!g[b+1];if(!l&&!r)continue;
+  const d=l&&r?(Math.random()<pr?1:-1):r?1:-1;g[b+d]=v;g[p]=0;m++;}}
+ return m;}
+function windStep(g,dir,s,y0,y1){let m=0;y0=Math.max(0,y0|0);y1=Math.min(H-1,y1|0); // 表層粒側移
+ for(let y=y0;y<=y1;y++){const row=y*W;for(let i=0;i<W;i++){const x=dir>0?W-1-i:i,p=row+x,v=g[p];if(!v||(v&192))continue;if(y>0&&g[p-W])continue;const nx=x+dir;if(nx<0||nx>=W||g[row+nx])continue;if(Math.random()<s){g[row+nx]=v;g[p]=0;m++;}}}
+ return m;}
+function clumpStep(g){let m=0;for(const k of R.clumps){const by=k.y+k.h;if(by>=H)continue;let ok=true;for(let x=k.x;x<k.x+k.w;x++)if(g[by*W+x]){ok=false;break;}if(!ok)continue; // 結塊整體下落一行
+ for(let y=by;y>k.y;y--)for(let x=k.x;x<k.x+k.w;x++)g[y*W+x]=g[(y-1)*W+x];for(let x=k.x;x<k.x+k.w;x++)g[k.y*W+x]=0;k.y++;m++;}return m;}
+
+// ===== band：左牆泛洪找貫通帶 =====
+function detect(g){VIS.fill(0);const bands=[];let best=null;
+ for(let c=1;c<=4;c++)for(let y0=0;y0<H;y0++){let n=0,reach=-1; // 每個左牆連通區各自判定
+  const fl=q=>{if(!VIS[q]&&(g[q]&7)===c){VIS[q]=1;STK[n++]=q;}};
+  fl(y0*W);
+  if(!n)continue;const cells=[];
+  while(n){const p=STK[--n];cells.push(p);const x=p%W;if(x>reach)reach=x;if(x>0)fl(p-1);if(x<W-1)fl(p+1);if(p>=W)fl(p-W);if(p<N-W)fl(p+W);}
+  if(reach===W-1){const cnt=new Uint16Array(W);cells.forEach(p=>cnt[p%W]++);let mn=999;for(let x=0;x<W;x++)mn=Math.min(mn,cnt[x]);bands.push({c,cells,thick:mn>=4});}
+  else if(!best||reach>best.reach)best={c,reach,cells};}
+ return{bands,best};}
+const MASK=new Uint8Array(N);
+function clearBands(bands){
+ const g=R.grid;MASK.fill(0);R.chain++;R.chainMax=Math.max(R.chainMax,R.chain);
+ const thickF=Math.max(1,1.5*pas('thick_mul',1)),dbl=bands.length>1,list=[];
+ let grains=0,dirt=0,clumps=0,pts=0,ymin=H,ymax=0,thickAny=false;
+ for(const b of bands){for(const p of b.cells){MASK[p]=1;const y=p/W|0;if(y<ymin)ymin=y;if(y>ymax)ymax=y;g[p]|=128;list.push(p);}
+  let v=b.cells.length*R.chain;if(b.thick){v*=thickF;thickAny=true;}if(dbl)v*=1.5;pts+=v;grains+=b.cells.length;}
+ R.clumps=R.clumps.filter(k=>{if(MASK[k.y*W+k.x]){clumps++;return false;}return true;});
+ for(const b of bands)for(const p of b.cells){const x=p%W;for(const q of [x>0?p-1:-1,x<W-1?p+1:-1,p-W,p+W])if(q>=0&&q<N&&(g[q]&7)===5&&!(g[q]&128)){g[q]|=128;list.push(q);dirt++;}}
+ list.sort((a,b)=>a%W-b%W);R.wash={list,i:0,t:0,dur:0.32,y0:FY+ymin*GS,y1:FY+(ymax+1)*GS};
+ pts=(pts+dirt*5+clumps*40)*pas('score_mul',1);addScore(pts);R.grains+=grains;addCharge(grains);
+ const cy=FY+((ymin+ymax)/2+.5)*GS;
+ FXS.shake=Math.min(12,4+R.chain*2);FXS.flash=0.22;sfx('wash',R.chain-1);
+ floatT('+'+fmt(pts),200,cy,'#fff',20+Math.min(R.chain,5)*3);
+ if(!R.firstBand){R.firstBand=true;FXS.slow=0.6;banner('同色連到右牆＝沖走','#ffe08a',22,2.4);}
+ if(R.chain>=2)banner('連流 ×'+R.chain,'#ff9ad0',30+Math.min(R.chain,6)*3,1.3);
+ if(thickAny)banner('厚流 ×'+(+thickF.toFixed(2)),'#9ff3e8',24,1.1);
+ if(dbl)banner('雙流！','#ffd36b',30,1.2);
+ if(dirt)floatT('灰砂帶走 +'+dirt*5,200,cy+26,'#d8d0c0',13);
+ if(clumps)floatT('結塊 +'+clumps*40,200,cy+44,'#ffd9a0',13);
+}
+function washTick(dt){const w=R.wash,g=R.grid;w.t+=dt;const lim=Math.min(1,w.t/w.dur)*(W+1); // 左→右逐欄沖走
+ while(w.i<w.list.length&&w.list[w.i]%W<lim){const p=w.list[w.i++],v=g[p];if(v&128){g[p]=0;if((w.i&3)===0)grainFx(p,v);}}
+ if(w.i>=w.list.length)R.wash=null;}
+const nc=document.createElement('canvas');nc.width=W;nc.height=H;const nctx=nc.getContext('2d'),NIMG=nctx.createImageData(W,H),N32=new Uint32Array(NIMG.data.buffer);
+function buildMask(cells){N32.fill(0);for(const p of cells)N32[p]=0xffffffff;nctx.putImageData(NIMG,0,0);}
+
+// ===== core：狀態機與局內流程 =====
+const G={phase:'title',mode:'normal',overT:0,sum:null,page:0,time:0,zones:[],info:null,flipN:0};
+let R=null;
+const TIPS={rotate:'點一下砂場（或 ↑）旋轉砂塊，轉對方向才填得進坑',ability:'右上貓臉充滿就按 🐾，技能幫你解圍',bicolor:'一塊兩色！想好哪一側要接哪個顏色',dirt:'灰砂不會自己消，讓沖流貼著它流過才帶得走',wind:'側風會把表層砂吹歪，看箭頭提前預放',clump:'結塊不會流動，把它當橋納進帶裡就會清掉',shrink:'耳線往下沉了！求快不求厚'};
+const ICON={rotate:'⟳',ability:'🐾',bicolor:'🎨',dirt:'🌫️',wind:'🌬️',clump:'🧱',shrink:'👂'};
+function pas(kind,def){const c=R?R.cat:curCat();return c&&c.pk===kind?c.pv:def;}
+function previewN(){return 2+(pas('preview_count',0)|0);}
+function stageIdxAt(sec){let i=0;CT.stages.forEach((s,k)=>{if(s.start<=sec)i=k;});return i;}
+function elemOn(el){const st=CT.stages;return !st.some(s=>s.el===el)||st.some((s,i)=>s.el===el&&i<=R.stIdx);}
+function effParams(st){const tr=R.trial,o=Object.assign({},st);if(tr){if(tr.colors)o.colors=tr.colors;o.fall*=tr.fallMul;if(tr.dirt!=null)o.dirt=tr.dirt;
+ if(tr.windEvery!=null){o.windEvery=tr.windEvery&&tr.windEvery<5?5:Math.round(tr.windEvery);if(o.windEvery&&!o.windSec)o.windSec=4;}if(tr.clump!=null)o.clump=tr.clump;}return o;}
+function genBase(rng,A,B){ // 雙色起伏基底：A 色表層在中央缺 6 欄，B 色被 A 柱切斷
+ const g=R.grid,hs=[],ph=rng()*6.3,ph2=rng()*6.3,px=4+Math.floor(rng()*9),dip=[1,2,3,3,2,1];
+ for(let x=0;x<W;x++)hs.push(Math.round(9+Math.sin(x*0.19+ph)*1.6+Math.sin(x*0.07+ph2)*1.4));
+ const fix=a=>{for(let x=Math.max(1,a);x<W;x++)hs[x]=clamp(hs[x],hs[x-1]-1,hs[x-1]+1);};fix(1);
+ for(let x=25;x<=34;x++)hs[x]=hs[25];fix(35);
+ for(let x=0;x<W;x++){const gi=x-27,gap=gi>=0&&gi<6,top=gap?hs[x]-dip[gi]:hs[x];
+  for(let r=0;r<top;r++){let c=B;if(!gap&&(r>=hs[x]-3||x===px||x===px+1||rng()<0.05))c=A;g[(H-1-r)*W+x]=c|((rng()*4|0)<<3);}}}
+function genPiece(){ // 依階段抽形狀、顏色與特殊格
+ const P=R.P,tr=R.trial;let pool=CT.shapes.filter(s=>P.pool.has(s));
+ if(tr&&tr.shapes.length){const lim=CT.shapes.filter(s=>tr.shapes.includes(s.id));pool=lim.filter(s=>P.pool.has(s));if(!pool.length)pool=lim.filter(s=>s.tier<=P.tier);if(!pool.length)pool=lim;}
+ if(!pool.length){const mt=Math.min(...CT.shapes.map(s=>s.tier));pool=CT.shapes.filter(s=>s.tier===mt);}
+ let tw=0;pool.forEach(s=>tw+=s.weight);let r=R.rng()*tw,sh=pool[0];for(const s of pool){r-=s.weight;if(r<=0){sh=s;break;}}
+ const nc=P.colors,forced=R.forced>0;let col=1+Math.floor(R.rng()*nc);if(forced){col=R.bandColor;R.forced--;}
+ const cc=new Array(sh.n).fill(col);let ck=-1;
+ if(!forced){
+  if(P.bi>0&&sh.n>1&&R.rng()<P.bi){let c2=1+Math.floor(R.rng()*(nc-1));if(c2>=col)c2++;cc[Math.floor(R.rng()*sh.n)]=c2;}
+  if(P.dirt>0&&R.rng()<P.dirt*pas('dirt_rate_mul',1))cc[Math.floor(R.rng()*sh.n)]=5;
+  if(P.clump>0&&R.rng()<P.clump){const i=Math.floor(R.rng()*sh.n);if(cc[i]!==5)ck=i;}}
+ return{sh,cc,ck,r:0,x:0,y:0,acc:0};}
+function fillNext(){while(R.next.length<6)R.next.push(genPiece());}
+function collide(p,x,y,r){const rt=p.sh.rots[r==null?p.r:r],gs=p.sh.g,g=R.grid;if(x<0||x+rt.w*gs>W)return true;
+ for(const [cx,cy] of rt.c){const x0=x+cx*gs,y0=y+cy*gs;for(let yy=y0;yy<y0+gs;yy++){if(yy<0)continue;if(yy>=H)return true;const row=yy*W;for(let xx=x0;xx<x0+gs;xx++)if(g[row+xx])return true;}}
+ return false;}
+function ghostY(p){let y=p.y;while(y<H&&!collide(p,p.x,y+1))y++;return y;}
+function startRun(mode){
+ if(!CT.ok)return false;auInit();rollDay();
+ const tr=mode==='daily'?dailyTrial():null;if(!tr)mode='normal';
+ const seed=tr?(tr.seedMode==='fixed'?tr.seed:ymd()):(Date.now()^(Math.random()*1e9))>>>0;
+ R={trial:tr,cat:curCat(),rng:rngOf(seed*31+7),grid:new Uint8Array(N),clumps:[],t:0,score:0,chain:0,chainMax:0,grains:0,pieces:0,next:[],piece:null,sub:'flow',flowT:0,settled:0,stIdx:0,P:null,ear:76,overT:0,wind:null,blow:null,windNext:Infinity,windWarn:0,windDir:1,charge:0,slowT:0,firstBand:false,nm:null,minGap:99,prev:null,stillT:0,prevKey:'',tip:null,goalHit:false,danger:0,top:H,moved:0,wash:null,wig:0,dragCol:null,bestReach:null,forced:2,lockMsg:-9,lastMove:0};
+ const trng=rngOf(seed);R.bandColor=1+Math.floor(trng()*2);genBase(trng,R.bandColor,3-R.bandColor);
+ R.stIdx=stageIdxAt(tr?tr.startSec:0);R.P=effParams(CT.stages[R.stIdx]);R.ear=R.P.ear;R.rotateOn=elemOn('rotate');R.abilityOn=elemOn('ability');
+ if(R.P.windEvery)R.windNext=6;
+ fillNext();G.phase='run';G.mode=mode;G.sum=null;G.flipN=0;G.zones=[];
+ FXS.parts.length=0;FXS.banners.length=0;FXS.floats.length=0;FXS.slow=0;
+ banner(tr?'📅 '+tr.name
+:CT.stages[R.stIdx].name,'#ffd36b',26,1.6);
+ return true;}
+function spawn(){ // 生成下一塊；生成區被佔＝翻倒
+ const g=R.grid;for(let i=0;i<W*8;i++)if(g[i]){end('top');return;}
+ const p=R.next.shift();fillNext();R.chain=0;
+ let rt=p.sh.rots[0];p.x=Math.round((W-rt.w*p.sh.g)/2);p.y=0;
+ if(collide(p,p.x,0)){let b=0;p.sh.rots.forEach((r,i)=>{if(r.h<p.sh.rots[b].h)b=i;});p.r=b;rt=p.sh.rots[b];p.x=Math.round((W-rt.w*p.sh.g)/2);while(collide(p,p.x,p.y)&&p.y>-rt.h*p.sh.g)p.y--;}
+ R.piece=p;R.sub='fall';R.prev=null;R.stillT=0;R.prevKey='';R.pieces++;}
+function shatter(){ // 落地瞬間碎成砂
+ const p=R.piece,rt=p.sh.rots[p.r],gs=p.sh.g,g=R.grid;
+ rt.c.forEach(([cx,cy],i)=>{const t=p.cc[i],x0=p.x+cx*gs,y0=p.y+cy*gs;let ck=i===p.ck&&R.clumps.length<2&&y0>=0&&y0+gs<=H;
+  if(ck)for(let yy=y0;yy<y0+gs&&ck;yy++)for(let xx=x0;xx<x0+gs;xx++)if(g[yy*W+xx]){ck=false;break;}
+  if(ck)R.clumps.push({x:x0,y:y0,w:gs,h:gs});
+  for(let yy=Math.max(0,y0);yy<Math.min(H,y0+gs);yy++)for(let xx=x0;xx<x0+gs;xx++){const q=yy*W+xx;if(!g[q])g[q]=t|((Math.random()*4|0)<<3)|(ck?64:0);}});
+ const bx=FX+(p.x+rt.w*gs/2)*GS,by=FY+(p.y+rt.h*gs)*GS;
+ burst(bx,by,18,COLS[p.cc[0]],160,-Math.PI/2,Math.PI*1.1,500,0.45,3);
+ sfx('poof');FXS.shake=Math.max(FXS.shake,3);
+ R.piece=null;R.sub='flow';R.flowT=0;R.settled=0;R.prev=null;}
+function pieceTick(dt){
+ const p=R.piece;R.soft=!!KEY.ArrowDown;
+ const sp=R.P.fall*pas('fall_mul',1)*(R.slowT>0?0.5:1)*(R.soft?6:1);
+ p.acc+=sp*dt;while(p.acc>=1){p.acc-=1;if(collide(p,p.x,p.y+1)){p.acc=0;shatter();return;}p.y++;}
+ const key=p.x+','+p.r;if(key!==R.prevKey){R.prevKey=key;R.stillT=0;R.prev=null;}else{R.stillT+=dt;if(!R.prev&&R.stillT>=0.25)computePreview();}}
+function computePreview(){ // 副本模擬碎砂＋60 子步，畫出流砂預覽
+ const p=R.piece,gy=ghostY(p),g2=R.grid.slice(),rt=p.sh.rots[p.r],gs=p.sh.g;
+ rt.c.forEach(([cx,cy],i)=>{for(let yy=Math.max(0,gy+cy*gs);yy<Math.min(H,gy+cy*gs+gs);yy++)for(let xx=p.x+cx*gs;xx<p.x+cx*gs+gs;xx++){const q=yy*W+xx;if(!g2[q])g2[q]=p.cc[i];}});
+ for(let i=0;i<60;i++)caStep(g2,0);
+ const cells=[];let ty=H;for(let i=0;i<N;i++)if(g2[i]&&!R.grid[i]){cells.push(i,g2[i]&7);ty=Math.min(ty,i/W|0);}
+ const d=detect(g2);R.prev={cells,band:d.bands.length?d.bands[0].c:0,y:ty};}
+function tipBlock(){return R&&R.tip&&R.tip.t>1.5;}
+function moveBy(d){const p=R&&R.piece;if(!p||G.phase!=='run'||tipBlock())return false;const s=Math.sign(d);let n=Math.abs(d),m=0;
+ while(n--){if(collide(p,p.x+s,p.y))break;p.x+=s;m++;}
+ if(m&&G.time-R.lastMove>0.05){R.lastMove=G.time;sfx('move');}return m>0;}
+function setCol(c){const p=R.piece;if(!p)return;const w=p.sh.rots[p.r].w*p.sh.g,tx=clamp(c-Math.floor(w/2),0,W-w);if(tx!==p.x)moveBy(tx-p.x);}
+function rotate(){const p=R&&R.piece;if(!p||G.phase!=='run'||tipBlock())return;
+ if(!R.rotateOn){R.wig=0.2;sfx('bonk');if(G.time-R.lockMsg>1.5){R.lockMsg=G.time;floatT('旋轉稍後開放',200,FY+60,'#ccc',14);}return;}
+ const n=p.sh.rots.length;if(n<2){R.wig=0.12;sfx('rot');return;}
+ const nr=(p.r+1)%n,a=p.sh.rots[p.r],b=p.sh.rots[nr],gs=p.sh.g;
+ const nx=Math.round(p.x+a.w*gs/2-b.w*gs/2),ny=Math.round(p.y+a.h*gs/2-b.h*gs/2);
+ for(const [kx,ky] of [[0,0],[-gs,0],[gs,0],[-2*gs,0],[2*gs,0],[0,-gs]]){const x=clamp(nx+kx,0,W-b.w*gs),y=ny+ky;if(!collide(p,x,y,nr)){p.x=x;p.y=y;p.r=nr;sfx('rot');R.wig=0.1;return;}}
+ sfx('bonk');R.wig=0.15;}
+function hardDrop(){const p=R&&R.piece;if(!p||G.phase!=='run'||tipBlock())return;
+ const gy=ghostY(p),rt=p.sh.rots[p.r],w=rt.w*p.sh.g;
+ for(let i=0;i<10;i++)FXS.parts.push({x:FX+(p.x+Math.random()*w)*GS,y:FY+(p.y+Math.random()*(gy-p.y))*GS,vx:0,vy:420,g:0,l:0.18,ml:0.18,c:'rgba(255,255,255,.7)',s:2});
+ p.y=gy;p.acc=0;sfx('hard');shatter();FXS.shake+=2;}
+function addScore(v){R.score+=v;FXS.bump=1;
+ if(R.trial&&!R.goalHit&&R.score>=R.trial.goal){R.goalHit=true;banner('🎯 達標！','#ffe066',30,1.6);sfx('record');}}
+function addCharge(n){const c=R.cat,was=R.charge>=c.cost;R.charge=Math.min(c.cost,R.charge+n*pas('charge_mul',1));
+ if(!was&&R.charge>=c.cost&&R.abilityOn){sfx('meow');floatT('喵！技能好了',320,150,'#ffe066',14);FXS.catFlash=0.3;}}
+
+// ===== cat：主動技能 =====
+function useAbility(){if(G.phase!=='run'||!R||tipBlock())return;const c=R.cat,g=R.grid;
+ if(!R.abilityOn){sfx('bonk');floatT('技能尚未開放',300,140,'#bbb',13);return;}
+ if(R.charge<c.cost){sfx('bonk');floatT('充能 '+Math.floor(R.charge/c.cost*100)+'%',320,140,'#c9a7ff',13);return;}
+ let msg='';
+ if(c.ak==='flatten'){msg=c.aname+'！'+flatten(c.pow*80)+' 粒砂峰→低谷';}
+ else if(c.ak==='blow'){let hx=0,ht=H;for(let x=0;x<W;x++){let y=0;while(y<H&&!g[y*W+x])y++;if(y<ht){ht=y;hx=x;}}const d=hx<W/2?1:-1;R.blow={dir:d,str:0.35,until:R.t+2,y0:ht,y1:ht+c.pow};msg=c.aname+'！頂層砂吹向'+(d>0?'右':'左');}
+ else if(c.ak==='sweep_dirt'){let k=0;for(let p=0;p<N&&k<c.pow*20;p++)if((g[p]&7)===5&&!(g[p]&192)){if(k%3===0)grainFx(p,g[p]);g[p]=0;k++;}msg=c.aname+'！沖走 '+k+' 粒灰砂';}
+ else if(c.ak==='recolor_next'){const t=R.bestReach?R.bestReach.c:1+Math.floor(R.rng()*R.P.colors),n=Math.min(c.pow,R.next.length);for(let i=0;i<n;i++)R.next[i].cc=R.next[i].cc.map(v=>v===5?5:t);msg=c.aname+'！接下來 '+n+' 塊變'+CNAME[t]+'色';}
+ else if(c.ak==='melt'){const ks=R.clumps.splice(0,c.pow);ks.forEach(k=>{for(let y=k.y;y<k.y+k.h;y++)for(let x=k.x;x<k.x+k.w;x++)g[y*W+x]&=~64;});msg=c.aname+'！化開 '+ks.length+' 個結塊';}
+ else if(c.ak==='slow'){R.slowT=c.pow;msg=c.aname+'！'+c.pow+' 秒落速減半';}
+ R.charge-=c.cost;FXS.catFlash=0.3;FXS.flash=0.15;FXS.shake+=3;floatT(msg,200,FY+110,'#fff',17);sfx('skill');
+ R.prev=null;R.prevKey='';R.settled=0;if(R.sub==='flow')R.flowT=0;}
+function flatten(n){ // 最高處的砂一粒粒搬到最低谷
+ const g=R.grid,tops=[],skip=new Uint8Array(W);for(let x=0;x<W;x++){let y=0;while(y<H&&!g[y*W+x])y++;tops.push(y);}
+ let moved=0,guard=0;
+ while(moved<n&&guard++<n*3){let hi=-1,lo=0;for(let x=0;x<W;x++){if(!skip[x]&&(hi<0||tops[x]<tops[hi]))hi=x;if(tops[x]>tops[lo])lo=x;}
+  if(hi<0||tops[lo]-tops[hi]<=2)break;const p=tops[hi]*W+hi,v=g[p];
+  if(v&192){skip[hi]=1;continue;}
+  g[p]=0;let y=tops[hi]+1;while(y<H&&!g[y*W+hi])y++;tops[hi]=y;
+  const ty=tops[lo]-1;g[ty*W+lo]=v;tops[lo]=ty;moved++;
+  if(moved%6===0)FXS.parts.push({x:FX+(hi+.5)*GS,y:FY+(p/W|0)*GS,vx:(lo-hi)*GS/0.5,vy:-220,g:700,l:0.5,ml:0.5,c:COLS[v&7],s:3});}
+ return moved;}
+
+// ===== stage／風／判定 =====
+function stageUpdate(){const off=R.trial?R.trial.startSec:0,i=stageIdxAt(R.t+off);if(i<=R.stIdx)return;
+ for(let k=R.stIdx+1;k<=i;k++){const st=CT.stages[k];R.stIdx=k;R.P=effParams(st);addScore(200*pas('score_mul',1));banner('▶ '+st.name,'#ffd36b',26,1.6);sfx('stage');
+  if(st.el){if(!S.seenTips.includes(st.el)){S.seenTips.push(st.el);saveCommit();R.tip={el:st.el,name:st.name,text:st.banner||TIPS[st.el],t:2.7};sfx('tip');}else banner(st.banner||TIPS[st.el],'#fff',14,2);}}
+ R.rotateOn=elemOn('rotate');R.abilityOn=elemOn('ability');
+ if(R.pieces>2){R.next=[];fillNext();}
+ if(!R.P.windEvery){R.windNext=Infinity;R.windWarn=0;}else if(R.windNext===Infinity)R.windNext=R.t+4;}
+function windUpdate(){const P=R.P;if(R.wind&&R.t>=R.wind.until)R.wind=null;if(R.blow&&R.t>=R.blow.until)R.blow=null;if(!P.windEvery)return;
+ const tw=R.windNext-R.t;
+ if(tw<=2&&!R.windWarn){R.windWarn=1;R.windDir=R.rng()<0.5?-1:1;sfx('warn');}
+ if(tw<=0){R.wind={dir:R.windDir,str:0.07*pas('wind_mul',1),until:R.t+P.windSec};R.windWarn=0;R.windNext=R.t+Math.max(P.windEvery,P.windSec+3);banner('側風 '+(R.windDir>0?'→→':'←←'),'#bfe8ff',24,1);}}
+function resolve(){ // 沉降後判定：有帶就沖走（連流），沒帶就出下一塊
+ const d=detect(R.grid);R.bestReach=d.best;
+ if(d.bands.length){clearBands(d.bands);R.flowT=0;R.settled=0;R.nm=null;return;}
+ const b=d.best;
+ if(b&&b.reach>=Math.ceil(W*0.8)-1){R.nm={c:b.c,reach:b.reach,gap:W-1-b.reach};buildMask(b.cells);R.minGap=Math.min(R.minGap,R.nm.gap);}else R.nm=null;
+ spawn();}
+function overCheck(dt){const g=R.grid;let top=H;
+ outer:for(let y=0;y<H;y++){const row=y*W;for(let x=0;x<W;x++){const p=row+x;if(g[p]&&(y===H-1||g[p+W])){top=y;break outer;}}}
+ R.top=top;const h=H-top,ear=Math.round(R.ear);R.danger=clamp((h-(ear-12))/12,0,1);
+ if(h>ear){R.overT+=dt;if(R.overT>=0.5)end('ear');}else R.overT=0;}
+function tick(dt){
+ if(R.tip){R.tip.t-=dt;if(R.tip.t<=0)R.tip=null;else if(R.tip.t>1.5)return;}
+ R.t+=dt;if(R.slowT>0)R.slowT-=dt;
+ stageUpdate();windUpdate();
+ R.ear+=clamp(R.P.ear-R.ear,-dt*2,dt*2);
+ const g=R.grid;let m=clumpStep(g)+caStep(g,R.wind?R.wind.dir:0),wm=0;
+ if(R.wind)wm+=windStep(g,R.wind.dir,R.wind.str,0,H-1);
+ if(R.blow)wm+=windStep(g,R.blow.dir,R.blow.str,R.blow.y0,R.blow.y1);
+ R.moved+=m+wm;R.settled=m?0:R.settled+1;
+ if(R.wash)washTick(dt);
+ if(R.sub==='fall')pieceTick(dt);else if(R.sub==='flow'){R.flowT+=dt;if(!R.wash&&(R.settled>=3||R.flowT>3))resolve();}
+ if(G.phase!=='run')return;
+ overCheck(dt);
+ if(R.trial&&R.trial.dur&&R.t>=R.trial.dur)end('time');}
+function end(reason){ // 結算、存檔、解鎖、回報
+ if(G.phase!=='run')return;
+ G.phase='over';G.overT=0;G.flipN=0;R.sub='over';R.piece=null;
+ const sc=Math.round(R.score),prev=S.best,rec=sc>prev;
+ rollDay();S.runs++;S.grainsTotal+=R.grains;S.bestChain=Math.max(S.bestChain,R.chainMax);S.maxStageIdx=Math.max(S.maxStageIdx,R.stIdx);if(rec)S.best=sc;
+ S.day.best=Math.max(S.day.best,sc);
+ let daily=null;
+ if(R.trial){const tr=R.trial,today=ymd(),hit=sc>=tr.goal;
+  if(S.daily.date!==today)S.daily={date:today,trialId:tr.id,best:0,done:false};
+  S.daily.best=Math.max(S.daily.best,sc);
+  if(hit&&!S.daily.done){S.dailyDoneCount++;const dl=S.lastDay?dayNum(today)-dayNum(S.lastDay):99;S.streak=dl===1?S.streak+1:dl===0?Math.max(1,S.streak):1;S.lastDay=today;S.daily.done=true;}
+  daily={tr,best:S.daily.best,streak:streakNow(),hit};}
+ const newCats=checkUnlocks();saveCommit();
+ G.sum={sc,prev,rec,reason,gap:prev-sc+1,near:R.minGap,chain:R.chainMax,grains:R.grains,stage:CT.stages[R.stIdx].name,time:R.t,daily,newCats};
+ if(rec){sfx('record');for(let i=0;i<5;i++)burst(40+i*80,-10,30,COLS[1+i%4],260,Math.PI/2,1.4,300,2.2,4);}else sfx('over');
+ FXS.shake=8;
+ try{if (window.SC) SC.over(sc);}catch(e){}}
+function toTitle(){G.phase='title';R=null;G.info=null;G.sum=null;FXS.parts.length=0;FXS.banners.length=0;FXS.floats.length=0;}
+
+// ===== input：觸控手勢＋鍵盤 DAS =====
+const KEY={};let DAS={d:0,t:0,r:0},PT=null;
+function clearInput(){for(const k in KEY)KEY[k]=false;DAS.d=0;PT=null;if(R)R.dragCol=null;}
+addEventListener('keydown',e=>{const k=e.code;
+ if(['ArrowLeft','ArrowRight','ArrowUp','ArrowDown','Space'].includes(k))e.preventDefault();
+ const rep=e.repeat;KEY[k]=true;auInit();if(rep)return;
+ if(k==='KeyM'){toggleMute();return;}
+ if(G.phase==='title'){if(k==='ArrowLeft'||k==='ArrowRight')cycleCat(k==='ArrowLeft'?-1:1);else if(k==='Enter'||k==='Space')startRun('normal');else if(k==='KeyD')startRun('daily');return;}
+ if(G.phase==='over'){if(k==='Escape')toTitle();else if(G.overT>=0.4)startRun(G.mode);return;}
+ if(G.phase!=='run')return;
+ if(k==='ArrowLeft'||k==='ArrowRight'){const d=k==='ArrowLeft'?-1:1;DAS={d,t:0,r:0};moveBy(d);}
+ else if(k==='ArrowUp'||k==='KeyZ'||k==='KeyX')rotate();
+ else if(k==='Space')hardDrop();
+ else if(k==='KeyC'||k==='ShiftLeft'||k==='ShiftRight')useAbility();
+ else if(k==='Escape')toTitle();});
+addEventListener('keyup',e=>{const k=e.code;KEY[k]=false;
+ if((k==='ArrowLeft'||k==='ArrowRight')&&DAS.d){const o=k==='ArrowLeft'?'ArrowRight':'ArrowLeft';DAS=KEY[o]?{d:o==='ArrowLeft'?-1:1,t:0,r:0}:{d:0,t:0,r:0};}});
+addEventListener('blur',clearInput);
+document.addEventListener('visibilitychange',()=>{if(document.hidden)clearInput();});
+function dasUpdate(dt){if(!DAS.d)return;if(!KEY[DAS.d<0?'ArrowLeft':'ArrowRight']){DAS.d=0;return;}DAS.t+=dt;if(DAS.t>=0.15){DAS.r+=dt;while(DAS.r>=0.04){DAS.r-=0.04;moveBy(DAS.d*2);}}}
+function lp(e){const r=cv.getBoundingClientRect();return{x:(e.clientX-r.left)/r.width*CW,y:(e.clientY-r.top)/r.height*CH};}
+function hitZone(x,y){for(let i=G.zones.length-1;i>=0;i--){const z=G.zones[i];if(x>=z.x&&x<=z.x+z.w&&y>=z.y&&y<=z.y+z.h){z.fn();return true;}}return false;}
+cv.addEventListener('contextmenu',e=>e.preventDefault());
+cv.addEventListener('pointerdown',e=>{e.preventDefault();auInit();if(PT)return;const p=lp(e);
+ try{cv.setPointerCapture(e.pointerId);}catch(_){}
+ PT={id:e.pointerId,x0:p.x,y0:p.y,t0:performance.now(),drag:false,done:false};
+ if(G.phase==='title'){PT.done=true;hitZone(p.x,p.y);return;}
+ if(G.phase==='over'){PT.done=true;if(!hitZone(p.x,p.y)&&G.overT>=0.4)startRun(G.mode);return;}
+ if(p.y>=504){PT.done=true;const b=p.x<134?0:p.x<266?1:2;FXS.btn[b]=0.15;if(b===0)rotate();else if(b===1)hardDrop();else useAbility();return;}
+ if(p.x>=350&&p.y>=FY){PT.done=true;if(p.y>=455)toggleMute();else useAbility();}});
+cv.addEventListener('pointermove',e=>{if(!PT||e.pointerId!==PT.id||PT.done||G.phase!=='run'||!R)return;const p=lp(e),dx=p.x-PT.x0,dy=p.y-PT.y0,dt=performance.now()-PT.t0;
+ if(dy>40&&dt<250&&dy>Math.abs(dx)){PT.done=true;R.dragCol=null;hardDrop();return;}
+ if(!PT.drag&&Math.hypot(dx,dy)>8)PT.drag=true;
+ if(PT.drag)R.dragCol=Math.floor((p.x-FX)/GS);});
+cv.addEventListener('pointerup',e=>{if(!PT||e.pointerId!==PT.id)return;const dt=performance.now()-PT.t0;
+ if(!PT.done&&!PT.drag&&G.phase==='run'&&dt<220)rotate();PT=null;if(R)R.dragCol=null;});
+cv.addEventListener('pointercancel',()=>{PT=null;if(R)R.dragCol=null;});
+function cycleCat(d){const a=availCats(),i=Math.max(0,a.indexOf(curCat()));S.selectedCat=a[(i+d+a.length)%a.length].id;G.info=null;saveCommit();sfx('rot');}
+function pickCat(c){if(catUnlocked(c)){S.selectedCat=c.id;G.info=null;saveCommit();sfx('meow');}else{G.info=c;sfx('bonk');}}
+
+// ===== render：畫面 =====
+const oc=document.createElement('canvas');oc.width=W;oc.height=H;const octx=oc.getContext('2d'),IMG=octx.createImageData(W,H),B32=new Uint32Array(IMG.data.buffer),PAL=new Uint32Array(256);
+(function(){for(let v=0;v<256;v++){const t=v&7;if(!t||t>5)continue;const k=[0.84,0.92,1,1.08][(v>>3)&3]*(v&64?0.66:1)*(v&128?1.25:1),h=COLS[t];
+ const r=clamp(parseInt(h.slice(1,3),16)*k,0,255)|0,g=clamp(parseInt(h.slice(3,5),16)*k,0,255)|0,b=clamp(parseInt(h.slice(5,7),16)*k,0,255)|0;PAL[v]=((255<<24)|(b<<16)|(g<<8)|r)>>>0;}})();
+function renderGrid(){const g=R.grid;for(let i=0;i<N;i++)B32[i]=PAL[g[i]];octx.putImageData(IMG,0,0);}
+function txt(s,x,y,size,col,align,weight,stroke){ctx.font=(weight||'700')+' '+size+'px '+FONT;ctx.textAlign=align||'center';ctx.textBaseline='middle';
+ if(stroke){ctx.lineWidth=stroke;ctx.strokeStyle='rgba(0,0,0,.7)';ctx.lineJoin='round';ctx.strokeText(s,x,y);}ctx.fillStyle=col||'#fff';ctx.fillText(s,x,y);}
+function rr(x,y,w,h,r){ctx.beginPath();ctx.moveTo(x+r,y);ctx.arcTo(x+w,y,x+w,y+h,r);ctx.arcTo(x+w,y+h,x,y+h,r);ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);ctx.closePath();}
+function wrap(s,maxW,size){ctx.font='600 '+size+'px '+FONT;const out=[];let line='';for(const ch of s){if(ctx.measureText(line+ch).width>maxW&&line){out.push(line);line=ch;}else line+=ch;}if(line)out.push(line);return out;}
+function zone(x,y,w,h,fn){G.zones.push({x,y,w,h,fn});}
+function dot(x,y,r){ctx.moveTo(x+r,y);ctx.arc(x,y,r,0,7);}
+function drawPiece(p,px,py,cs,ghost){const rt=p.sh.rots[p.r];
+ rt.c.forEach(([cx,cy],i)=>{const x=px+cx*cs,y=py+cy*cs;if(ghost){ctx.strokeRect(x+1,y+1,cs-2,cs-2);return;}const tp=p.cc[i];
+  ctx.fillStyle=COLS[tp];ctx.fillRect(x,y,cs,cs);ctx.fillStyle='rgba(255,255,255,.28)';ctx.fillRect(x,y,cs,Math.max(1,cs*.15));ctx.fillStyle='rgba(0,0,0,.2)';ctx.fillRect(x,y+cs*.85,cs,cs*.15);
+  if(tp===5){ctx.fillStyle='rgba(0,0,0,.32)';for(let k=0;k<4;k++)ctx.fillRect(x+cs*(.2+.5*(k%2)),y+cs*(.25+.45*(k>>1)),cs*.12,cs*.12);}
+  if(i===p.ck){ctx.strokeStyle='rgba(30,15,40,.85)';ctx.lineWidth=Math.max(1,cs*.08);ctx.strokeRect(x+cs*.12,y+cs*.12,cs*.76,cs*.76);}});
+ if(!ghost&&cs>=16){const [cx,cy]=rt.c[0],ex=px+cx*cs+cs/2,ey=py+cy*cs+cs*.5,r=cs*.09;ctx.fillStyle='#2a1a2e';ctx.beginPath();dot(ex-cs*.18,ey,r);dot(ex+cs*.18,ey,r);ctx.fill();
+  ctx.fillStyle='#fff';ctx.beginPath();dot(ex-cs*.15,ey-r*.4,r*.4);dot(ex+cs*.21,ey-r*.4,r*.4);ctx.fill();}}
+function drawEar(x,y,w,s){ctx.save();ctx.translate(x,y);ctx.rotate(w*0.1*s);ctx.fillStyle='#ffb3c8';ctx.beginPath();ctx.moveTo(0,0);ctx.lineTo(-s*13,0);ctx.lineTo(-s*5,-16);ctx.closePath();ctx.fill();
+ ctx.fillStyle='#ff7fa3';ctx.beginPath();ctx.moveTo(-s*3,-2);ctx.lineTo(-s*10,-2);ctx.lineTo(-s*5.5,-11);ctx.closePath();ctx.fill();ctx.restore();}
+function drawParts(){for(const q of FXS.parts){ctx.globalAlpha=Math.min(1,q.l/q.ml*1.5);ctx.fillStyle=q.c;ctx.fillRect(q.x-q.s/2,q.y-q.s/2,q.s,q.s);}ctx.globalAlpha=1;}
+function drawTexts(){
+ FXS.banners.forEach((b,i)=>{const k=1+0.4*Math.max(0,1-b.t/0.15);ctx.globalAlpha=clamp((b.life-b.t)/0.3,0,1);ctx.save();ctx.translate(200,FY+150+i*40);ctx.scale(k,k);txt(b.text,0,0,b.size,b.col,'center','900',5);ctx.restore();});
+ FXS.floats.forEach(f=>{ctx.globalAlpha=clamp(1.1-f.t,0,1);txt(f.text,f.x,f.y-f.t*40,f.size,f.col,'center','900',4);});ctx.globalAlpha=1;}
+function drawGame(){
+ const t=G.time,dz=R.danger,p=R.piece;
+ ctx.fillStyle=mixc([34,24,56],[64,12,26],dz);ctx.fillRect(0,0,CW,CH);
+ ctx.save();if(FXS.shake>0.3)ctx.translate((Math.random()-.5)*FXS.shake,(Math.random()-.5)*FXS.shake);
+ rr(FX-7,FY-4,FW+14,FH+10,12);ctx.fillStyle='#5a4670';ctx.fill();
+ ctx.fillStyle=mixc([22,17,40],[34,8,16],dz);ctx.fillRect(FX,FY,FW,FH);
+ ctx.fillStyle='rgba(255,255,255,.025)';for(let x=0;x<W;x+=8)ctx.fillRect(FX+x*GS,FY,GS*4,FH);
+ let gy=0;if(p){gy=ghostY(p);const rt=p.sh.rots[p.r],y0=Math.max(0,p.y);ctx.fillStyle='rgba(255,255,255,.06)';ctx.fillRect(FX+p.x*GS,FY+y0*GS,rt.w*p.sh.g*GS,(gy-y0+rt.h*p.sh.g)*GS);}
+ renderGrid();ctx.imageSmoothingEnabled=false;ctx.drawImage(oc,FX,FY,FW,FH);
+ R.clumps.forEach(k=>{const x=FX+k.x*GS,y=FY+k.y*GS,s=k.w*GS;ctx.strokeStyle='rgba(20,10,30,.75)';ctx.lineWidth=2;ctx.strokeRect(x+1,y+1,s-2,s-2);txt('🐾',x+s/2,y+s/2,s*0.45);});
+ if(R.nm){ctx.globalAlpha=0.15+0.25*(0.5+0.5*Math.sin(t*Math.PI*4));ctx.drawImage(nc,FX,FY,FW,FH);ctx.globalAlpha=1; // 差一撮脈動
+  const gx=Math.min(W-1,R.nm.reach+1);let ty=0;while(ty<H&&!R.grid[ty*W+gx])ty++;const ax=FX+(gx+.5)*GS,ay=FY+ty*GS-8-Math.abs(Math.sin(t*6))*5;
+  ctx.fillStyle=COLS[R.nm.c];ctx.beginPath();ctx.moveTo(ax,ay+6);ctx.lineTo(ax-7,ay-4);ctx.lineTo(ax+7,ay-4);ctx.closePath();ctx.fill();
+  txt('差 '+R.nm.gap+' 欄',clamp(ax,FX+34,FX+FW-34),ay-16,13,COLS[R.nm.c],'center','900',3);}
+ if(R.wash){const w=R.wash,x=FX+Math.min(1,w.t/w.dur)*FW,gr=ctx.createLinearGradient(x-50,0,x+8,0);gr.addColorStop(0,'rgba(255,255,255,0)');gr.addColorStop(1,'rgba(255,255,255,.6)');ctx.fillStyle=gr;ctx.fillRect(x-50,w.y0,58,w.y1-w.y0);}
+ if(p){
+  if(R.prev){const c=R.prev.cells;ctx.globalAlpha=0.32+0.1*Math.sin(t*6);for(let i=0;i<c.length;i+=2){const q=c[i];ctx.fillStyle=COLS[c[i+1]];ctx.fillRect(FX+(q%W)*GS+1,FY+(q/W|0)*GS+1,3,3);}ctx.globalAlpha=1;
+   if(R.prev.band)txt('會沖走！',200,Math.max(FY+70,FY+R.prev.y*GS-14),15,COLS[R.prev.band],'center','900',3);}
+  ctx.setLineDash([4,3]);ctx.lineWidth=1.5;ctx.strokeStyle='rgba(255,255,255,.75)';drawPiece(p,FX+p.x*GS,FY+gy*GS,p.sh.g*GS,true);ctx.setLineDash([]);
+  drawPiece(p,FX+p.x*GS+(R.wig>0?Math.sin(t*70)*3:0),FY+(p.y+p.acc)*GS,p.sh.g*GS,false);
+  if(S.runs<2&&R.pieces<=2)txt('👆 左右拖曳移動，看虛線落點與預覽點',200,FY+FH-80,13,'#fff','center','700',3);}
+ const ey=FY+(H-R.ear)*GS,tw=R.tip&&R.tip.el==='shrink'?4:2;
+ ctx.strokeStyle='rgba(255,'+(130-dz*90|0)+','+(160-dz*110|0)+','+(0.55+dz*0.4)+')';ctx.setLineDash([6,5]);ctx.lineWidth=tw;ctx.beginPath();ctx.moveTo(FX,ey);ctx.lineTo(FX+FW,ey);ctx.stroke();ctx.setLineDash([]);
+ const wob=dz>0?Math.sin(t*40)*dz*3:0;drawEar(FX-1,ey,wob,1);drawEar(FX+FW+1,ey,-wob,-1);
+ const wd=R.wind?R.wind.dir:R.blow?R.blow.dir:R.windWarn?R.windDir:0;
+ if(wd){const act=!!(R.wind||R.blow);ctx.globalAlpha=act?0.55:0.3+0.3*Math.abs(Math.sin(t*8));ctx.strokeStyle='#d8f3ff';ctx.lineWidth=2;
+  for(let i=0;i<7;i++){const yy=FY+40+i*58,off=act?((t*260*wd+i*97)%FW+FW)%FW:FW/2+(i%2?24:-24),xx=FX+off;ctx.beginPath();ctx.moveTo(xx-wd*16,yy-7);ctx.lineTo(xx,yy);ctx.lineTo(xx-wd*16,yy+7);ctx.moveTo(xx-wd*40,yy);ctx.lineTo(xx,yy);ctx.stroke();}
+  ctx.globalAlpha=1;if(!act)txt('側風預告 '+(wd>0?'→':'←')+' '+Math.max(0,R.windNext-R.t).toFixed(1)+'s',200,FY+22,14,'#d8f3ff','center','800',3);}
+ if(FXS.flash>0){ctx.fillStyle='rgba(255,255,255,'+(FXS.flash*0.4)+')';ctx.fillRect(FX,FY,FW,FH);}
+ if(dz>0){ctx.fillStyle='rgba(255,40,60,'+(dz*0.12*(0.6+0.4*Math.sin(t*8)))+')';ctx.fillRect(FX,FY,FW,ey-FY+30);}
+ drawParts();drawTexts();ctx.restore();
+ drawHUD();if(R.tip)drawTip();}
+function drawHUD(){
+ ctx.fillStyle='rgba(18,12,30,.92)';ctx.fillRect(0,0,CW,FY);
+ const st=CT.stages[R.stIdx],tr=R.trial;
+ txt(st.name,8,38,12,'#ffd9a0','left','700');
+ txt(tr&&tr.dur?'剩 '+mmss(tr.dur-R.t):mmss(R.t),8,55,12,'#cbbfe0','left','600');
+ txt(fmt(R.score),200,34,30*(1+FXS.bump*0.25),'#fff','center','900',4);
+ if(R.chain>=2&&R.sub!=='fall')txt('連流 ×'+R.chain,200,57,12,'#ff9ad0','center','800');
+ txt('最高 '+fmt(Math.max(S.best,R.score)),392,24,12,'#ffe066','right','700');
+ if(tr)txt('🎯 '+fmt(tr.goal)+(R.goalHit?' ✓':''),392,44,12,R.goalHit?'#9ff3e8':'#cbbfe0','right','700');
+ else if(R.slowT>0)txt('🐢 '+R.slowT.toFixed(1)+'s',392,44,12,'#9ff3e8','right','700');
+ txt('NEXT',22,FY+10,10,'#cbbfe0');
+ const hl=R.tip&&['dirt','clump','bicolor'].includes(R.tip.el);
+ for(let i=0;i<previewN()&&i<R.next.length;i++){const q=R.next[i],rt=q.sh.rots[0],by=FY+20+i*58,cs=Math.min(32/rt.w,40/rt.h,11);
+  rr(3,by,38,50,6);ctx.fillStyle=i?'rgba(255,255,255,.05)':'rgba(255,255,255,.12)';ctx.fill();
+  if(hl&&!i){ctx.strokeStyle='#ffe066';ctx.lineWidth=2+Math.sin(G.time*10);ctx.stroke();}
+  drawPiece({sh:q.sh,r:0,cc:q.cc,ck:q.ck},22-rt.w*cs/2,by+25-rt.h*cs/2,cs,false);}
+ const c=R.cat,pct=clamp(R.charge/c.cost,0,1),on=R.abilityOn,rd=on&&pct>=1,b=rd?1+0.08*Math.sin(G.time*10):1;
+ ctx.save();ctx.translate(375,104);ctx.scale(b,b);ctx.beginPath();ctx.arc(0,0,20,0,7);ctx.fillStyle=on?c.color:'#555';ctx.fill();
+ if(FXS.catFlash>0){ctx.fillStyle='rgba(255,255,255,'+Math.min(1,FXS.catFlash*3)+')';ctx.fill();}
+ ctx.beginPath();ctx.arc(0,0,23,-Math.PI/2,-Math.PI/2+pct*Math.PI*2);ctx.strokeStyle=rd?'#ffe066':'#c9a7ff';ctx.lineWidth=4;ctx.stroke();
+ txt(c.emoji,0,1,22);if(!on)txt('🔒',12,12,12);ctx.restore();
+ txt(rd?'喵！':Math.floor(pct*100)+'%',375,136,12,rd?'#ffe066':'#cbbfe0');
+ txt(c.aname,375,152,10,'#fff','center','700');
+ const [pa,pb]=pasText(c);txt(pa,375,176,10,'#9ff3e8');if(pb)txt(pb,375,190,11,'#9ff3e8');
+ txt(S.mute?'🔇':'🔊',375,480,20);
+ ctx.fillStyle='rgba(18,12,30,.92)';ctx.fillRect(0,504,CW,96);
+ const L=[[R.rotateOn?'⟳ 旋轉':'🔒 旋轉',R.rotateOn],['▼ 落下',true],[(on?'🐾 技能 ':'🔒 技能 ')+Math.floor(pct*100)+'%',rd]];
+ L.forEach(([s,ok],i)=>{const k=FXS.btn[i]>0?0.93:1;ctx.save();ctx.translate(70+i*130,552);ctx.scale(k,k);rr(-62,-38,124,76,14);
+  ctx.fillStyle=i===2&&rd?'#6b3fa0':ok?'#3a2b55':'#241b33';ctx.fill();
+  const tipHL=R.tip&&((R.tip.el==='rotate'&&i===0)||(R.tip.el==='ability'&&i===2));
+  ctx.strokeStyle=tipHL||(i===2&&rd)?'#ffe066':'rgba(255,255,255,.18)';ctx.lineWidth=tipHL?3+Math.sin(G.time*10)*1.5:2;ctx.stroke();
+  txt(s,0,0,i===2?15:18,ok?'#fff':'#8a7fa0');ctx.restore();});}
+function drawTip(){const tp=R.tip,a=clamp(Math.min((2.7-tp.t)/0.2,tp.t/0.4),0,1),dirt=tp.el==='dirt',h=dirt?200:150;
+ ctx.globalAlpha=a;rr(36,190,328,h,16);ctx.fillStyle='rgba(20,12,36,.9)';ctx.fill();ctx.strokeStyle='#ffd36b';ctx.lineWidth=2;ctx.stroke();
+ txt(ICON[tp.el]||'✨',200,220,28);txt(tp.name,200,250,16,'#ffd36b','center','900');
+ wrap(tp.text,290,14).slice(0,3).forEach((l,i)=>txt(l,200,276+i*20,14,'#fff','center','600'));
+ if(dirt){const y=350;for(let i=0;i<6;i++){ctx.fillStyle=COLS[1];ctx.fillRect(70+i*14,y,13,13);ctx.strokeStyle='rgba(255,255,255,.5)';ctx.strokeRect(220+i*14,y,13,13);}
+  ctx.fillStyle=COLS[5];ctx.fillRect(98,y-14,13,13);txt('→',200,y+6,20,'#ffe066');txt('✨',262,y-8,14);txt('沖流貼著它→一起帶走',200,y+28,12,'#d8d0c0','center','700');}
+ ctx.globalAlpha=1;}
+function drawTitle(){
+ G.zones=[];const t=G.time;
+ const bg=ctx.createLinearGradient(0,0,0,CH);bg.addColorStop(0,'#2b1d45');bg.addColorStop(1,'#120c20');ctx.fillStyle=bg;ctx.fillRect(0,0,CW,CH);
+ for(let k=0;k<4;k++){ctx.fillStyle=COLS[4-k];for(let x=0;x<CW;x+=5){const h=18+k*10+Math.sin(x*0.02+t*0.4+k)*8+Math.sin(x*0.05+k*2)*5;ctx.fillRect(x,CH-h,5,h);}}
+ drawParts();
+ '喵沙橫流'.split('').forEach((ch,i)=>txt(ch,95+i*70,72+Math.sin(t*3+i)*4,48,COLS[i+1],'center','900',6));
+ txt('拖砂塊、碎成流砂，同色連到左右兩牆就整條沖走！',200,116,14,'#fff','center','800',3);
+ txt('拖曳＝移動｜點一下＝旋轉｜下滑＝落下｜🐾＝技能',200,140,12,'#d8c8ff','center','600');
+ txt('鍵盤：←→ 移動　↑ 旋轉　↓ 加速　空白 落下　C 技能　M 靜音',200,158,11,'#a99cc8','center','600');
+ const yd=S.prevDay.date&&dayNum(ymd())-dayNum(S.prevDay.date)===1;
+ txt(S.prevDay.best>0?(yd?'昨天':'上次')+'的你 '+fmt(S.prevDay.best)+' 分，今天贏得了嗎？':S.best>0?'最高 '+fmt(S.best)+' 分，再刷新一次！':'第一局：活過 3 分鐘，看看灰砂長怎樣！',200,186,14,'#ffb86b','center','800',3);
+ rr(352,8,40,32,8);ctx.fillStyle='rgba(255,255,255,.1)';ctx.fill();txt(S.mute?'🔇':'🔊',372,24,18);zone(352,8,40,32,toggleMute);
+ if(!CT.ok){rr(24,214,352,300,12);ctx.fillStyle='rgba(120,20,40,.6)';ctx.fill();txt('⚠ 內容資料有誤，無法開始',200,240,16,'#ffd0d0','center','900');
+  let y=268;CT.errors.slice(0,10).forEach(e=>wrap(e,320,12).forEach(l=>{if(y<500)txt(l,200,y,12,'#fff','center','600');y+=18;}));return;}
+ const cats=CT.cats,per=12,pages=Math.ceil(cats.length/per);G.page=clamp(G.page,0,pages-1);
+ txt('選擇助陣喵（已解鎖 '+availCats().length+'/'+cats.length+'）',200,212,13,'#d8c8ff','center','700');
+ if(pages>1){txt('◀',30,212,16);txt('▶',370,212,16);zone(10,200,44,26,()=>{G.page=(G.page+pages-1)%pages;});zone(346,200,44,26,()=>{G.page=(G.page+1)%pages;});}
+ const cur=curCat();
+ cats.slice(G.page*per,G.page*per+per).forEach((c,i)=>{const x=19+(i%4)*92,y=226+Math.floor(i/4)*48,un=catUnlocked(c),sel=un&&cur.id===c.id;
+  rr(x,y,86,42,8);ctx.fillStyle=sel?'#5b3f8a':un?'#33264d':'#1f1830';ctx.fill();if(sel||G.info===c){ctx.strokeStyle=sel?'#ffd36b':'#888';ctx.lineWidth=2;ctx.stroke();}
+  txt(un?c.emoji:'🔒',x+17,y+21,19);txt(un?c.name:'？？？',x+55,y+21,c.name.length>4?9:11,un?'#fff':'#776','center','700');zone(x,y,86,42,()=>pickCat(c));});
+ const ic=G.info||cur;
+ if(catUnlocked(ic)){txt(ic.name+'：'+ic.desc,200,374,12,'#fff','center','700');const [pa,pb]=pasText(ic);txt('被動 '+pa+' '+pb+'｜'+ic.aname+' 需沖走 '+ic.cost+' 粒',200,391,11,'#9ff3e8','center','600');}
+ else{txt('🔒 '+unlockText(ic)+progText(ic),200,374,12,'#c9a7ff','center','700');txt(ic.flavor||'達成條件後在結算頁翻卡解鎖',200,391,11,'#a99cc8','center','600');}
+ rr(60,404,280,52,14);ctx.fillStyle='#ff6fa8';ctx.fill();txt('▶ 開始（無盡砂盆）',200,430,20,'#fff','center','900',3);zone(60,404,280,52,()=>startRun('normal'));
+ const tr=dailyTrial();
+ if(tr){const dn=dailyDoneToday();rr(60,466,280,68,14);ctx.fillStyle=dn?'#2d5a55':'#34d1c4';ctx.fill();
+  txt('📅 今日砂盆：'+tr.name+(dn?' ✓':''),200,484,16,'#fff','center','900',3);txt(tr.desc,200,504,11,'#fff','center','600',2);
+  txt('目標 '+fmt(tr.goal)+(dn?'｜今日最佳 '+fmt(S.daily.best):'')+'｜🔥 連續 '+streakNow()+' 天',200,521,11,'#fff8c8','center','700',2);zone(60,466,280,68,()=>startRun('daily'));}
+ txt('最高 '+fmt(S.best)+'｜累積沖走 '+fmt(S.grainsTotal)+' 粒｜第 '+(S.runs+1)+' 局',200,556,12,'#cbbfe0','center','700',3);
+ txt('Enter 開始　D 今日砂盆　←→ 換貓',200,576,11,'#a99cc8','center','600',2);}
+function drawOver(){const s=G.sum;if(!s)return;G.zones=[];const a=Math.min(1,G.overT*4),t=G.time;
+ ctx.fillStyle='rgba(12,8,22,'+(0.8*a).toFixed(3)+')';ctx.fillRect(0,0,CW,CH);ctx.globalAlpha=a;
+ txt(s.reason==='time'?'⏰ 時間到！':'🙀 砂盆翻倒！',200,92,26,'#ffd9a0','center','900',4);
+ const k=1+0.15*Math.max(0,1-G.overT*3);ctx.save();ctx.translate(200,146);ctx.scale(k,k);txt(fmt(s.sc),0,0,50,'#fff','center','900',5);ctx.restore();
+ if(s.rec){const b=1+0.07*Math.sin(t*9);ctx.save();ctx.translate(200,196);ctx.scale(b,b);txt('🎉 新紀錄！',0,0,28,'#ffe066','center','900',4);ctx.restore();}
+ else txt('差 '+fmt(s.gap)+' 分破紀錄！（最高 '+fmt(s.prev)+'）',200,196,17,'#ff9ad0','center','800',3);
+ txt(s.near<99?'最接近貫通的一條只差 '+s.near+' 欄':'下次試著讓同色砂從左牆連到右牆',200,226,14,'#9ff3e8','center','700');
+ txt('最長連流 ×'+s.chain+'｜沖走 '+fmt(s.grains)+' 粒｜'+mmss(s.time),200,250,12,'#cbbfe0','center','600');
+ txt('到達「'+s.stage+'」',200,268,12,'#cbbfe0','center','600');
+ let y=296;
+ if(s.daily){const d=s.daily;txt('📅 '+d.tr.name+(d.hit?'　達標 ✓':'　目標 '+fmt(d.tr.goal)),200,y,15,d.hit?'#ffe066':'#fff','center','800');txt('今日最佳 '+fmt(d.best)+'｜🔥 連續 '+d.streak+' 天',200,y+20,13,'#ffd9a0','center','700');y+=48;}
+ if(s.newCats.length){txt('解鎖新夥伴！',200,y,15,'#ffe066','center','900');
+  s.newCats.slice(0,3).forEach((c,i,arr)=>{const cx=200+(i-(arr.length-1)/2)*104,cy=y+72,pr=clamp((G.overT-0.8-i*0.35)/0.5,0,1),sx=Math.abs(Math.cos(pr*Math.PI));
+   ctx.save();ctx.translate(cx,cy);ctx.scale(Math.max(0.02,sx),1);rr(-44,-52,88,104,12);ctx.fillStyle=pr<0.5?'#3a2b55':c.color;ctx.fill();ctx.strokeStyle='#ffe066';ctx.lineWidth=3;ctx.stroke();
+   if(pr<0.5)txt('❓',0,0,34);else{txt(c.emoji,0,-14,34);txt(c.name,0,30,12,'#2a1a2e','center','900');}ctx.restore();});}
+ else{const nx=CT.cats.find(c=>!catUnlocked(c));if(nx)txt('下一隻 🔒 '+unlockText(nx)+progText(nx),200,y+6,12,'#c9a7ff','center','700');}
+ if(G.overT>=0.4)txt('點一下（或任意鍵）再來一局',200,512,17,'rgba(255,255,255,'+(0.6+0.4*Math.sin(t*5)).toFixed(2)+')','center','800',3);
+ rr(14,550,108,38,12);ctx.fillStyle='rgba(255,255,255,.12)';ctx.fill();txt('🏠 標題',68,569,15);zone(14,550,108,38,toTitle);
+ ctx.globalAlpha=1;}
+function draw(){ctx.setTransform(SCL*DPR,0,0,SCL*DPR,0,0);ctx.imageSmoothingEnabled=false;
+ if(G.phase==='title')drawTitle();else if(R){drawGame();if(G.phase==='over')drawOver();}}
+
+// ===== 主迴圈（固定步長 120Hz）=====
+let last=performance.now(),acc=0;
+function frame(now){
+ const dt=Math.min(0.1,Math.max(0,(now-last)/1000));last=now;G.time+=dt;
+ try{
+  if(G.phase==='run'&&R){
+   dasUpdate(dt);if(R.dragCol!=null&&!tipBlock())setCol(R.dragCol);
+   const ts=FXS.slow>0?0.3:1;FXS.slow=Math.max(0,FXS.slow-dt);
+   acc+=dt*ts;let n=0;while(acc>=STEP&&n<14&&G.phase==='run'){tick(STEP);acc-=STEP;n++;}if(n>=14)acc=0;
+   auSet(AU.flow,Math.min(0.22,R.moved/2500));R.moved=0;auSet(AU.hum,R.danger*0.09);auSet(AU.wind,R.wind||R.blow?0.18:R.windWarn?0.07:0);
+  }else{acc=0;auSet(AU.flow,0);auSet(AU.hum,0);auSet(AU.wind,0);}
+  if(G.phase==='over'&&G.sum){G.overT+=dt;while(G.flipN<Math.min(3,G.sum.newCats.length)&&G.overT>0.8+G.flipN*0.35+0.25){G.flipN++;sfx('flip');}}
+  fxUpdate(dt);draw();
+ }catch(e){/* 防止單幀錯誤中斷遊戲 */}
+ requestAnimationFrame(frame);}
+
+// ===== 啟動與品管掛勾 =====
+saveLoad();loadContent();
+window.SC_HOOKS={
+ start(){return startRun('normal');},
+ snapshot(){return{scene:G.phase,score:R?Math.round(R.score):0,level:R?R.stIdx:0,elapsed:R?+R.t.toFixed(2):0,best:S.best,stage:R?CT.stages[R.stIdx].name:'',height:R?H-R.top:0,ear:R?Math.round(R.ear):0,chain:R?R.chain:0,chainMax:R?R.chainMax:0,pieces:R?R.pieces:0,grains:R?R.grains:0,charge:R?Math.floor(R.charge):0,sub:R?R.sub:'',mode:G.mode,ok:CT.ok,errors:CT.errors.slice()};}};
+requestAnimationFrame(t=>{last=t;requestAnimationFrame(frame);});
+})();
+</script>
+<script src="../../sc_config.js"></script>
+<script src="../../stats.js"></script>
+</body>
+</html>
