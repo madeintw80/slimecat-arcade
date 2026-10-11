@@ -1626,11 +1626,11 @@ const GAMES = [
       }
     ],
     "stats": {
-      "opens": 5,
-      "devices": 5,
-      "med_session_sec": 462.0,
-      "return_rate": 0.2,
-      "plays_reported": 18,
+      "opens": 6,
+      "devices": 6,
+      "med_session_sec": 265.5,
+      "return_rate": 0.17,
+      "plays_reported": 20,
       "web_score_med": 7,
       "web_raters": 1
     }
