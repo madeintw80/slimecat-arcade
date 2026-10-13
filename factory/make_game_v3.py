@@ -11,11 +11,15 @@
     python make_game_v3.py --no-publish        # 跑到上架為止，不部署不推播（開發用）
     python make_game_v3.py --no-echo           # 評審不問 Echo，直接 sonnet
 
+骨架鎖定：factory/skeleton_lock.json 有今天適用的鎖定（date～date+grace_days）時，不帶參數的週更
+跳過抓榜／解構，直接用鎖定規格當靈感，合約 genre 強制成鎖定類型（--pick／--decon 照舊優先）。
+
 排程（run_factory.bat）跑的就是不帶參數的版本；撞額度時 make_game.schedule_retry 會排補跑，
 補跑那輪看到 v3_resume.json 指標就自動續跑上一輪（不用重付已完成的階段）。
 v2.2 單線管線（make_game.py）保留當退路。
 """
 import argparse
+import datetime
 import json
 import re
 import sys
@@ -53,6 +57,59 @@ def load_decon_file(path: Path) -> dict:
     }
 
 
+SKELETON_LOCK_FILE = HERE / "skeleton_lock.json"
+
+
+def active_skeleton_lock(today: datetime.date = None, path: Path = None) -> dict:
+    """查 skeleton_lock.json：今天落在某筆鎖定的 date～date+grace_days 內就回那筆，否則回 {}。
+    （2026-10-13：檢討會連六週押塔防＋波次都沒落地，改成設定檔硬鎖，週更不再從榜單挑骨架）"""
+    today = today or datetime.date.today()
+    path = path or SKELETON_LOCK_FILE
+    if not path.exists():
+        return {}
+    try:
+        locks = json.loads(path.read_text(encoding="utf-8")).get("locks") or []
+    except ValueError:
+        return {}
+    for lk in locks:
+        try:
+            start = datetime.date.fromisoformat(lk["date"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if start <= today <= start + datetime.timedelta(days=int(lk.get("grace_days", 0))):
+            return lk
+    return {}
+
+
+def skeleton_decon(lock: dict) -> dict:
+    """把鎖定規格組成一份「解構筆記」交給 v3 生產線（不呼叫模型、不抓榜）。
+    locked_genre 讓 validate_contract 把合約 genre 強制成鎖定的類型。"""
+    rules = "\n".join(f"- {r}" for r in lock.get("core_rules", []))
+    spec = "\n".join(f"- {r}" for r in lock.get("spec", []))
+    doc = f"""# 骨架鎖定：{lock['skeleton']}（{lock['date']} 週更，Boss 拍板）
+
+這一場**不從排行榜挑靈感**，骨架已鎖定為「{lock['skeleton']}」，企劃書與引擎都必須照這個骨架做，
+不可改成益智、消除、整理、技巧或放鬆類。主題、美術、敵我角色自由發揮，但核心迴圈＝放塔擋波次。
+
+## 為什麼鎖定
+{lock.get('reason', '')}
+
+## 核心規則（三條都要做到，企劃書驗收條目要寫出可觀察的數字）
+{rules}
+
+## 規格（沿用 2026-10-04／10-11 檢討會版）
+{spec}
+"""
+    return {
+        "source": f"骨架鎖定：{lock['skeleton']}",
+        "title": lock.get("title", ""),
+        "genre": mg.normalize_genre(lock.get("genre", "")),
+        "locked_genre": mg.normalize_genre(lock.get("genre", "")),
+        "origin": "locked",
+        "doc": doc.strip(),
+    }
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="SlimeCat v3 生產線")
     ap.add_argument("--pick", default="", help="點名解構的遊戲名（不看榜）")
@@ -86,9 +143,14 @@ def main() -> int:
         mg.log(f"⏯️ 續跑 {run.summary()}")
         return pipeline.produce_v3(None, run=run, publish=not args.no_publish)
 
+    lock = {} if (args.pick or args.decon) else active_skeleton_lock()
     if args.decon:
         decon = load_decon_file(Path(args.decon))
         mg.log(f"📖 用既有解構筆記：{decon['source']}（{Path(args.decon).name}）")
+    elif lock:
+        decon = skeleton_decon(lock)
+        mg.log(f"🔒 骨架鎖定：{lock['skeleton']}（{lock['date']} 起 {lock.get('grace_days', 0)} 天內有效）"
+               f"→ 不抓榜、不解構，直接進企劃書")
     else:
         history = (json.loads(mg.HISTORY_FILE.read_text(encoding="utf-8"))
                    if mg.HISTORY_FILE.exists() else {"used": []})

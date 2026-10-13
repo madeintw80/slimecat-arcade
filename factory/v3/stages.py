@@ -171,6 +171,7 @@ def build_plan_prompt(decon: dict, past_games: list) -> str:
     origin_note = {
         "steam": "（來源＝Steam PC 遊戲：原作是一套大系統，你只能留一個核心迴圈；別把整款搬過來）",
         "named": "（Boss 點名的靈感）",
+        "locked": "（Boss 拍板的骨架鎖定：骨架不可更換，只能在骨架內發揮主題與內容）",
     }.get(decon.get("origin", ""), "")
     return f"""你是「SlimeCat 遊戲工作室」的首席遊戲策劃。任務：把下面這份解構筆記（或原創企劃）展開成
 一份「可直接分工實作」的企劃書＋模組合約。這款要比本站過去所有作品都更好玩，而且要「做大」：
@@ -300,6 +301,8 @@ def validate_contract(c: dict, decon: dict) -> dict:
         raise ValueError("合約缺 title")
     c["emoji"] = str(c.get("emoji") or "🎮").strip()[:4] or "🎮"
     c["genre"] = mg.normalize_genre(c.get("genre") or decon.get("genre"))
+    if decon.get("locked_genre"):   # 骨架鎖定（skeleton_lock.json）：類型標籤不准被企劃書改掉
+        c["genre"] = decon["locked_genre"]
     c["desc"] = str(c.get("desc") or "").strip()[:60]
     sm = c.get("session_minutes")
     if not (isinstance(sm, list) and len(sm) == 2):

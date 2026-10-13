@@ -1,5 +1,12 @@
 # DECISIONS
 
+## 2026-10-13 — 10/17 週更骨架鎖定「塔防＋波次」（Boss 拍板「選 A」，經嘻嘻派單、Batnini 落地）
+
+- 背景：9/27～10/11 檢討會連六週押塔防＋波次，但 10/3《喵掌上架王》（整理類）、10/10《喵沙橫流》（消除類）仍是排行榜挑出的別的骨架——檢討會只是叮嚀、產線沒有鎖。
+- 做法：新增 `factory/skeleton_lock.json`（`locks[]`：date／grace_days／skeleton／genre／core_rules／spec）。不帶參數的週更（`make_game_v3.py`）在 date～date+grace_days 內**跳過抓榜與解構**，用 `skeleton_decon()` 把鎖定規格組成解構筆記（origin=`locked`）直接進企劃書；`validate_contract` 看到 `locked_genre` 就把合約 genre 強制成塔防。`--pick`／`--decon`／`--resume` 照舊優先。
+- 10/17 這筆：grace_days=2（撞額度補跑到 10/19 仍鎖）；核心規則＝常駐可見進度（第 X／10 波＋資源＋貓窟生命）、約每 10 秒一次決策、會失敗（不操作 45～60 秒必輸）；規格沿用 10/4 版，並帶入 10/11 檢討會三條（鉤子只在 end() 達標才寫入、預覽範圍＝實際判定、說明文字讀 config 參數）。
+- 自決：鎖定只改類型標籤不加「骨架不對就退件」的硬驗證（企劃書退件一次約 $4～5，且 genre 標籤無法驗出真實玩法）；真正的骨架落實靠解構筆記強制說明＋Echo 評審稽核。日期過了自動失效，不用回頭刪。
+
 ## 2026-08-09 — 三天一產＋額度換品質（Boss 拍板、Batnini 落地）
 
 - 生產節奏由每日 12:00 改為**每 3 天 12:00**（schtasks `/SC DAILY /MO 3`；任務名 `SlimeCat Factory Daily` 保留不改，produce_now/produce_batch 手動觸發不受影響）。

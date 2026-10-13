@@ -500,6 +500,50 @@ try:
 finally:
     mg.subprocess.run, mg.USAGE_LOG = orig_run, orig_usage
 
+# ---------------------------------------------------------------- 10b. 骨架鎖定（2026-10-13）
+import datetime as _dt                          # noqa: E402
+lock_file = TMP / "skeleton_lock.json"
+lock_file.write_text(json.dumps({"locks": [{"date": "2026-10-17", "grace_days": 2, "skeleton": "塔防＋波次",
+                                            "genre": "塔防", "core_rules": ["常駐可見進度", "每 10 秒一次決策", "會失敗"],
+                                            "spec": ["擋住 10 波"]}]}, ensure_ascii=False), encoding="utf-8")
+check("骨架鎖定：10/17 當天生效", make_game_v3.active_skeleton_lock(_dt.date(2026, 10, 17), lock_file).get("genre") == "塔防")
+check("骨架鎖定：補跑寬限 10/19 仍生效", bool(make_game_v3.active_skeleton_lock(_dt.date(2026, 10, 19), lock_file)))
+check("骨架鎖定：10/16、10/20 不生效",
+      not make_game_v3.active_skeleton_lock(_dt.date(2026, 10, 16), lock_file)
+      and not make_game_v3.active_skeleton_lock(_dt.date(2026, 10, 20), lock_file))
+check("骨架鎖定：正式設定檔 10/17 是塔防＋波次",
+      make_game_v3.active_skeleton_lock(_dt.date(2026, 10, 17)).get("skeleton") == "塔防＋波次")
+_lk = make_game_v3.skeleton_decon(make_game_v3.active_skeleton_lock(_dt.date(2026, 10, 17)))
+check("骨架鎖定：解構筆記含三條核心規則",
+      all(k in _lk["doc"] for k in ("常駐可見進度", "10 秒", "會失敗")) and _lk["origin"] == "locked")
+_c = stages.validate_contract(dict(SAMPLE_OUT["contract"], genre="消除"), _lk)
+check("骨架鎖定：合約 genre 被強制成塔防", _c["genre"] == "塔防", _c["genre"])
+check("骨架鎖定：企劃 prompt 帶鎖定說明", "骨架鎖定" in stages.build_plan_prompt(_lk, []))
+
+# 乾跑 main()：鎖定生效時不抓榜、不解構，直接把鎖定筆記交給生產線
+_orig = (make_game_v3.fetch_trends.fetch, make_game_v3.mg.stage_deconstruct, make_game_v3.pipeline.produce_v3,
+         make_game_v3.active_skeleton_lock, make_game_v3.Run.pending_resume, make_game_v3.mg.log,
+         make_game_v3.mg.clear_retry, sys.argv)
+_seen = {}
+def _boom(*a, **k):
+    raise AssertionError("鎖定期間不該抓榜／解構")
+try:
+    make_game_v3.fetch_trends.fetch = _boom
+    make_game_v3.mg.stage_deconstruct = _boom
+    make_game_v3.pipeline.produce_v3 = lambda decon, publish=True, run=None: _seen.update(decon=decon) or 0
+    make_game_v3.active_skeleton_lock = lambda: _orig[3](_dt.date(2026, 10, 17))
+    make_game_v3.Run.pending_resume = staticmethod(lambda: "")
+    make_game_v3.mg.log = lambda *a, **k: None
+    make_game_v3.mg.clear_retry = lambda *a, **k: None
+    sys.argv = ["make_game_v3.py"]
+    rc = make_game_v3.main()
+    check("乾跑 10/17 週更：不抓榜、骨架＝塔防", rc == 0 and _seen.get("decon", {}).get("locked_genre") == "塔防",
+          str(_seen.get("decon", {}).get("source")))
+finally:
+    (make_game_v3.fetch_trends.fetch, make_game_v3.mg.stage_deconstruct, make_game_v3.pipeline.produce_v3,
+     make_game_v3.active_skeleton_lock, _pr, make_game_v3.mg.log, make_game_v3.mg.clear_retry, sys.argv) = _orig
+    make_game_v3.Run.pending_resume = _pr
+
 # ---------------------------------------------------------------- 11. live 探針（可選）
 if "--live" in sys.argv:
     print("── live：haiku 企劃書探針 ──")

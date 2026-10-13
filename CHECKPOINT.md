@@ -1,8 +1,14 @@
 # CHECKPOINT
 
-Updated: 2026-09-30 18:45 Asia/Taipei
+Updated: 2026-10-13 10:40 Asia/Taipei
 Task Lead: Batnini
-Status: complete（9/30：Echo 獨立評審型號改 `gpt-6.1-sol`，見下節；9/25：要 JSON 的六處改走 `--json-schema`；9/23：子 Claude 改沙盒 `--restricted --tools ""`＋繁中 system prompt）；Phase 3 旗艦化待 Boss 開工
+Status: complete（10/13：10/17 週更骨架鎖定「塔防＋波次」，見下節；9/30：Echo 評審型號 gpt-6.1-sol）；Phase 3 旗艦化待 Boss 開工
+
+## 2026-10-13 這輪（骨架鎖定；詳見 DECISIONS.md 同日條目）
+
+- Boss「選 A：10/17 鎖定塔防＋波次，允許寫入 SlimeCatArcade 改產線」（gateway job，initiator=grokbot）。新增 `factory/skeleton_lock.json`；`make_game_v3.py` 加 `active_skeleton_lock()`／`skeleton_decon()`，鎖定期間不抓榜不解構；`v3/stages.py` 合約 genre 強制＋企劃 prompt 標「骨架鎖定」。
+- 測試：`python factory/tests/test_v3.py` 離線 113 條全綠（新增 10b 節 8 條，含乾跑 `main()`：fetch_trends／stage_deconstruct 被換成會炸的假函式仍 rc=0、交給生產線的 decon＝塔防）。沒有真跑生產線、沒有改排程、沒有 push。
+- 下一步：10/17（六）02:00 週更跑完看 `factory.log` 有「🔒 骨架鎖定：塔防＋波次」而不是「📈 榜單 OK」，`games.json` 新款 genre＝塔防；10/18 檢討會看這款有沒有真的做成塔防。
 
 ## 2026-09-30 這輪（Echo 評審型號；詳見 DECISIONS.md 同日條目）
 
