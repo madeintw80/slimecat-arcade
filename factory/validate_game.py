@@ -24,14 +24,24 @@ QA_ORIGIN = "http://localhost:47977"
 QA_FALLBACK_PATH = "/games/_qa/index.html"   # 遊戲檔不在站內（測試暫存檔）時掛的位置
 
 
-def open_game(page, html_path) -> None:
-    """用虛擬網址打開遊戲。站內的遊戲照真實相對位置掛（../../vendor 才對得上）；
-    同站其他檔案從專案根目錄回；任何對外請求一律擋掉（規格本來就是零外部資源）。"""
+def qa_url_path(html_path) -> str:
+    """遊戲掛在虛擬網址的哪個路徑。遊戲裡寫的是 ../../vendor/…（假設自己在 games/<id>/ 這種第二層），
+    所以只有「站內、剛好第二層」（games/<id>/、trial/<id>/）才照真實位置掛；其他位置一律掛 /games/_qa/。
+    2026-10-13 踩雷：引擎煙霧測試的 factory/runs/<run>/engine_probe.html 在站內但深一層，
+    照真實位置掛 → ../../vendor 變成 /factory/vendor → three.js 404，兩次引擎全白燒。"""
     html_path = Path(html_path).resolve()
     try:
-        game_url_path = "/" + html_path.relative_to(SITE_ROOT).as_posix()
+        rel = html_path.relative_to(SITE_ROOT)
     except ValueError:
-        game_url_path = QA_FALLBACK_PATH
+        return QA_FALLBACK_PATH
+    return "/" + rel.as_posix() if len(rel.parts) == 3 else QA_FALLBACK_PATH
+
+
+def open_game(page, html_path) -> None:
+    """用虛擬網址打開遊戲（路徑規則見 qa_url_path）；同站其他檔案從專案根目錄回；
+    任何對外請求一律擋掉（規格本來就是零外部資源）。"""
+    html_path = Path(html_path).resolve()
+    game_url_path = qa_url_path(html_path)
     html_bytes = html_path.read_bytes()
 
     def handle(route):

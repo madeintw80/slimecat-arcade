@@ -248,7 +248,11 @@ def produce_v3(decon: dict, run: Run = None, publish: bool = True, trial: bool =
             gid, gdir = mg.reserve_game_dir(today)
             run.set("gid", gid)
         _write_game(gdir, html, contract, decon)
-        log(f"🧪 品管（煙霧＋壓力 {qa.STRESS_SECS} 秒）→ {gdir.relative_to(HERE.parent).as_posix()}/ …")
+        try:
+            where = gdir.relative_to(HERE.parent).as_posix()
+        except ValueError:   # 測試把 TRIAL_DIR 換到站外時
+            where = str(gdir)
+        log(f"🧪 品管（煙霧＋壓力 {qa.STRESS_SECS} 秒）→ {where}/ …")
         ok, errs, qa_info = qa.run_qa(gdir / "index.html", gid)
         run.write_json("qa.json", {"ok": ok, "errors": errs, "info": qa_info})
         if not ok:

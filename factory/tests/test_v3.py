@@ -583,6 +583,25 @@ _cdn.write_text(_fx.read_text(encoding="utf-8").replace(
 errs, info = qa.stress(_cdn, secs=2)
 check("3D：偷用 CDN 的引擎被品管抓到", bool(errs), str(errs)[:120])
 
+# 2026-10-13 試產踩雷回歸：引擎煙霧測試的 runs/<run>/engine_probe.html 在站內但深一層，
+# 照真實位置掛會讓 ../../vendor 變 /factory/vendor → 404（兩次引擎全白燒）
+import validate_game                           # noqa: E402
+_root = validate_game.SITE_ROOT
+check("3D：qa_url_path 第二層照真實位置（games／trial）",
+      validate_game.qa_url_path(_root / "games" / "x" / "index.html") == "/games/x/index.html"
+      and validate_game.qa_url_path(_root / "trial" / "r1" / "index.html") == "/trial/r1/index.html")
+check("3D：qa_url_path 站內深一層、站外都掛 /games/_qa/",
+      validate_game.qa_url_path(_root / "factory" / "runs" / "r1" / "engine_probe.html") == validate_game.QA_FALLBACK_PATH
+      and validate_game.qa_url_path(TMP / "x.html") == validate_game.QA_FALLBACK_PATH)
+_deep = mg.HERE / "runs" / "_selftest_3d"
+try:
+    _deep.mkdir(parents=True, exist_ok=True)
+    shutil.copy(_fx, _deep / "engine_probe.html")
+    ok, errs = validate_game.validate(_deep / "engine_probe.html")
+    check("3D：引擎煙霧測試位置（runs/<run>/）載得到站內 three.js", ok, str(errs)[:120])
+finally:
+    shutil.rmtree(_deep, ignore_errors=True)
+
 # 試產模式（--trial）：main 不接正式週更的續跑指標、不部署；pipeline 走完不碰 games.json／history／learnings
 _orig = (make_game_v3.mg.stage_deconstruct, make_game_v3.mg.save_decon, make_game_v3.pipeline.produce_v3,
          make_game_v3.Run.pending_resume, make_game_v3.mg.log, make_game_v3.mg.clear_retry, sys.argv)
