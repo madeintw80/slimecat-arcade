@@ -1,16 +1,18 @@
 # CHECKPOINT
 
-Updated: 2026-10-13 19:2x Asia/Taipei
+Updated: 2026-10-13 20:2x Asia/Taipei
 Task Lead: Batnini
-Status: in_progress（10/13 晚：生產線開放 3D＋試產模式已改完並測過，3D 試產跑中，見下節；10/13 早：10/17 週更骨架鎖定「塔防＋波次」）；Phase 3 旗艦化待 Boss 開工
+Status: complete（10/13 晚：生產線開放 3D＋試產模式上線，3D 試產《喵穿層連落》完成待 Boss 試玩，見下節；10/13 早：10/17 週更骨架鎖定「塔防＋波次」）；Phase 3 旗艦化待 Boss 開工
 
 ## 2026-10-13 晚這輪（3D／three.js＋試產模式；詳見 DECISIONS.md 同日條目）
 
 - Boss 拍板四題：three.js 放站內 `vendor/three/0.186.1/`、2D／3D 由企劃書依玩法判斷、**10/17 就生效**、先試產一款 3D 不上架。
 - 改了：`v3/stages.py`（合約 `render`、企劃 prompt 判斷說明、`HARD_SPECS_3D`、`hard_specs_for()`、打磨 prompt 依 render）、`validate_game.py`（`open_game()` 虛擬網址 `http://localhost:47977`、擋對外請求）、`v3/qa.py`（改用 open_game）、`v3/pipeline.py`（`trial` 模式、`games.json` 記 render）、`make_game_v3.py`（`--render`、`--trial`）、`publish_site.py`（白名單加 `vendor/`）、`fix_game.py`（保留 importmap）、`.gitignore`（`trial/`）；新增 `vendor/three/0.186.1/`（three.module.js、three.core.js、LICENSE）與 `factory/tests/fixture_engine3d.html`（3D 樣本引擎）。
 - 測試：`python factory/tests/test_v3.py` 離線 132 條全綠（新增 10c 節 19 條：render 正規化與強制、PLAN_SCHEMA、vendor 檔案、引擎／打磨／企劃 prompt 分流、白名單、品管真跑 3D 樣本、偷用 CDN 被抓、試產 main 與 pipeline 不碰 games.json）。手動品管：《喵沙橫流》（2D v3）照常通過、3D 樣本通過（r186、0 錯誤）。
-- 進行中：3D 試產 `make_game_v3.py --trial --pick "Helix Jump" --render 3d`（19:2x 開跑），成品會在 `trial/<run_id>/index.html`，Boss 用本機預覽開 `/trial/<run_id>/` 試玩後決定要不要上架。試產撞額度不會排補跑，續跑＝`--resume <run_id> --trial`。
-- 下一步：試產結果落地後更新本節；10/17 週更照常跑（骨架鎖定塔防，企劃書可自選 3D），看 `factory.log` 的合約 render 與品管結果。
+- 3D 試產結果（run `v3-20261013-191820`）：《喵穿層連落》（Helix Jump 變形、render=3d、引擎 915 行、內容包 段型 10／爪印 15／貓抓柱 20／圖鑑貓 12），品管通過、Echo 評審 38/50（稽核合約 5、bug 3），打磨 patch 3 項採用；成品 `trial/v3-20261013-191820/index.html`（另有 play.png 遊戲中截圖），本機預覽 `http://localhost:3462/trial/v3-20261013-191820/`。實際 fps 60、同屏 23 mesh，three.js 兩檔 200 載入、0 console 錯誤。games.json／history／plans 都沒動，只多 Helix Jump 解構筆記（點名解構的正常產物）。
+- 試產踩雷（已修，commit `c337d9f`）：第一次跑兩次引擎都被煙霧測試擋下（three.js 404）——引擎煙霧測試的 `factory/runs/<run>/engine_probe.html` 在站內但深一層，虛擬網址照真實位置掛讓 `../../vendor` 變 `/factory/vendor`。改成只有站內第二層（games／trial）才照真實位置掛，其他一律 `/games/_qa/`（`validate_game.qa_url_path`）；回歸測試 135 條全綠（新增 3 條含 runs/ 深一層實跑）。引擎本身沒問題，第 2 次交稿重測通過後登記為完成（run.json `salvaged` 註記）、從內容包續跑，沒有重付引擎。
+- 小問題（交評審、未處理）：圖鑑貓 `unlock` 欄位寫的是解鎖條件關鍵字（start／score…），跨包引用檢查誤當成 towers id，警告放行；之後若 3D 款常見再調引用判斷。
+- 下一步：Boss 試玩後決定上架與否——要上架目前沒有「試產轉正」指令，要另做（把 trial 成品搬進 games/、寫 games.json 條目、重建、部署＝對外，需 Boss 明講）。10/17 週更照常跑（骨架鎖定塔防，企劃書可自選 3D），看 `factory.log` 的合約 render 與品管結果。
 
 ## 2026-10-13 早這輪（骨架鎖定；詳見 DECISIONS.md 同日條目）
 
