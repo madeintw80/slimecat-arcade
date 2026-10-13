@@ -9,11 +9,48 @@
 """
 import sys
 from pathlib import Path
+from urllib.parse import unquote, urlparse
 
 sys.stdout.reconfigure(encoding="utf-8")
 
 HERE = Path(__file__).resolve().parent
 SHOTS_DIR = HERE / "shots"
+SITE_ROOT = HERE.parent   # 專案根目錄＝公開站根目錄（index.html、games/、vendor/…）
+
+# 2026-10-13 3D 遊戲上線：Chrome 不准 file:// 載入 JS 模組，站內的 three.js（vendor/）會載不到，
+# 所以品管改用「虛擬網址」開遊戲：Playwright 攔下請求、直接回本機檔案，不用真的開伺服器。
+# 主機名一定要是 localhost：stats.js 看到 localhost 就不回報，品管亂玩才不會灌進真實數據。
+QA_ORIGIN = "http://localhost:47977"
+QA_FALLBACK_PATH = "/games/_qa/index.html"   # 遊戲檔不在站內（測試暫存檔）時掛的位置
+
+
+def open_game(page, html_path) -> None:
+    """用虛擬網址打開遊戲。站內的遊戲照真實相對位置掛（../../vendor 才對得上）；
+    同站其他檔案從專案根目錄回；任何對外請求一律擋掉（規格本來就是零外部資源）。"""
+    html_path = Path(html_path).resolve()
+    try:
+        game_url_path = "/" + html_path.relative_to(SITE_ROOT).as_posix()
+    except ValueError:
+        game_url_path = QA_FALLBACK_PATH
+    html_bytes = html_path.read_bytes()
+
+    def handle(route):
+        url = urlparse(route.request.url)
+        if f"{url.scheme}://{url.netloc}" != QA_ORIGIN:
+            route.abort()   # 對外請求（CDN、數據回報…）
+            return
+        path = unquote(url.path)
+        if path == game_url_path:
+            route.fulfill(status=200, content_type="text/html; charset=utf-8", body=html_bytes)
+            return
+        local = (SITE_ROOT / path.lstrip("/")).resolve()
+        if local.is_file() and local.is_relative_to(SITE_ROOT):
+            route.fulfill(status=200, path=str(local))
+        else:
+            route.fulfill(status=404, body="not found")
+
+    page.route("**/*", handle)
+    page.goto(QA_ORIGIN + game_url_path)
 
 
 def validate(html_path, shot_name: str = ""):
@@ -28,7 +65,7 @@ def validate(html_path, shot_name: str = ""):
         page.on("pageerror", lambda e: errors.append(f"pageerror: {e}"))
         page.on("console",
                 lambda m: errors.append(f"console.error: {m.text}") if m.type == "error" else None)
-        page.goto(html_path.as_uri())
+        open_game(page, html_path)
         page.wait_for_timeout(1500)
 
         if not page.query_selector("canvas"):

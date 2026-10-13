@@ -19,6 +19,7 @@ ROOT = Path(__file__).resolve().parent.parent
 PUBLISH_PATHS = [
     "index.html", "games.js", "games.json", "stats.js", "sc_config.js",
     "games/",                    # 遊戲本體＋截圖
+    "vendor/",                   # 3D 遊戲共用的 three.js（2026-10-13 起，固定版本資料夾）
     "factory/history.json",      # 上架紀錄
     "factory/knowledge/",        # 解構筆記／learnings（檢討排程會更新）
     "DESIGN.md",                 # 設計聖經（週檢討會回修）

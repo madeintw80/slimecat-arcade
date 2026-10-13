@@ -16,6 +16,7 @@ sys.path.insert(0, str(FACTORY))
 import make_game as mg                         # noqa: E402
 import decon_now                               # noqa: E402
 import make_game_v3                            # noqa: E402
+import publish_site                            # noqa: E402
 from v3 import stages, patch, qa, pipeline     # noqa: E402
 from v3.run import Run                         # noqa: E402
 import v3.run as runmod                        # noqa: E402
@@ -530,7 +531,7 @@ def _boom(*a, **k):
 try:
     make_game_v3.fetch_trends.fetch = _boom
     make_game_v3.mg.stage_deconstruct = _boom
-    make_game_v3.pipeline.produce_v3 = lambda decon, publish=True, run=None: _seen.update(decon=decon) or 0
+    make_game_v3.pipeline.produce_v3 = lambda decon, publish=True, run=None, **k: _seen.update(decon=decon) or 0
     make_game_v3.active_skeleton_lock = lambda: _orig[3](_dt.date(2026, 10, 17))
     make_game_v3.Run.pending_resume = staticmethod(lambda: "")
     make_game_v3.mg.log = lambda *a, **k: None
@@ -543,6 +544,94 @@ finally:
     (make_game_v3.fetch_trends.fetch, make_game_v3.mg.stage_deconstruct, make_game_v3.pipeline.produce_v3,
      make_game_v3.active_skeleton_lock, _pr, make_game_v3.mg.log, make_game_v3.mg.clear_retry, sys.argv) = _orig
     make_game_v3.Run.pending_resume = _pr
+
+# ---------------------------------------------------------------- 10c. 3D（three.js 站內 vendor，2026-10-13）
+_c2 = stages.validate_contract(dict(SAMPLE_OUT["contract"]), {})
+check("3D：舊合約沒 render＝2d", _c2["render"] == "2d")
+check("3D：render 大小寫正規化", stages.validate_contract(dict(SAMPLE_OUT["contract"], render="3D"), {})["render"] == "3d")
+check("3D：不認得的 render 退回 2d", stages.validate_contract(dict(SAMPLE_OUT["contract"], render="4d"), {})["render"] == "2d")
+_cf = stages.validate_contract(dict(SAMPLE_OUT["contract"], render="2d"), {"force_render": "3d"})
+check("3D：--render 指定會蓋過企劃書", _cf["render"] == "3d")
+check("3D：PLAN_SCHEMA render enum", ps["properties"]["render"]["enum"] == ["2d", "3d"])
+_vendor = FACTORY.parent / "vendor" / "three" / stages.THREE_VERSION
+check("3D：站內 vendor 有 three 兩檔＋授權",
+      all((_vendor / n).is_file() for n in ("three.module.js", "three.core.js", "LICENSE")))
+check("3D：importmap 指向站內 vendor 現役版本",
+      f"../../vendor/three/{stages.THREE_VERSION}/three.module.js" in stages.THREE_IMPORTMAP)
+_ep3 = stages.build_engine_prompt("# 企劃書", _cf, {"source": "原作"})
+_ep2 = stages.build_engine_prompt("# 企劃書", _c2, {"source": "原作"})
+check("3D：引擎 prompt 3d 版帶 importmap、2d 版不帶", stages.THREE_IMPORTMAP in _ep3 and "importmap" not in _ep2)
+check("3D：2D 版引擎 prompt 規格原封不動", stages.HARD_SPECS in _ep2 and stages.HARD_SPECS_3D not in _ep2)
+check("3D：打磨 prompt 依 render 提醒保留 importmap",
+      "importmap" in stages.build_polish_prompt("<html>", ["x"], _cf)
+      and "importmap" not in stages.build_polish_prompt("<html>", ["x"], _c2))
+check("3D：企劃 prompt 有 render 判斷說明", "只有「3D 讓核心玩法更好玩」才選 3d" in stages.build_plan_prompt({"title": "x"}, []))
+check("3D：--render 3d 時企劃 prompt 帶指定說明",
+      "本款指定 render＝3d" in stages.build_plan_prompt({"title": "x", "force_render": "3d"}, [])
+      and "本款指定" not in stages.build_plan_prompt({"title": "x"}, []))
+check("3D：上架白名單含 vendor/", "vendor/" in publish_site.PUBLISH_PATHS)
+# 品管：3D 樣本引擎（站內 three.js）真的跑得起來——file:// 時代 Chrome 不准載模組，這條會失敗
+_fx = Path(__file__).resolve().parent / "fixture_engine3d.html"
+errs, info = qa.stress(_fx, secs=3)
+check("3D：品管跑 3D 樣本（站內 three.js 載得到）",
+      not errs and (info.get("snapshot") or {}).get("revision") == "186", str(errs)[:120])
+# 品管擋掉對外請求：引擎偷用 CDN 載 three 會載不到 → 被抓到
+_cdn = TMP / "cdn3d.html"
+_cdn.write_text(_fx.read_text(encoding="utf-8").replace(
+    f"../../vendor/three/{stages.THREE_VERSION}/three.module.js",
+    "https://cdn.jsdelivr.net/npm/three@0.186.1/build/three.module.js"), encoding="utf-8")
+errs, info = qa.stress(_cdn, secs=2)
+check("3D：偷用 CDN 的引擎被品管抓到", bool(errs), str(errs)[:120])
+
+# 試產模式（--trial）：main 不接正式週更的續跑指標、不部署；pipeline 走完不碰 games.json／history／learnings
+_orig = (make_game_v3.mg.stage_deconstruct, make_game_v3.mg.save_decon, make_game_v3.pipeline.produce_v3,
+         make_game_v3.Run.pending_resume, make_game_v3.mg.log, make_game_v3.mg.clear_retry, sys.argv)
+_seen = {}
+try:
+    make_game_v3.mg.stage_deconstruct = lambda *a, **k: {"source": "測試原作", "title": "t", "genre": "跑酷",
+                                                          "origin": "named", "doc": "解構"}
+    make_game_v3.mg.save_decon = lambda d: TMP / "decon.md"
+    make_game_v3.pipeline.produce_v3 = lambda decon, publish=True, run=None, trial=False: (
+        _seen.update(decon=decon, publish=publish, trial=trial, run=run) or 0)
+    make_game_v3.Run.pending_resume = staticmethod(lambda: "正式週更的指標")
+    make_game_v3.mg.log = lambda *a, **k: None
+    make_game_v3.mg.clear_retry = lambda *a, **k: None
+    sys.argv = ["make_game_v3.py", "--trial", "--pick", "測試原作", "--render", "3d"]
+    rc = make_game_v3.main()
+    check("試產：main 傳 trial、不部署、--render 3d 寫進筆記、不接正式續跑指標",
+          rc == 0 and _seen.get("trial") is True and _seen.get("publish") is False and _seen.get("run") is None
+          and _seen.get("decon", {}).get("force_render") == "3d", str({k: v for k, v in _seen.items() if k != "decon"}))
+finally:
+    (make_game_v3.mg.stage_deconstruct, make_game_v3.mg.save_decon, make_game_v3.pipeline.produce_v3,
+     _pr, make_game_v3.mg.log, make_game_v3.mg.clear_retry, sys.argv) = _orig
+    make_game_v3.Run.pending_resume = _pr
+
+_po = (pipeline._plan, pipeline._engine, pipeline._content, pipeline.qa.run_qa, pipeline._review,
+       pipeline.TRIAL_DIR, runmod.RUNS_DIR, runmod.RESUME_PTR, mg.append_learning)
+_games_before = mg.GAMES_JSON.read_bytes()
+_hist_before = mg.HISTORY_FILE.read_bytes() if mg.HISTORY_FILE.exists() else b""
+_learned = []
+try:
+    pipeline._plan = lambda run, decon, games, today, trial=False: ("# 企劃書", dict(_cf))
+    pipeline._engine = lambda run, plan_doc, contract, decon: (engine_ok, "")
+    pipeline._content = lambda run, plan_doc, contract, notes: content
+    pipeline.qa.run_qa = lambda path, gid, *a, **k: (True, [], {"content": {"levels": 2}})
+    pipeline._review = lambda *a, **k: None
+    pipeline.TRIAL_DIR = TMP / "trial"
+    runmod.RUNS_DIR, runmod.RESUME_PTR = TMP / "runs_trial", TMP / "runs_trial" / "v3_resume.json"
+    mg.append_learning = lambda *a, **k: _learned.append(a)
+    _run = Run()
+    rc = pipeline.produce_v3({"source": "測試原作", "doc": "解構"}, run=_run, publish=True, trial=True)
+    check("試產：pipeline 走完回 0、成品在 trial/<run_id>/",
+          rc == 0 and (TMP / "trial" / _run.id / "index.html").is_file())
+    check("試產：games.json／history 一個字都沒動、沒寫學習紀錄",
+          mg.GAMES_JSON.read_bytes() == _games_before
+          and (mg.HISTORY_FILE.read_bytes() if mg.HISTORY_FILE.exists() else b"") == _hist_before and not _learned)
+    check("試產：run 記成 trial、release 沒部署", _run.get("trial") is True
+          and _run.state["stages"].get("release", {}).get("published") is False)
+finally:
+    (pipeline._plan, pipeline._engine, pipeline._content, pipeline.qa.run_qa, pipeline._review,
+     pipeline.TRIAL_DIR, runmod.RUNS_DIR, runmod.RESUME_PTR, mg.append_learning) = _po
 
 # ---------------------------------------------------------------- 11. live 探針（可選）
 if "--live" in sys.argv:

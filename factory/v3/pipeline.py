@@ -26,6 +26,9 @@ from v3.patch import PatchError         # noqa: E402
 from v3.run import Run                  # noqa: E402
 
 PLANS_DIR = mg.KNOW / "plans"   # 企劃書永久留存（跟解構筆記一樣是工作室的功力）
+# 試產成品放這裡（2026-10-13 起，--trial）：不在 publish_site 白名單、也不寫 games.json，永遠不會上公開站。
+# 深度跟 games/<id>/ 一樣兩層，3D 遊戲的 ../../vendor/ 才對得上；本機預覽開 /trial/<run_id>/。
+TRIAL_DIR = HERE.parent / "trial"
 USE_ECHO = True                 # Phase 2：評審先問 Echo，不可用回 sonnet；--no-echo 可關
 MAX_ENGINE_ATTEMPTS = 2         # 引擎交稿＋煙霧測試最多試幾次
 MAX_PLAN_ATTEMPTS = 2           # 合約格式壞掉重做幾次
@@ -60,7 +63,7 @@ def _save_plan_copy(plan_doc: str, contract: dict, today: str) -> Path:
 
 
 # ---------------------------------------------------------------- 各階段
-def _plan(run: Run, decon: dict, past_games: list, today: str) -> tuple:
+def _plan(run: Run, decon: dict, past_games: list, today: str, trial: bool = False) -> tuple:
     if run.done("plan"):
         log(f"⏭️ 企劃書已完成（續跑），略過")
         return run.read_text("plan.md"), run.read_json("contract.json")
@@ -87,8 +90,12 @@ def _plan(run: Run, decon: dict, past_games: list, today: str) -> tuple:
     run.write_json("contract.json", contract)
     packs = {p["key"]: p["count"] for p in contract["content_packs"]}
     run.mark("plan", model=stages.MODEL_PLAN, effort=stages.EFFORT_PLAN, title=contract["title"], packs=packs)
-    copy = _save_plan_copy(plan_doc, contract, today)
-    log(f"  📘 《{contract['title']}》合約：內容包 {packs}；企劃書 → knowledge/plans/{copy.name}")
+    if trial:   # 試產不進 knowledge/plans/（那裡會上公開站、也是之後企劃的參考）
+        log(f"  📘 《{contract['title']}》合約：內容包 {packs}；render={contract.get('render')}（試產：企劃書只留在 runs/）")
+    else:
+        copy = _save_plan_copy(plan_doc, contract, today)
+        log(f"  📘 《{contract['title']}》合約：內容包 {packs}；render={contract.get('render')}；"
+            f"企劃書 → knowledge/plans/{copy.name}")
     return plan_doc, contract
 
 
@@ -202,9 +209,15 @@ def _polish_issues(crit: dict) -> list:
 
 
 # ---------------------------------------------------------------- 主流程
-def produce_v3(decon: dict, run: Run = None, publish: bool = True) -> int:
-    """回 0＝上架完成或已排補跑；1＝失敗。decon 可為 None（續跑時從 run 資料夾讀）。"""
+def produce_v3(decon: dict, run: Run = None, publish: bool = True, trial: bool = False) -> int:
+    """回 0＝上架完成或已排補跑；1＝失敗。decon 可為 None（續跑時從 run 資料夾讀）。
+    trial＝試產：成品放 trial/<run_id>/，不寫 games.json／上架紀錄／學習紀錄、不部署不推播、撞額度不排補跑。"""
     run = run or Run()
+    if trial:
+        run.set("trial", True)
+    trial = trial or bool(run.get("trial"))   # 續跑時沿用這輪當初的模式
+    if trial:
+        publish = False
     if run.has("decon.json"):
         decon = run.read_json("decon.json")
     else:
@@ -215,7 +228,7 @@ def produce_v3(decon: dict, run: Run = None, publish: bool = True) -> int:
     today = datetime.date.today().isoformat()
     gdir, released = None, False
     try:
-        plan_doc, contract = _plan(run, decon, data["games"], today)
+        plan_doc, contract = _plan(run, decon, data["games"], today, trial)
         engine_html, notes = _engine(run, plan_doc, contract, decon)
         content = _content(run, plan_doc, contract, notes)
 
@@ -225,13 +238,17 @@ def produce_v3(decon: dict, run: Run = None, publish: bool = True) -> int:
 
         # ── 撥號＋品管 ──
         gid = run.get("gid")
-        if gid and (mg.GAMES_DIR / gid).exists():
+        if trial:
+            gid, gdir = f"trial_{run.id}", TRIAL_DIR / run.id
+            gdir.mkdir(parents=True, exist_ok=True)
+            run.set("gid", gid)
+        elif gid and (mg.GAMES_DIR / gid).exists():
             gdir = mg.GAMES_DIR / gid
         else:
             gid, gdir = mg.reserve_game_dir(today)
             run.set("gid", gid)
         _write_game(gdir, html, contract, decon)
-        log(f"🧪 品管（煙霧＋壓力 {qa.STRESS_SECS} 秒）→ games/{gid}/ …")
+        log(f"🧪 品管（煙霧＋壓力 {qa.STRESS_SECS} 秒）→ {gdir.relative_to(HERE.parent).as_posix()}/ …")
         ok, errs, qa_info = qa.run_qa(gdir / "index.html", gid)
         run.write_json("qa.json", {"ok": ok, "errors": errs, "info": qa_info})
         if not ok:
@@ -284,8 +301,9 @@ def produce_v3(decon: dict, run: Run = None, publish: bool = True) -> int:
                             html = html2
                             run.write_text("polished.html", html2)
                             polish_note = "；".join(i.split("] ", 1)[-1][:40] for i in issues)
-                            mg.append_learning(f"- {today} 打磨《{contract['title']}》patch 修 {len(issues)} 項："
-                                               f"{polish_note[:80]}（品管通過採用）")
+                            if not trial:
+                                mg.append_learning(f"- {today} 打磨《{contract['title']}》patch 修 {len(issues)} 項："
+                                                   f"{polish_note[:80]}（品管通過採用）")
                             log("  ✨ 修訂版品管通過，採用")
                         else:
                             log(f"  ↩️ 修訂版品管沒過（{errs2}），改回原版")
@@ -304,10 +322,21 @@ def produce_v3(decon: dict, run: Run = None, publish: bool = True) -> int:
         if shot_src.exists():
             shutil.copy(shot_src, gdir / "shot.png")
         packs = {k: len(v) for k, v in content.items()}
+        if trial:   # 試產到這裡收工：不寫 games.json／history／learnings，不部署不推播
+            if crit:
+                run.write_json("review_summary.json", {"total": crit.get("total"), "reviewer": crit.get("reviewer"),
+                                                       "verdict": crit.get("verdict"), "fixes": crit.get("fixes")})
+            run.mark("release", gid=gid, published=False, trial=True)
+            run.write_json("usage.json", {"records": mg.USAGE, "summary": mg.usage_summary()})
+            log(f"🧪 試產完成：《{contract['title']}》render={contract.get('render')}、內容包 {packs}"
+                f"{'、評審 ' + str(crit.get('total')) + '/50' if crit else ''} → trial/{run.id}/index.html"
+                f"（沒寫 games.json、沒部署、沒推播）")
+            log(f"   本次用量：{mg.usage_summary()}")
+            return 0
         entry = {"id": gid, "title": contract["title"], "emoji": contract["emoji"],
                  "genre": contract["genre"], "date": today,
                  "inspiration": decon.get("source", ""), "desc": contract["desc"],
-                 "pipeline": "v3", "packs": packs}
+                 "pipeline": "v3", "packs": packs, "render": contract.get("render", "2d")}
         if crit:
             entry["ai_score"] = crit["total"]
             entry["reviewer"] = crit.get("reviewer", "")
@@ -356,16 +385,20 @@ def produce_v3(decon: dict, run: Run = None, publish: bool = True) -> int:
         return 0
 
     except mg.QuotaError as e:
+        if trial:   # 補跑排程走的是週更入口（會正式上架），試產絕不能排；斷點都在 runs/，手動續跑
+            log(f"⏳ 試產撞額度（{run.summary()}）：不排補跑，手動續跑＝make_game_v3.py --resume {run.id} --trial：{e}")
+            return 1
         run.set_resume_pointer()
         log(f"⏳ 撞額度（{run.summary()}），下輪從斷點續跑：{e}")
         return 0 if mg.schedule_retry("factory", e.resets_at, str(e)) else 1
     except Exception as e:  # noqa: BLE001
-        log(f"❌ v3 生產失敗：{e}")
+        log(f"❌ v3 {'試產' if trial else '生產'}失敗：{e}")
         log(traceback.format_exc()[-1500:])
-        Run.clear_resume_pointer()
+        if not trial:   # 試產從不設續跑指標，別誤清掉正式週更留下的指標
+            Run.clear_resume_pointer()
         if gdir is not None and not released:
             shutil.rmtree(gdir, ignore_errors=True)
-        mg.notify_fail(f"v3 run {run.id} 失敗：{str(e)[:200]}")
+        mg.notify_fail(f"v3 {'試產 ' if trial else ''}run {run.id} 失敗：{str(e)[:200]}")
         return 1
 
 

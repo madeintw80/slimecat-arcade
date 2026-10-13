@@ -93,6 +93,7 @@ def build_prompt(g: dict, html: str, bugs: list, feedback: str = "") -> str:
 - 最小侵入：只改跟 bug 相關的程式碼；玩法、美術、計分、難度、文案一律不可動
 - 第一行的 GAMEMETA 註解原樣保留
 - 檔尾的 sc_config.js / stats.js 兩個 script 標籤原樣保留
+- 3D 遊戲的 <script type="importmap">（指向站內 ../../vendor/three/ 的 three.js）與 <script type="module"> 原樣保留，不可改成 CDN
 - 拖曳/點擊類 bug 的常見根因是「視覺位置」與「判定位置」基準不一致——修復時讓兩者共用同一個計算函式，不要各寫一份公式
 - 手機觸控與電腦滑鼠都要驗證過你的修法（在腦中實際走一遍事件流）
 - 不可用 alert/confirm/prompt；不可出現 console.error 或未捕捉例外

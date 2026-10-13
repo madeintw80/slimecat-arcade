@@ -67,7 +67,9 @@ python C:/Users/User/projects/SlimeCatArcade/factory/make_game_v3.py
 python C:/Users/User/projects/SlimeCatArcade/factory/make_game_v3.py --pick "Balatro"        # 點名靈感
 python C:/Users/User/projects/SlimeCatArcade/factory/make_game_v3.py --decon <筆記路徑>      # 用既有解構筆記
 python C:/Users/User/projects/SlimeCatArcade/factory/make_game_v3.py --resume <run_id>       # 從斷點續跑
-python C:/Users/User/projects/SlimeCatArcade/factory/make_game_v3.py --no-publish --no-echo  # 開發用：不部署、評審不問 Echo
+python C:/Users/User/projects/SlimeCatArcade/factory/make_game_v3.py --no-publish --no-echo  # 開發用：不部署、評審不問 Echo（⚠️ 仍會寫 games.json，隔天每日排程部署時會上站）
+python C:/Users/User/projects/SlimeCatArcade/factory/make_game_v3.py --trial --pick "遊戲名" --render 3d  # 試產：成品放 trial/<run_id>/，不寫 games.json、不部署、撞額度不排補跑
+python C:/Users/User/projects/SlimeCatArcade/factory/make_game_v3.py --render 3d   # 指定 2D／3D（不給＝企劃書依玩法判斷；3D 用站內 vendor/three/）
 python C:/Users/User/projects/SlimeCatArcade/factory/make_game_v3.py --regen <run_id> --packs scenes   # 已上架：重生內容包（沿用引擎）覆蓋上線
 python C:/Users/User/projects/SlimeCatArcade/factory/make_game_v3.py --polish <run_id>      # 已上架：用最新評審的稽核結果再打磨一輪
 

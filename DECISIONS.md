@@ -1,5 +1,14 @@
 # DECISIONS
 
+## 2026-10-13 — 生產線開放 3D（three.js）＋試產模式（Boss 拍板四題、Batnini 落地）
+
+- 背景：Boss 當天把 Godot 與 three.js 定位成 AI 做遊戲的工具，接著說「SlimeCat 應該可以做更多類型的遊戲了」。原本硬性規格是「單檔零外部資源、canvas 2D」，企劃書因此一直把 3D 列在「忍住不做」（例如《喵掌上架王》的 3D 物理堆疊）。Godot 不適合遊戲區：網頁匯出版是幾十 MB 等級，違背點開即玩。
+- Boss 拍板：①three.js 放遊戲區自己的網站（`vendor/three/0.186.1/`），不用公開 CDN、也不整包塞進每款遊戲；②2D 或 3D 由企劃書依玩法判斷，只有「3D 讓核心玩法更好玩」才選，不設比例、不必手動指令；③**10/17 週更就生效**（骨架鎖定的塔防也可以做成 3D）；④先試產一款 3D 但不上架，Boss 試玩後再決定。
+- 做法：合約新增必填欄位 `render`（`2d`／`3d`，舊合約與不認得的值一律當 2d）；企劃書 prompt 加判斷說明；引擎依 render 套 `HARD_SPECS` 或 `HARD_SPECS_3D`（importmap 固定指向站內 three.js、只准用 three 核心、不准外部模型與貼圖、`<canvas id="view">` 給 WebGLRenderer、HUD 疊 2D canvas 或 DOM、手機效能預算）；打磨與修遊戲 prompt 都提醒保留 importmap；`games.json` 新款多記 `render`；`publish_site` 白名單加 `vendor/`；`make_game_v3.py --render 2d|3d` 可強制指定。
+- 品管改用虛擬網址開遊戲（`validate_game.open_game`）：Chrome 不准 `file://` 載入 JS 模組，所以改由 Playwright 攔請求回本機檔案，主機名固定 `localhost`（`stats.js` 看到 localhost 不回報，品管不會灌數據），對外請求一律擋掉（偷用 CDN 會被抓到）。2D 舊遊戲照常通過。
+- 新增試產模式 `make_game_v3.py --trial`：成品放 `trial/<run_id>/`（不在部署白名單、已 gitignore），不寫 `games.json`／`history.json`／`knowledge/plans`／學習紀錄，不部署不推播；撞額度不排補跑（補跑走週更入口會正式上架），也不接正式週更的續跑指標。原因：`--no-publish` 仍會寫 `games.json`，隔天 11:30 每日留言排程部署時就會把遊戲推上公開站。
+- 自決：three r186 官方已不出 `.min.js`，改放正式版 `three.module.js`＋`three.core.js`（合計約 2.1MB，GitHub Pages 會 gzip，所有 3D 遊戲共用一份快取），檔案來自 npm registry 並核對 SHA-512；只開放 three 核心、不開 addons；換版本＝放新資料夾再改 `stages.THREE_VERSION`，舊資料夾保留給已上架遊戲。headless 品管走 SwiftShader 軟體繪圖，只驗畫面對錯、不驗效能，手機效能靠規格預算與試玩。
+
 ## 2026-10-13 — 10/17 週更骨架鎖定「塔防＋波次」（Boss 拍板「選 A」，經嘻嘻派單、Batnini 落地）
 
 - 背景：9/27～10/11 檢討會連六週押塔防＋波次，但 10/3《喵掌上架王》（整理類）、10/10《喵沙橫流》（消除類）仍是排行榜挑出的別的骨架——檢討會只是叮嚀、產線沒有鎖。

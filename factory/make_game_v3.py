@@ -10,6 +10,9 @@
     python make_game_v3.py --polish <run_id>   # 已上架遊戲：用最新評審的稽核 bug／合約缺陷再打磨一輪（patch）
     python make_game_v3.py --no-publish        # 跑到上架為止，不部署不推播（開發用）
     python make_game_v3.py --no-echo           # 評審不問 Echo，直接 sonnet
+    python make_game_v3.py --render 3d         # 指定做 3D（three.js，站內 vendor/）；不給＝企劃書依玩法自己判斷
+    python make_game_v3.py --trial --pick "遊戲名" --render 3d   # 試產：成品放 trial/<run_id>/，不寫 games.json、
+                                               # 不部署不推播、撞額度不排補跑（續跑＝--resume <run_id> --trial）
 
 骨架鎖定：factory/skeleton_lock.json 有今天適用的鎖定（date～date+grace_days）時，不帶參數的週更
 跳過抓榜／解構，直接用鎖定規格當靈感，合約 genre 強制成鎖定類型（--pick／--decon 照舊優先）。
@@ -120,7 +123,12 @@ def main() -> int:
     ap.add_argument("--polish", default="", help="已上架遊戲：用最新評審的稽核結果再打磨一輪的 run_id")
     ap.add_argument("--no-publish", action="store_true", help="不部署不推播")
     ap.add_argument("--no-echo", action="store_true", help="評審不問 Echo")
+    ap.add_argument("--render", choices=["2d", "3d"], default="",
+                    help="指定畫面維度（不給＝企劃書依玩法自己判斷）")
+    ap.add_argument("--trial", action="store_true",
+                    help="試產：成品放 trial/<run_id>/，不寫 games.json、不部署不推播、撞額度不排補跑")
     args = ap.parse_args()
+    publish = not (args.no_publish or args.trial)
     if args.no_echo:
         pipeline.USE_ECHO = False
 
@@ -136,12 +144,12 @@ def main() -> int:
     mg.log("🏭 SlimeCat 遊戲工作室 v3 開工（企劃書 → 引擎 → 內容包 → 組裝 → 品管 → 評審 → 打磨）")
     mg.clear_retry("factory")   # 這輪若是補跑本身，先把一次性排程收掉
 
-    # 續跑：明講 --resume，或排程補跑時發現有續跑指標
-    rid = args.resume or ("" if (args.pick or args.decon) else Run.pending_resume())
+    # 續跑：明講 --resume，或排程補跑時發現有續跑指標（試產只認明講的 --resume，不接正式週更留下的指標）
+    rid = args.resume or ("" if (args.pick or args.decon or args.trial) else Run.pending_resume())
     if rid:
         run = Run(rid)
         mg.log(f"⏯️ 續跑 {run.summary()}")
-        return pipeline.produce_v3(None, run=run, publish=not args.no_publish)
+        return pipeline.produce_v3(None, run=run, publish=publish, trial=args.trial)
 
     lock = {} if (args.pick or args.decon) else active_skeleton_lock()
     if args.decon:
@@ -169,13 +177,20 @@ def main() -> int:
             mg.log(f"📖 解構完成：{decon['source']}（{decon['origin']}）→ {note.name}")
         except mg.QuotaError as e:
             mg.log(f"⏳ 解構撞額度：{e}")
+            if args.trial:   # 補跑排程走週更入口（會正式上架），試產不排
+                return 1
             return 0 if mg.schedule_retry("factory", e.resets_at, str(e)) else 1
         except Exception as e:  # noqa: BLE001
             mg.log(f"❌ 靈感／解構階段失敗：{e}")
             mg.notify_fail(f"靈感／解構階段失敗：{e}")
             return 1
 
-    return pipeline.produce_v3(decon, publish=not args.no_publish)
+    if args.render:   # 企劃書與合約都會照這個維度（validate_contract 強制）
+        decon["force_render"] = args.render
+        mg.log(f"🧊 指定畫面維度：{args.render}")
+    if args.trial:
+        mg.log("🧪 試產模式：成品放 trial/，不寫 games.json、不部署、不推播")
+    return pipeline.produce_v3(decon, publish=publish, trial=args.trial)
 
 
 if __name__ == "__main__":

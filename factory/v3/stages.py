@@ -49,6 +49,12 @@ CAPS = {"packs": 4, "items": 30, "engine_lines": 2000, "session_max_min": 10}
 DEFAULT_ENGINE_LINES = 1600
 CRITIC_HTML_CAP = 200000   # 評審讀多少字原始碼（v3 遊戲比較大）
 PACK_KEY_RE = re.compile(r"^[a-z][a-z0-9_]{1,24}$")
+
+# ---- 3D（2026-10-13 Boss 拍板：three.js 放站內 vendor/、2D 或 3D 由企劃依玩法判斷）----
+RENDERS = ("2d", "3d")
+THREE_VERSION = "0.186.1"   # 換版＝把新版放進 vendor/three/<版本>/ 再改這裡（舊版資料夾留著，已上架的遊戲還在用）
+THREE_IMPORTMAP = ('<script type="importmap">{"imports":{"three":"../../vendor/three/'
+                   + THREE_VERSION + '/three.module.js"}}</script>')
 CONTENT_BLOCK_RE = re.compile(r"<script[^>]*\bid=[\"']sc-content[\"'][^>]*>.*?</script>", re.S | re.I)
 NOTES_RE = re.compile(r"<!--\s*CONTENT-NOTES(.*?)-->", re.S)
 
@@ -144,6 +150,7 @@ CONTRACT_TEMPLATE = """{
   "title": "遊戲中文名（全新命名；不可含原作名，不可與原作名音近/形近/直譯）",
   "emoji": "一個代表 emoji",
   "genre": "只能從這個清單挑一個：%s",
+  "render": "2d 或 3d（畫面維度，判斷方式見上方硬上限；沒把握就 2d）",
   "desc": "一句話介紹（30 字內，大廳卡片用）",
   "session_minutes": [3, 8],
   "modules": [
@@ -173,6 +180,8 @@ def build_plan_prompt(decon: dict, past_games: list) -> str:
         "named": "（Boss 點名的靈感）",
         "locked": "（Boss 拍板的骨架鎖定：骨架不可更換，只能在骨架內發揮主題與內容）",
     }.get(decon.get("origin", ""), "")
+    render_note = ("\n🔒 本款指定 render＝3d（Boss 指定做 3D）：把玩法設計成「因為 3D 才更好玩」的版本，"
+                   "理由寫進玩法規格。\n" if decon.get("force_render") == "3d" else "")
     return f"""你是「SlimeCat 遊戲工作室」的首席遊戲策劃。任務：把下面這份解構筆記（或原創企劃）展開成
 一份「可直接分工實作」的企劃書＋模組合約。這款要比本站過去所有作品都更好玩，而且要「做大」：
 單局 3～{CAPS['session_max_min']} 分鐘、有跨局進度（解鎖／升級／圖鑑至少一種），玩家關掉再開會想繼續。
@@ -200,7 +209,11 @@ def build_plan_prompt(decon: dict, past_games: list) -> str:
 - 內容包最多 {CAPS['packs']} 種、每種最多 {CAPS['items']} 筆（合約 count）
 - 引擎不超過 {CAPS['engine_lines']} 行（單檔 HTML 含 CSS/JS）；一般 1,500～2,000 行就夠
 - 單局 3～{CAPS['session_max_min']} 分鐘；跨局進度存 localStorage
-- 手機直式 canvas 400×600，觸控＋鍵盤都能玩；零外部資源；美術完全自由（不必是史萊姆貓）
+- 手機直式 400×600 畫面，觸控＋鍵盤都能玩；零外部資源（唯一例外：站內提供的 three.js）；美術完全自由（不必是史萊姆貓）
+- 畫面維度（合約 render）由你依玩法決定：「2d」＝canvas 2D（預設）；「3d」＝three.js r186（站內提供，只能用核心、
+  不能載入外部模型／貼圖，物件用內建幾何體組）。只有「3D 讓核心玩法更好玩」才選 3d：需要深度、透視、鏡頭或
+  立體空間判斷的玩法（3D 跑酷、賽車、立體堆疊、俯視戰場、立體迷宮）；只為了畫面好看而選 3D 是錯的。
+  選 3d 要在「玩法規格」寫一句理由，並照手機效能設計（同屏物件少、低多邊形、不用即時陰影）{render_note}
 版權紅線：只學機制與心理學、不抄表達——命名、特徵性視覺、具體數值表與關卡佈局都不可與原作相同。
 
 篇幅：寫給工程師看的規格，不是論文；每節講清楚就換下一節（合約另計）。
@@ -242,6 +255,7 @@ PLAN_SCHEMA = {
             "properties": {
                 "title": _STR, "emoji": _STR,
                 "genre": {"type": "string", "enum": list(mg.GENRES)},
+                "render": {"type": "string", "enum": list(RENDERS)},
                 "desc": _STR,
                 "session_minutes": {"type": "array", "items": {"type": "integer"}, "minItems": 2, "maxItems": 2},
                 "modules": {"type": "array", "items": {
@@ -263,7 +277,7 @@ PLAN_SCHEMA = {
                 "acceptance": _STR_LIST,
                 "engine_lines_budget": {"type": "integer"},
             },
-            "required": ["title", "emoji", "genre", "desc", "session_minutes", "modules", "content_packs",
+            "required": ["title", "emoji", "genre", "render", "desc", "session_minutes", "modules", "content_packs",
                          "progress", "acceptance", "engine_lines_budget"],
         },
     },
@@ -303,6 +317,10 @@ def validate_contract(c: dict, decon: dict) -> dict:
     c["genre"] = mg.normalize_genre(c.get("genre") or decon.get("genre"))
     if decon.get("locked_genre"):   # 骨架鎖定（skeleton_lock.json）：類型標籤不准被企劃書改掉
         c["genre"] = decon["locked_genre"]
+    render = str(c.get("render") or "").strip().lower()
+    c["render"] = render if render in RENDERS else "2d"    # 舊合約沒這欄＝2d
+    if decon.get("force_render") in RENDERS:              # make_game_v3.py --render 指定
+        c["render"] = decon["force_render"]
     c["desc"] = str(c.get("desc") or "").strip()[:60]
     sm = c.get("session_minutes")
     if not (isinstance(sm, list) and len(sm) == 2):
@@ -392,7 +410,38 @@ HARD_SPECS = """硬性規格（違反任何一條就算失敗）：
 - 頁面左上角放回大廳連結：<a href="../../index.html">← 回遊戲區</a>
 - 一局結束（Game Over 或通關）時加一行 `if (window.SC) SC.over(最終分數);`（匿名數據回報，SC 由站台注入）"""
 
-CONTENT_MECHANISM = """內容注入機制（合約的核心，違反＝失敗）：
+# 合約 render＝3d 時用這份取代 HARD_SPECS（後半段的標題畫面／存檔／繁中／回大廳／SC.over 與 2D 版相同）
+HARD_SPECS_3D = """硬性規格（3D 版，違反任何一條就算失敗）：
+- 單一 HTML 檔內含全部 CSS/JS；唯一允許的外部資源是站內的 three.js r186，<head> 裡一字不改放這一行：
+  """ + THREE_IMPORTMAP + """
+  主程式寫在 <script type="module"> 裡，用 import * as THREE from 'three'; 載入。不可用 CDN、不可 import
+  three/addons 或任何其他套件；不可載入外部模型、貼圖、字型、音檔——物件用內建幾何體組，要貼圖就用
+  CanvasTexture 自己畫；音效用 WebAudio 合成
+- module 裡的變數不是全域：window.SC_HOOKS 等要給外部讀的東西一律明確掛在 window 上
+- HTML 裡直接寫 <canvas id="view">，three.js 用它：new THREE.WebGLRenderer({canvas: 這個元素, antialias: true})；
+  畫面是 400×600 直式，JS 把整個遊戲區等比縮放到適合視窗；renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+- HUD（分數、按鈕、標題畫面、Game Over）疊在 3D 畫面上：用第二個 2D canvas（實體緩衝 = 400×600 × devicePixelRatio
+  （cap 3），ctx.setTransform(dpr,0,0,dpr,0,0) 讓邏輯座標維持 400×600；不設尺寸會用預設 300×150 被拉長）或絕對定位的 DOM
+- 手機效能：同屏 mesh 盡量 200 個以內、共用 geometry 與 material（大量同款物件用 InstancedMesh）、
+  不用即時陰影與後處理、光源 3 個以內；物件移除時呼叫 geometry.dispose()／material.dispose()
+- 手機觸控與電腦鍵盤都要能玩；canvas 設 touch-action:none 防頁面捲動；點選 3D 物件用 THREE.Raycaster，
+  輸入座標一律用 getBoundingClientRect 換算
+- 主迴圈用 renderer.setAnimationLoop；遊戲邏輯用固定時間步長（fixed timestep accumulator）或 deltaTime，
+  120Hz 螢幕的手機不可變兩倍速；監聽 pointercancel/blur 清掉輸入狀態（防卡鍵/自走）
+- 標題畫面（遊戲名＋一句話規則＋繁中操作說明＋點擊開始）；即時分數；Game Over／通關可一鍵重來
+- localStorage 存最高分與跨局進度（鍵名照合約 progress.storage_key），所有讀寫包 try/catch
+- 介面文字一律繁體中文；程式碼加簡短繁中註解
+- 不可用 alert/confirm/prompt；不可出現 console.error 或未捕捉例外
+- 頁面左上角放回大廳連結：<a href="../../index.html">← 回遊戲區</a>
+- 一局結束（Game Over 或通關）時加一行 `if (window.SC) SC.over(最終分數);`（匿名數據回報，SC 由站台注入）"""
+
+
+def hard_specs_for(contract: dict) -> str:
+    """依合約 render 給引擎對應的硬性規格（3d＝three.js 版，其他一律 2D 版）。"""
+    return HARD_SPECS_3D if (contract or {}).get("render") == "3d" else HARD_SPECS
+
+
+CONTENT_MECHANISM ="""內容注入機制（合約的核心，違反＝失敗）：
 - 引擎不可寫死關卡／波次／升級／圖鑑等內容；一律從 window.SC_CONTENT[內容包 key] 讀
   （值＝物件陣列，欄位照合約 item_schema）
 - 檔案裡放一個 <script id="sc-content">window.SC_CONTENT = {…};</script>，內容＝合約各內容包的 examples
@@ -419,6 +468,8 @@ def build_engine_prompt(plan_doc: str, contract: dict, decon: dict, feedback: st
     kb = mg.KB_FILE.read_text(encoding="utf-8") if mg.KB_FILE.exists() else ""
     fb = (f"\n⚠️ 上一次交稿沒通過，原因如下，請避免同類問題：\n{feedback}\n" if feedback else "")
     line_budget = line_budget or engine_line_budget(contract)
+    art = ("3D 畫面用內建幾何體組出有個性的造型，配色與燈光要有主題感（不可載入外部模型）"
+           if contract.get("render") == "3d" else "canvas 畫或 emoji 皆可")
     return f"""你是「SlimeCat 遊戲工作室」的資深遊戲開發者。策劃已完成企劃書與模組合約，你是引擎的**唯一作者**：
 一次寫完整個單檔 HTML5 遊戲引擎（系統＋畫面＋音效），內容資料由別人照合約另外生成。
 
@@ -432,11 +483,11 @@ def build_engine_prompt(plan_doc: str, contract: dict, decon: dict, feedback: st
 {json.dumps(contract, ensure_ascii=False, indent=1)}
 {fb}
 任務：實作《{contract['title']}》引擎。美術風格完全自由（不必是史萊姆貓）：挑最能放大這個機制的主題與視覺，
-canvas 畫或 emoji 皆可；絕不可用原作（{decon.get('source', '')}）的名稱/角色/美術/音樂。
+{art}；絕不可用原作（{decon.get('source', '')}）的名稱/角色/美術/音樂。
 特別注意：前 15 秒不會死、每個互動都有 juice、Game Over 顯示差 X 分破紀錄、重開一鍵零等待、
 第 3 分鐘要有新的壓力源；跨局進度要讓「第十次玩」跟「第一次玩」明顯不同。
 
-{HARD_SPECS}
+{hard_specs_for(contract)}
 
 {CONTENT_MECHANISM}
 
@@ -910,6 +961,8 @@ def stage_critic(plan_doc: str, contract: dict, html: str, qa_info: dict = None)
 # ================================================================ 打磨（patch）
 def build_polish_prompt(html: str, issues: list, contract: dict) -> str:
     items = "\n".join(f"{i}. {t}" for i, t in enumerate(issues, 1))
+    specs = ("單檔、外部資源只有站內 three.js（importmap 那行與 <script type=\"module\"> 不可改、不可換 CDN）／400×600"
+             if contract.get("render") == "3d" else "單檔零外部資源／canvas 400×600")
     return f"""你是「SlimeCat 遊戲工作室」的資深遊戲開發者。你剛完成的《{contract['title']}》經過評審與整合稽核，
 請針對下面這幾條修訂——**用 patch 交稿，不要重印整檔**。
 
@@ -921,7 +974,7 @@ def build_polish_prompt(html: str, issues: list, contract: dict) -> str:
 
 修訂規則：
 - 只做「修這幾條」需要的改動，改動越小越好；不可重寫成另一款遊戲、不可順手大改其他系統
-- 原本能玩的功能不可弄壞；維持硬性規格（單檔零外部資源／canvas 400×600／fixed timestep／DPR 高解析／
+- 原本能玩的功能不可弄壞；維持硬性規格（{specs}／fixed timestep／DPR 高解析／
   繁中介面／SC.over 回報／localStorage try-catch）
 - <script id="sc-content"> 區塊、window.SC_CONTENT 讀取、window.SC_HOOKS 都不可拆掉
 - 🔴 不要 patch <script id="sc-content"> 那一行（內容包是工廠另外生成的單行 JSON，patch 對不上）：

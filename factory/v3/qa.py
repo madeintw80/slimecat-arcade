@@ -15,7 +15,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent.parent   # factory/
 sys.path.insert(0, str(HERE))
-from validate_game import validate   # noqa: E402
+from validate_game import open_game, validate   # noqa: E402
 
 STRESS_SECS = 12          # 壓力測試亂玩幾秒
 KEYS = ("ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Space", "Enter")
@@ -34,7 +34,7 @@ def stress(html_path: Path, secs: int = STRESS_SECS, seed: int = 7) -> tuple:
         page.on("pageerror", lambda e: errors.append(f"pageerror: {e}"))
         page.on("console",
                 lambda m: errors.append(f"console.error: {m.text}") if m.type == "error" else None)
-        page.goto(html_path.as_uri())
+        open_game(page, html_path)   # 虛擬網址（3D 遊戲的站內 three.js 要靠它才載得到）
         page.wait_for_timeout(1200)
 
         # 內容包有沒有真的載進來（v3 組裝的核心檢查）

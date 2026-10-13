@@ -1,10 +1,18 @@
 # CHECKPOINT
 
-Updated: 2026-10-13 10:40 Asia/Taipei
+Updated: 2026-10-13 19:2x Asia/Taipei
 Task Lead: Batnini
-Status: complete（10/13：10/17 週更骨架鎖定「塔防＋波次」，見下節；9/30：Echo 評審型號 gpt-6.1-sol）；Phase 3 旗艦化待 Boss 開工
+Status: in_progress（10/13 晚：生產線開放 3D＋試產模式已改完並測過，3D 試產跑中，見下節；10/13 早：10/17 週更骨架鎖定「塔防＋波次」）；Phase 3 旗艦化待 Boss 開工
 
-## 2026-10-13 這輪（骨架鎖定；詳見 DECISIONS.md 同日條目）
+## 2026-10-13 晚這輪（3D／three.js＋試產模式；詳見 DECISIONS.md 同日條目）
+
+- Boss 拍板四題：three.js 放站內 `vendor/three/0.186.1/`、2D／3D 由企劃書依玩法判斷、**10/17 就生效**、先試產一款 3D 不上架。
+- 改了：`v3/stages.py`（合約 `render`、企劃 prompt 判斷說明、`HARD_SPECS_3D`、`hard_specs_for()`、打磨 prompt 依 render）、`validate_game.py`（`open_game()` 虛擬網址 `http://localhost:47977`、擋對外請求）、`v3/qa.py`（改用 open_game）、`v3/pipeline.py`（`trial` 模式、`games.json` 記 render）、`make_game_v3.py`（`--render`、`--trial`）、`publish_site.py`（白名單加 `vendor/`）、`fix_game.py`（保留 importmap）、`.gitignore`（`trial/`）；新增 `vendor/three/0.186.1/`（three.module.js、three.core.js、LICENSE）與 `factory/tests/fixture_engine3d.html`（3D 樣本引擎）。
+- 測試：`python factory/tests/test_v3.py` 離線 132 條全綠（新增 10c 節 19 條：render 正規化與強制、PLAN_SCHEMA、vendor 檔案、引擎／打磨／企劃 prompt 分流、白名單、品管真跑 3D 樣本、偷用 CDN 被抓、試產 main 與 pipeline 不碰 games.json）。手動品管：《喵沙橫流》（2D v3）照常通過、3D 樣本通過（r186、0 錯誤）。
+- 進行中：3D 試產 `make_game_v3.py --trial --pick "Helix Jump" --render 3d`（19:2x 開跑），成品會在 `trial/<run_id>/index.html`，Boss 用本機預覽開 `/trial/<run_id>/` 試玩後決定要不要上架。試產撞額度不會排補跑，續跑＝`--resume <run_id> --trial`。
+- 下一步：試產結果落地後更新本節；10/17 週更照常跑（骨架鎖定塔防，企劃書可自選 3D），看 `factory.log` 的合約 render 與品管結果。
+
+## 2026-10-13 早這輪（骨架鎖定；詳見 DECISIONS.md 同日條目）
 
 - Boss「選 A：10/17 鎖定塔防＋波次，允許寫入 SlimeCatArcade 改產線」（gateway job，initiator=grokbot）。新增 `factory/skeleton_lock.json`；`make_game_v3.py` 加 `active_skeleton_lock()`／`skeleton_decon()`，鎖定期間不抓榜不解構；`v3/stages.py` 合約 genre 強制＋企劃 prompt 標「骨架鎖定」。
 - 測試：`python factory/tests/test_v3.py` 離線 113 條全綠（新增 10b 節 8 條，含乾跑 `main()`：fetch_trends／stage_deconstruct 被換成會炸的假函式仍 rc=0、交給生產線的 decon＝塔防）。沒有真跑生產線、沒有改排程、沒有 push。
