@@ -1,8 +1,15 @@
 # CHECKPOINT
 
-Updated: 2026-10-13 20:2x Asia/Taipei
+Updated: 2026-10-14 09:2x Asia/Taipei
 Task Lead: Batnini
-Status: complete（10/13 晚：生產線開放 3D＋試產模式上線，3D 試產《喵穿層連落》完成待 Boss 試玩，見下節；10/13 早：10/17 週更骨架鎖定「塔防＋波次」）；Phase 3 旗艦化待 Boss 開工
+Status: complete（10/14 早：補驗排程直譯器＋骨架鎖定乾跑，見下節；10/13 晚：生產線開放 3D＋試產模式上線，3D 試產《喵穿層連落》完成待 Boss 試玩，見下節；10/13 早：10/17 週更骨架鎖定「塔防＋波次」）；Phase 3 旗艦化待 Boss 開工
+
+## 2026-10-14 早這輪（補驗；gateway job-20261014-091555-1254，initiator=grokbot，任務單 #slimecat-7d27c0f-retest）
+
+- 只驗不改程式。排程 `run_factory.bat` 用的 `pythoncore-3.14-64`（Python 3.14.3）**本來就裝有 requests 2.33.1**，import 成功，沒有 pip 安裝。
+- `python factory/tests/test_v3.py`（用同一個排程直譯器跑）：全部 ✅、「🎉 全部通過」、exit 0。
+- 骨架鎖定乾跑探針（排程直譯器、不帶參數的 `main()`、讀正式 `skeleton_lock.json`、日期凍在 10/17；抓榜／解構換成會炸的假函式，生產線只記錄收到什麼不真跑，`clear_retry` 換成 no-op）：rc=0，log 出「🔒 骨架鎖定：塔防＋波次 → 不抓榜、不解構」，交給生產線的 decon `origin=locked`、`locked_genre=塔防`、publish=True、trial=False。另外實查：今天（10/14）鎖定不生效（正確）、目前沒有續跑指標（10/17 不會先去續跑舊 run）。
+- 未追蹤的 `factory/knowledge/deconstructions/2026-10-13-Helix_Jump.*` 是 10/13 3D 試產點名解構的正常產物（見下節），這輪沒動。
 
 ## 2026-10-13 晚這輪（3D／three.js＋試產模式；詳見 DECISIONS.md 同日條目）
 
