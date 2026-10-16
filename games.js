@@ -1810,5 +1810,25 @@ const GAMES = [
     "reviewer": "echo:gpt-6.1-sol",
     "howto": "拖砂塊補同色缺口，下滑落砂，連通左右牆就沖走。",
     "polished": "同色分離區誤消除：當某色有兩個互不相連的左牆區域，其中一個貫通右牆，detect；每日未達標翻倒仍算完成：開每日後低分結束即可觸發；end() 的 if(R.tr；形狀包規則『每階最多新增 2 型』不成立：tier 3 有 sh_zig、sh_"
+  },
+  {
+    "id": "2026-10-17-001",
+    "title": "喵窟擋十波",
+    "emoji": "🏰",
+    "genre": "塔防",
+    "date": "2026-10-17",
+    "desc": "選卡放貓塔擋住 10 波毛線怪，別讓貓窟被攻破，再闖無限波！",
+    "pipeline": "v3",
+    "packs": {
+      "towers": 6,
+      "enemies": 7,
+      "waves": 14,
+      "maps": 4
+    },
+    "render": "2d",
+    "ai_score": 33,
+    "reviewer": "echo:gpt-6.1-sol",
+    "howto": "選貓塔點路旁空格，升級火力守住十波。",
+    "polished": "全新存檔通關第一圖後，第二圖及後續地圖永久無法解鎖：totalStars只加每圖；首次照示意點彈珠喵卡再點空格，無法放塔：startRun已令R.sel指向unl；地圖星等規則要求star2、star3分別高於最低通關分300、750，但固定敵"
   }
 ];
