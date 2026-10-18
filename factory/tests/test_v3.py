@@ -520,6 +520,20 @@ check("骨架鎖定：解構筆記含三條核心規則",
 _c = stages.validate_contract(dict(SAMPLE_OUT["contract"], genre="消除"), _lk)
 check("骨架鎖定：合約 genre 被強制成塔防", _c["genre"] == "塔防", _c["genre"])
 check("骨架鎖定：企劃 prompt 帶鎖定說明", "骨架鎖定" in stages.build_plan_prompt(_lk, []))
+# 2026-10-18：10/24 鎖定經營＋班次（正式設定檔）
+_al = make_game_v3.active_skeleton_lock
+check("骨架鎖定：正式設定檔 10/24 是經營＋班次", _al(_dt.date(2026, 10, 24)).get("skeleton") == "經營＋班次")
+check("骨架鎖定：10/24 寬限到 10/26，10/20～10/23、10/27 不鎖",
+      _al(_dt.date(2026, 10, 26)).get("genre") == "經營"
+      and not any(_al(_dt.date(2026, 10, d)) for d in (20, 21, 22, 23, 27)))
+_lk2 = make_game_v3.skeleton_decon(_al(_dt.date(2026, 10, 24)))
+check("骨架鎖定：10/24 筆記寫明常駐可見進度／短決策／會失敗",
+      all(k in _lk2["doc"] for k in ("常駐可見進度", "短決策", "會失敗")) and _lk2["origin"] == "locked")
+check("骨架鎖定：10/24 筆記核心迴圈是班次、不再寫死放塔",
+      "班" in _lk2["doc"] and "放塔擋波次" not in _lk2["doc"] and _lk2["locked_genre"] == "經營", _lk2["doc"][:120])
+check("骨架鎖定：10/24 合約 genre 被強制成經營",
+      stages.validate_contract(dict(SAMPLE_OUT["contract"], genre="塔防"), _lk2)["genre"] == "經營")
+check("骨架鎖定：舊塔防鎖定沒寫 core_loop 仍用放塔擋波次", "放塔擋波次" in _lk["doc"])
 
 # 乾跑 main()：鎖定生效時不抓榜、不解構，直接把鎖定筆記交給生產線
 _orig = (make_game_v3.fetch_trends.fetch, make_game_v3.mg.stage_deconstruct, make_game_v3.pipeline.produce_v3,
@@ -532,14 +546,18 @@ try:
     make_game_v3.fetch_trends.fetch = _boom
     make_game_v3.mg.stage_deconstruct = _boom
     make_game_v3.pipeline.produce_v3 = lambda decon, publish=True, run=None, **k: _seen.update(decon=decon) or 0
-    make_game_v3.active_skeleton_lock = lambda: _orig[3](_dt.date(2026, 10, 17))
     make_game_v3.Run.pending_resume = staticmethod(lambda: "")
     make_game_v3.mg.log = lambda *a, **k: None
     make_game_v3.mg.clear_retry = lambda *a, **k: None
     sys.argv = ["make_game_v3.py"]
-    rc = make_game_v3.main()
-    check("乾跑 10/17 週更：不抓榜、骨架＝塔防", rc == 0 and _seen.get("decon", {}).get("locked_genre") == "塔防",
-          str(_seen.get("decon", {}).get("source")))
+    for _day, _genre in ((17, "塔防"), (24, "經營")):   # 讀正式 skeleton_lock.json，日期凍在週更當天
+        _seen.clear()
+        make_game_v3.active_skeleton_lock = lambda _d=_day: _orig[3](_dt.date(2026, 10, _d))
+        rc = make_game_v3.main()
+        check(f"乾跑 10/{_day} 週更：不抓榜、不解構、骨架＝{_genre}",
+              rc == 0 and _seen.get("decon", {}).get("locked_genre") == _genre
+              and _seen.get("decon", {}).get("origin") == "locked",
+              str(_seen.get("decon", {}).get("source")))
 finally:
     (make_game_v3.fetch_trends.fetch, make_game_v3.mg.stage_deconstruct, make_game_v3.pipeline.produce_v3,
      make_game_v3.active_skeleton_lock, _pr, make_game_v3.mg.log, make_game_v3.mg.clear_retry, sys.argv) = _orig

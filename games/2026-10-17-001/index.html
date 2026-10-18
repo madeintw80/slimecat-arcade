@@ -52,13 +52,15 @@ html,body{margin:0;height:100%;background:#120c20;overflow:hidden;-webkit-user-s
 <body>
 <a id="back" href="../../index.html">← 回遊戲區</a>
 <div id="wrap"><canvas id="cv" width="400" height="600"></canvas></div>
-<script id="sc-content">window.SC_CONTENT = {"towers": [{"id": "marble_cat", "name": "彈珠喵", "emoji": "🐱", "type": "single", "unlockWave": 0, "cost": 40, "upgradeCost": [35, 60], "levels": [{"range": 90, "dmg": 6, "rate": 2, "aux": {}}, {"range": 100, "dmg": 9, "rate": 2.2, "aux": {}}, {"range": 110, "dmg": 14, "rate": 2.5, "aux": {}}], "desc": "彈珠一發 ${dmg} 傷害，射程 ${range}，每秒 ${rate} 發", "color": "#ffb347"}, {"id": "mist_cat", "name": "噴霧喵", "emoji": "😾", "type": "slow", "unlockWave": 3, "cost": 60, "upgradeCost": [45, 75], "levels": [{"range": 70, "dmg": 2, "rate": 0.8, "aux": {"slow": 0.4, "slowDur": 1.5}}, {"range": 80, "dmg": 3, "rate": 0.9, "aux": {"slow": 0.5, "slowDur": 1.8}}, {"range": 90, "dmg": 5, "rate": 1, "aux": {"slow": 0.6, "slowDur": 2.2}}], "desc": "每 ${period} 秒噴一圈霧，範圍 ${range} 內的怪減速 ${slow}% 持續 ${slowDur} 秒，一次 ${dmg} 傷害（飛行免疫）", "color": "#7fd8ff"}, {"id": "popcorn_cat", "name": "爆米喵", "emoji": "🍿", "type": "splash", "unlockWave": 4, "cost": 80, "upgradeCost": [70, 100], "levels": [{"range": 110, "dmg": 10, "rate": 0.7, "aux": {"splash": 40}}, {"range": 120, "dmg": 15, "rate": 0.8, "aux": {"splash": 50}}, {"range": 130, "dmg": 22, "rate": 0.9, "aux": {"splash": 60}}], "desc": "拋出爆米花，落地炸開半徑 ${splash} 內的地面怪各受 ${dmg} 傷害，射程 ${range}，每 ${period} 秒一發（飛行免疫）", "color": "#ffe08a"}, {"id": "fortune_cat", "name": "招財喵", "emoji": "💰", "type": "income", "unlockWave": 4, "cost": 70, "upgradeCost": [60, 100], "levels": [{"range": 50, "dmg": 0, "rate": 0.3, "aux": {"income": 3}}, {"range": 60, "dmg": 0, "rate": 0.3, "aux": {"income": 5}}, {"range": 70, "dmg": 0, "rate": 0.3, "aux": {"income": 8}}], "desc": "不攻擊，只管招財：定時產出 ${income} 魚乾，越早放越賺", "color": "#f2c94c"}, {"id": "whisker_cat", "name": "雷鬚喵", "emoji": "⚡", "type": "chain", "unlockWave": 5, "cost": 100, "upgradeCost": [90, 130], "levels": [{"range": 80, "dmg": 8, "rate": 1, "aux": {"chain": 3}}, {"range": 90, "dmg": 12, "rate": 1.1, "aux": {"chain": 4}}, {"range": 100, "dmg": 18, "rate": 1.2, "aux": {"chain": 5}}], "desc": "鬍鬚放電 ${dmg} 傷害，最多連鎖 ${chain} 跳，射程 ${range}，每秒 ${rate} 發，可打飛行", "color": "#b388ff"}, {"id": "longshot_cat", "name": "遠射喵", "emoji": "🎯", "type": "sniper", "unlockWave": 6, "cost": 120, "upgradeCost": [100, 150], "levels": [{"range": 160, "dmg": 20, "rate": 0.5, "aux": {"pierce": true}}, {"range": 170, "dmg": 30, "rate": 0.55, "aux": {"pierce": true}}, {"range": 180, "dmg": 45, "rate": 0.6, "aux": {"pierce": true}}], "desc": "瞬間命中 ${dmg} 傷害並無視盾牌，射程 ${range}，每 ${period} 秒一發", "color": "#ff6b6b"}], "enemies": [{"id": "yarn_ball", "name": "線球怪", "emoji": "🧶", "hp": 12, "speed": 50, "dmg": 1, "bounty": 3, "score": 5, "flying": false, "shield": 0, "shieldRegen": 0, "splitInto": "", "splitCount": 0, "introWave": 1, "intro": "沿路滾向貓窟", "size": 12, "color": "#e08bd0"}, {"id": "shuttle_moth", "name": "飛梭蛾", "emoji": "🦋", "hp": 8, "speed": 95, "dmg": 1, "bounty": 3, "score": 8, "flying": true, "shield": 0, "shieldRegen": 0, "splitInto": "", "splitCount": 0, "introWave": 2, "intro": "飛得快，霧圈沒用", "size": 10, "color": "#7fd6e8"}, {"id": "felt_giant", "name": "毛氈巨怪", "emoji": "🐻", "hp": 90, "speed": 32, "dmg": 3, "bounty": 22, "score": 60, "flying": false, "shield": 0, "shieldRegen": 0, "splitInto": "", "splitCount": 0, "introWave": 4, "intro": "又厚又慢，漏掉扣三命", "size": 20, "color": "#9b7b5a"}, {"id": "split_thread", "name": "分線怪", "emoji": "🪢", "hp": 24, "speed": 55, "dmg": 1, "bounty": 3, "score": 15, "flying": false, "shield": 0, "shieldRegen": 0, "splitInto": "loose_thread", "splitCount": 2, "introWave": 5, "intro": "死後會散成線頭", "size": 14, "color": "#6fbf73"}, {"id": "button_shield", "name": "鈕扣盾怪", "emoji": "🛡️", "hp": 30, "speed": 40, "dmg": 2, "bounty": 9, "score": 30, "flying": false, "shield": 1, "shieldRegen": 3, "splitInto": "", "splitCount": 0, "introWave": 6, "intro": "要先敲掉盾", "size": 15, "color": "#c9a24d"}, {"id": "loose_thread", "name": "小線頭", "emoji": "🧵", "hp": 8, "speed": 70, "dmg": 1, "bounty": 3, "score": 6, "flying": false, "shield": 0, "shieldRegen": 0, "splitInto": "", "splitCount": 0, "introWave": 7, "intro": "分線怪散出的線頭", "size": 10, "color": "#a8e0a0"}, {"id": "needle_king", "name": "織針王", "emoji": "🪡", "hp": 600, "speed": 22, "dmg": 10, "bounty": 60, "score": 500, "flying": false, "shield": 0, "shieldRegen": 0, "splitInto": "", "splitCount": 0, "introWave": 10, "intro": "漏掉牠就輸了", "size": 24, "color": "#d94f4f"}], "waves": [{"id": "w01", "index": 1, "name": "線球雨", "groups": [{"enemy": "yarn_ball", "count": 10, "interval": 1.2, "delay": 0}], "reward": 60, "gapAfter": 8, "hpMul": 1, "note": "線球怪滾來了"}, {"id": "w02", "index": 2, "name": "滾滾洪流", "groups": [{"enemy": "yarn_ball", "count": 14, "interval": 1.1, "delay": 0}], "reward": 55, "gapAfter": 9, "hpMul": 1, "note": "球球變多了"}, {"id": "w03", "index": 3, "name": "前後夾擊", "groups": [{"enemy": "yarn_ball", "count": 10, "interval": 1.3, "delay": 0}, {"enemy": "yarn_ball", "count": 8, "interval": 1.5, "delay": 9}], "reward": 65, "gapAfter": 9, "hpMul": 1, "note": "兩串線球接力"}, {"id": "w04", "index": 4, "name": "毛氈巨怪駕到", "groups": [{"enemy": "yarn_ball", "count": 18, "interval": 1.1, "delay": 0}, {"enemy": "felt_giant", "count": 4, "interval": 4.5, "delay": 8}], "reward": 75, "gapAfter": 9, "hpMul": 1.05, "note": "大傢伙很耐打"}, {"id": "w05", "index": 5, "name": "線頭暴走", "groups": [{"enemy": "yarn_ball", "count": 20, "interval": 1.3, "delay": 0}, {"enemy": "felt_giant", "count": 6, "interval": 4, "delay": 8}], "reward": 85, "gapAfter": 10, "hpMul": 1, "note": "經濟還是火力？"}, {"id": "w06", "index": 6, "name": "鈕扣列隊", "groups": [{"enemy": "yarn_ball", "count": 14, "interval": 1.4, "delay": 0}, {"enemy": "button_shield", "count": 8, "interval": 2.5, "delay": 12}, {"enemy": "felt_giant", "count": 4, "interval": 3, "delay": 22}], "reward": 70, "gapAfter": 12, "hpMul": 1.1, "note": "盾怪要先敲盾"}, {"id": "w07", "index": 7, "name": "厚毛氈攻勢", "groups": [{"enemy": "yarn_ball", "count": 12, "interval": 1.5, "delay": 0}, {"enemy": "felt_giant", "count": 6, "interval": 3.5, "delay": 6}, {"enemy": "button_shield", "count": 8, "interval": 2.2, "delay": 16}], "reward": 70, "gapAfter": 12, "hpMul": 1.15, "note": "巨怪開路盾怪壓陣"}, {"id": "w08", "index": 8, "name": "盾牆先行", "groups": [{"enemy": "button_shield", "count": 10, "interval": 2.4, "delay": 0}, {"enemy": "yarn_ball", "count": 12, "interval": 1, "delay": 14}, {"enemy": "felt_giant", "count": 4, "interval": 3.5, "delay": 24}], "reward": 70, "gapAfter": 10, "hpMul": 1.3, "note": "火力別分散"}, {"id": "w09", "index": 9, "name": "百怪針線盒", "groups": [{"enemy": "yarn_ball", "count": 14, "interval": 1.2, "delay": 0}, {"enemy": "button_shield", "count": 6, "interval": 2.6, "delay": 8}, {"enemy": "felt_giant", "count": 6, "interval": 3, "delay": 16}], "reward": 70, "gapAfter": 12, "hpMul": 1.2, "note": "全員到齊"}, {"id": "w10", "index": 10, "name": "織針王降臨", "groups": [{"enemy": "needle_king", "count": 1, "interval": 1, "delay": 0}, {"enemy": "yarn_ball", "count": 14, "interval": 1.8, "delay": 6}], "reward": 70, "gapAfter": 12, "hpMul": 1.5, "note": "王半血會加速"}, {"id": "e11", "index": 11, "name": "無盡線團潮", "groups": [{"enemy": "yarn_ball", "count": 16, "interval": 1, "delay": 0}, {"enemy": "felt_giant", "count": 5, "interval": 3.5, "delay": 8}, {"enemy": "button_shield", "count": 6, "interval": 2.5, "delay": 18}], "reward": 70, "gapAfter": 9, "hpMul": 1, "note": "線團永不停"}, {"id": "e12", "index": 12, "name": "鈕扣風暴", "groups": [{"enemy": "button_shield", "count": 10, "interval": 2, "delay": 0}, {"enemy": "yarn_ball", "count": 14, "interval": 1.1, "delay": 10}], "reward": 70, "gapAfter": 8, "hpMul": 1.05, "note": "盾牌滿天飛"}, {"id": "e13", "index": 13, "name": "巨怪行軍", "groups": [{"enemy": "felt_giant", "count": 8, "interval": 3, "delay": 0}, {"enemy": "yarn_ball", "count": 18, "interval": 0.9, "delay": 6}, {"enemy": "button_shield", "count": 6, "interval": 2.4, "delay": 16}], "reward": 70, "gapAfter": 9, "hpMul": 1.1, "note": "地面震動中"}, {"id": "e14", "index": 14, "name": "針線大亂鬥", "groups": [{"enemy": "yarn_ball", "count": 20, "interval": 0.8, "delay": 0}, {"enemy": "button_shield", "count": 8, "interval": 2.2, "delay": 8}, {"enemy": "felt_giant", "count": 6, "interval": 3, "delay": 14}], "reward": 70, "gapAfter": 8, "hpMul": 1.15, "note": "撐住就是贏"}], "maps": [{"id": "attic_loop", "name": "毛線閣樓", "unlockStars": 0, "paths": [{"cells": [[0, 1], [6, 1], [6, 4], [1, 4], [1, 7], [8, 7], [8, 10]], "fromWave": 1}], "blocked": [[9, 0], [0, 10]], "startFish": 100, "lives": 10, "hpMul": 1, "star2": 4000, "star3": 4450, "theme": "#2b2440", "note": "最長的一條路，練手用"}, {"id": "sewing_yard", "name": "縫紉後院", "unlockStars": 4, "paths": [{"cells": [[0, 1], [8, 1], [8, 4], [2, 4], [2, 8], [5, 8], [5, 10]], "fromWave": 1}, {"cells": [[9, 0], [9, 6], [6, 6], [6, 8], [5, 8]], "fromWave": 8}], "blocked": [[0, 0], [1, 0], [0, 9], [9, 10], [3, 6]], "startFish": 110, "lives": 10, "hpMul": 1.15, "star2": 4350, "star3": 4800, "theme": "#1f3a2e", "note": "第 8 波會開第二條路"}, {"id": "button_cellar", "name": "鈕扣地窖", "unlockStars": 8, "paths": [{"cells": [[0, 0], [3, 0], [3, 3], [8, 3], [8, 6], [3, 6], [3, 9], [5, 9], [5, 10]], "fromWave": 1}, {"cells": [[9, 0], [9, 8], [6, 8], [6, 9], [5, 9]], "fromWave": 8}], "blocked": [[1, 2], [5, 1], [6, 4], [4, 5], [6, 7], [1, 8], [7, 9], [0, 5]], "startFish": 120, "lives": 10, "hpMul": 1.3, "star2": 4700, "star3": 5150, "theme": "#3a2a1f", "note": "盾怪愛走的陰暗地窖"}, {"id": "needle_peak", "name": "織針絕頂", "unlockStars": 12, "paths": [{"cells": [[0, 2], [7, 2], [7, 5], [2, 5], [2, 8], [6, 8], [6, 10]], "fromWave": 1}, {"cells": [[9, 0], [9, 9], [6, 9]], "fromWave": 8}], "blocked": [[0, 0], [1, 0], [0, 1], [3, 3], [5, 3], [4, 3], [4, 6], [4, 7], [8, 4], [8, 6], [0, 9], [1, 10]], "startFish": 90, "lives": 10, "hpMul": 1.5, "star2": 5050, "star3": 5500, "theme": "#40202e", "note": "最短的路，空地最少"}]};</script>
+<script id="sc-content">window.SC_CONTENT = {"towers": [{"id": "marble_cat", "name": "彈珠喵", "emoji": "🐱", "type": "single", "unlockWave": 0, "cost": 40, "upgradeCost": [35, 60], "levels": [{"range": 90, "dmg": 6, "rate": 2, "aux": {}}, {"range": 100, "dmg": 9, "rate": 2.2, "aux": {}}, {"range": 110, "dmg": 14, "rate": 2.5, "aux": {}}], "desc": "彈珠一發 ${dmg} 傷害，射程 ${range}，每秒 ${rate} 發", "color": "#ffb347"}, {"id": "mist_cat", "name": "噴霧喵", "emoji": "😾", "type": "slow", "unlockWave": 3, "cost": 60, "upgradeCost": [45, 75], "levels": [{"range": 70, "dmg": 2, "rate": 0.8, "aux": {"slow": 0.4, "slowDur": 1.5}}, {"range": 80, "dmg": 3, "rate": 0.9, "aux": {"slow": 0.5, "slowDur": 1.8}}, {"range": 90, "dmg": 5, "rate": 1, "aux": {"slow": 0.6, "slowDur": 2.2}}], "desc": "每 ${period} 秒噴一圈霧，範圍 ${range} 內的怪減速 ${slow}% 持續 ${slowDur} 秒，一次 ${dmg} 傷害（飛行免疫）", "color": "#7fd8ff"}, {"id": "popcorn_cat", "name": "爆米喵", "emoji": "🍿", "type": "splash", "unlockWave": 4, "cost": 80, "upgradeCost": [70, 100], "levels": [{"range": 110, "dmg": 10, "rate": 0.7, "aux": {"splash": 40}}, {"range": 120, "dmg": 15, "rate": 0.8, "aux": {"splash": 50}}, {"range": 130, "dmg": 22, "rate": 0.9, "aux": {"splash": 60}}], "desc": "拋出爆米花，落地炸開半徑 ${splash} 內的地面怪各受 ${dmg} 傷害，射程 ${range}，每 ${period} 秒一發（飛行免疫）", "color": "#ffe08a"}, {"id": "fortune_cat", "name": "招財喵", "emoji": "💰", "type": "income", "unlockWave": 4, "cost": 70, "upgradeCost": [60, 100], "levels": [{"range": 50, "dmg": 0, "rate": 0.3, "aux": {"income": 3}}, {"range": 60, "dmg": 0, "rate": 0.3, "aux": {"income": 5}}, {"range": 70, "dmg": 0, "rate": 0.3, "aux": {"income": 8}}], "desc": "不攻擊，只管招財：定時產出 ${income} 魚乾，越早放越賺", "color": "#f2c94c"}, {"id": "whisker_cat", "name": "雷鬚喵", "emoji": "⚡", "type": "chain", "unlockWave": 5, "cost": 100, "upgradeCost": [90, 130], "levels": [{"range": 80, "dmg": 8, "rate": 1, "aux": {"chain": 3}}, {"range": 90, "dmg": 12, "rate": 1.1, "aux": {"chain": 4}}, {"range": 100, "dmg": 18, "rate": 1.2, "aux": {"chain": 5}}], "desc": "鬍鬚放電 ${dmg} 傷害，最多連鎖 ${chain} 跳，射程 ${range}，每秒 ${rate} 發，可打飛行", "color": "#b388ff"}, {"id": "longshot_cat", "name": "遠射喵", "emoji": "🎯", "type": "sniper", "unlockWave": 6, "cost": 120, "upgradeCost": [100, 150], "levels": [{"range": 160, "dmg": 20, "rate": 0.5, "aux": {"pierce": true}}, {"range": 170, "dmg": 30, "rate": 0.55, "aux": {"pierce": true}}, {"range": 180, "dmg": 45, "rate": 0.6, "aux": {"pierce": true}}], "desc": "瞬間命中 ${dmg} 傷害並無視盾牌，射程 ${range}，每 ${period} 秒一發", "color": "#ff6b6b"}], "enemies": [{"id": "yarn_ball", "name": "線球怪", "emoji": "🧶", "hp": 12, "speed": 50, "dmg": 1, "bounty": 3, "score": 5, "flying": false, "shield": 0, "shieldRegen": 0, "splitInto": "", "splitCount": 0, "introWave": 1, "intro": "沿路滾向貓窟", "size": 12, "color": "#e08bd0"}, {"id": "shuttle_moth", "name": "飛梭蛾", "emoji": "🦋", "hp": 8, "speed": 95, "dmg": 1, "bounty": 3, "score": 8, "flying": true, "shield": 0, "shieldRegen": 0, "splitInto": "", "splitCount": 0, "introWave": 2, "intro": "飛得快，霧圈沒用", "size": 10, "color": "#7fd6e8"}, {"id": "felt_giant", "name": "毛氈巨怪", "emoji": "🐻", "hp": 90, "speed": 32, "dmg": 3, "bounty": 22, "score": 60, "flying": false, "shield": 0, "shieldRegen": 0, "splitInto": "", "splitCount": 0, "introWave": 4, "intro": "又厚又慢，漏掉扣三命", "size": 20, "color": "#9b7b5a"}, {"id": "split_thread", "name": "分線怪", "emoji": "🪢", "hp": 24, "speed": 55, "dmg": 1, "bounty": 3, "score": 15, "flying": false, "shield": 0, "shieldRegen": 0, "splitInto": "loose_thread", "splitCount": 2, "introWave": 5, "intro": "死後會散成線頭", "size": 14, "color": "#6fbf73"}, {"id": "button_shield", "name": "鈕扣盾怪", "emoji": "🛡️", "hp": 30, "speed": 40, "dmg": 2, "bounty": 9, "score": 30, "flying": false, "shield": 1, "shieldRegen": 3, "splitInto": "", "splitCount": 0, "introWave": 6, "intro": "要先敲掉盾", "size": 15, "color": "#c9a24d"}, {"id": "loose_thread", "name": "小線頭", "emoji": "🧵", "hp": 8, "speed": 70, "dmg": 1, "bounty": 3, "score": 6, "flying": false, "shield": 0, "shieldRegen": 0, "splitInto": "", "splitCount": 0, "introWave": 5, "intro": "分線怪散出的線頭", "size": 10, "color": "#a8e0a0"}, {"id": "needle_king", "name": "織針王", "emoji": "🪡", "hp": 600, "speed": 22, "dmg": 10, "bounty": 60, "score": 500, "flying": false, "shield": 0, "shieldRegen": 0, "splitInto": "", "splitCount": 0, "introWave": 10, "intro": "漏掉牠就輸了", "size": 24, "color": "#d94f4f"}], "waves": [{"id": "w01", "index": 1, "name": "線球雨", "groups": [{"enemy": "yarn_ball", "count": 10, "interval": 1.2, "delay": 0}], "reward": 60, "gapAfter": 8, "hpMul": 1, "note": "線球怪滾來了"}, {"id": "w02", "index": 2, "name": "滾滾洪流", "groups": [{"enemy": "yarn_ball", "count": 10, "interval": 1.2, "delay": 0}, {"enemy": "shuttle_moth", "count": 5, "interval": 1.6, "delay": 6}], "reward": 55, "gapAfter": 9, "hpMul": 1, "note": "快蛾飛來了"}, {"id": "w03", "index": 3, "name": "前後夾擊", "groups": [{"enemy": "yarn_ball", "count": 10, "interval": 1.3, "delay": 0}, {"enemy": "yarn_ball", "count": 8, "interval": 1.5, "delay": 9}], "reward": 65, "gapAfter": 9, "hpMul": 1, "note": "兩串線球接力"}, {"id": "w04", "index": 4, "name": "毛氈巨怪駕到", "groups": [{"enemy": "yarn_ball", "count": 18, "interval": 1.1, "delay": 0}, {"enemy": "felt_giant", "count": 4, "interval": 4.5, "delay": 8}], "reward": 75, "gapAfter": 9, "hpMul": 1.05, "note": "大傢伙很耐打"}, {"id": "w05", "index": 5, "name": "線頭暴走", "groups": [{"enemy": "yarn_ball", "count": 12, "interval": 1.3, "delay": 0}, {"enemy": "split_thread", "count": 8, "interval": 2.2, "delay": 4}, {"enemy": "felt_giant", "count": 4, "interval": 4, "delay": 14}], "reward": 85, "gapAfter": 10, "hpMul": 1, "note": "分線怪會分裂"}, {"id": "w06", "index": 6, "name": "鈕扣列隊", "groups": [{"enemy": "yarn_ball", "count": 14, "interval": 1.4, "delay": 0}, {"enemy": "button_shield", "count": 8, "interval": 2.5, "delay": 12}, {"enemy": "felt_giant", "count": 4, "interval": 3, "delay": 22}], "reward": 70, "gapAfter": 12, "hpMul": 1.1, "note": "盾怪要先敲盾"}, {"id": "w07", "index": 7, "name": "厚毛氈攻勢", "groups": [{"enemy": "yarn_ball", "count": 12, "interval": 1.5, "delay": 0}, {"enemy": "felt_giant", "count": 6, "interval": 3.5, "delay": 6}, {"enemy": "button_shield", "count": 8, "interval": 2.2, "delay": 16}, {"enemy": "loose_thread", "count": 10, "interval": 0.6, "delay": 24}], "reward": 70, "gapAfter": 12, "hpMul": 1.15, "note": "線頭群收尾"}, {"id": "w08", "index": 8, "name": "盾牆先行", "groups": [{"enemy": "button_shield", "count": 10, "interval": 2.4, "delay": 0}, {"enemy": "yarn_ball", "count": 12, "interval": 1, "delay": 14}, {"enemy": "felt_giant", "count": 4, "interval": 3.5, "delay": 24}, {"enemy": "shuttle_moth", "count": 6, "interval": 1.2, "delay": 8}], "reward": 70, "gapAfter": 10, "hpMul": 1.3, "note": "火力別分散"}, {"id": "w09", "index": 9, "name": "百怪針線盒", "groups": [{"enemy": "yarn_ball", "count": 10, "interval": 1.2, "delay": 0}, {"enemy": "split_thread", "count": 4, "interval": 2.5, "delay": 4}, {"enemy": "button_shield", "count": 6, "interval": 2.6, "delay": 8}, {"enemy": "felt_giant", "count": 5, "interval": 3, "delay": 16}, {"enemy": "shuttle_moth", "count": 6, "interval": 1, "delay": 20}, {"enemy": "loose_thread", "count": 8, "interval": 0.6, "delay": 28}], "reward": 70, "gapAfter": 12, "hpMul": 1.2, "note": "全員到齊"}, {"id": "w10", "index": 10, "name": "織針王降臨", "groups": [{"enemy": "needle_king", "count": 1, "interval": 1, "delay": 0}, {"enemy": "yarn_ball", "count": 14, "interval": 1.8, "delay": 6}, {"enemy": "shuttle_moth", "count": 6, "interval": 1.2, "delay": 14}], "reward": 70, "gapAfter": 12, "hpMul": 1.5, "note": "王半血會加速"}, {"id": "e11", "index": 11, "name": "無盡線團潮", "groups": [{"enemy": "yarn_ball", "count": 16, "interval": 1, "delay": 0}, {"enemy": "felt_giant", "count": 5, "interval": 3.5, "delay": 8}, {"enemy": "button_shield", "count": 6, "interval": 2.5, "delay": 18}, {"enemy": "split_thread", "count": 5, "interval": 2.2, "delay": 12}], "reward": 70, "gapAfter": 9, "hpMul": 1, "note": "線團永不停"}, {"id": "e12", "index": 12, "name": "鈕扣風暴", "groups": [{"enemy": "button_shield", "count": 10, "interval": 2, "delay": 0}, {"enemy": "yarn_ball", "count": 14, "interval": 1.1, "delay": 10}, {"enemy": "shuttle_moth", "count": 8, "interval": 1, "delay": 5}], "reward": 70, "gapAfter": 8, "hpMul": 1.05, "note": "盾牌滿天飛"}, {"id": "e13", "index": 13, "name": "巨怪行軍", "groups": [{"enemy": "felt_giant", "count": 8, "interval": 3, "delay": 0}, {"enemy": "yarn_ball", "count": 18, "interval": 0.9, "delay": 6}, {"enemy": "button_shield", "count": 6, "interval": 2.4, "delay": 16}, {"enemy": "loose_thread", "count": 12, "interval": 0.5, "delay": 20}], "reward": 70, "gapAfter": 9, "hpMul": 1.1, "note": "地面震動中"}, {"id": "e14", "index": 14, "name": "針線大亂鬥", "groups": [{"enemy": "yarn_ball", "count": 20, "interval": 0.8, "delay": 0}, {"enemy": "button_shield", "count": 8, "interval": 2.2, "delay": 8}, {"enemy": "felt_giant", "count": 6, "interval": 3, "delay": 14}, {"enemy": "split_thread", "count": 5, "interval": 2, "delay": 10}, {"enemy": "shuttle_moth", "count": 8, "interval": 0.9, "delay": 18}], "reward": 70, "gapAfter": 8, "hpMul": 1.15, "note": "撐住就是贏"}], "maps": [{"id": "attic_loop", "name": "毛線閣樓", "unlockStars": 0, "paths": [{"cells": [[0, 1], [6, 1], [6, 4], [1, 4], [1, 7], [8, 7], [8, 10]], "fromWave": 1}], "blocked": [[9, 0], [0, 10]], "startFish": 100, "lives": 10, "hpMul": 1, "star2": 4000, "star3": 4450, "theme": "#2b2440", "note": "最長的一條路，練手用"}, {"id": "sewing_yard", "name": "縫紉後院", "unlockStars": 4, "paths": [{"cells": [[0, 1], [8, 1], [8, 4], [2, 4], [2, 8], [5, 8], [5, 10]], "fromWave": 1}, {"cells": [[9, 0], [9, 6], [6, 6], [6, 8], [5, 8]], "fromWave": 8}], "blocked": [[0, 0], [1, 0], [0, 9], [9, 10], [3, 6]], "startFish": 110, "lives": 10, "hpMul": 1.15, "star2": 4350, "star3": 4800, "theme": "#1f3a2e", "note": "第 8 波會開第二條路"}, {"id": "button_cellar", "name": "鈕扣地窖", "unlockStars": 8, "paths": [{"cells": [[0, 0], [3, 0], [3, 3], [8, 3], [8, 6], [3, 6], [3, 9], [5, 9], [5, 10]], "fromWave": 1}, {"cells": [[9, 0], [9, 8], [6, 8], [6, 9], [5, 9]], "fromWave": 8}], "blocked": [[1, 2], [5, 1], [6, 4], [4, 5], [6, 7], [1, 8], [7, 9], [0, 5]], "startFish": 120, "lives": 10, "hpMul": 1.3, "star2": 4700, "star3": 5150, "theme": "#3a2a1f", "note": "盾怪愛走的陰暗地窖"}, {"id": "needle_peak", "name": "織針絕頂", "unlockStars": 12, "paths": [{"cells": [[0, 2], [7, 2], [7, 5], [2, 5], [2, 8], [6, 8], [6, 10]], "fromWave": 1}, {"cells": [[9, 0], [9, 9], [6, 9]], "fromWave": 8}], "blocked": [[0, 0], [1, 0], [0, 1], [3, 3], [5, 3], [4, 3], [4, 6], [4, 7], [8, 4], [8, 6], [0, 9], [1, 10]], "startFish": 90, "lives": 10, "hpMul": 1.5, "star2": 5050, "star3": 5500, "theme": "#40202e", "note": "最短的路，空地最少"}]};</script>
 <script>
 (function(){
 'use strict';
 // ===== 常數與工具 =====
 const W=400,H=600,CELL=40,COLS=10,ROWS=11,MAP_Y=60,STEP=1/60,FIRST_WAVE=15,KEY='sc_meowhole_td_v1';
 const BOSS_ACCEL=1.4,CHAIN_JUMP=80,SELL_RATE=0.7,INCOME_PERIOD=5,LIFE_BONUS=20,CLEAR_SCORE=50;
+// 免費貓爪拍擊（錢花光也有事可做，維持約每 10 秒一次決策）＋通關後接無限波的間隔
+const PAW_CD=8,PAW_R=56,PAW_SLOW=0.5,PAW_SLOW_DUR=2,VICTORY_GAP=6;
 const TYPES=['single','slow','splash','chain','sniper','income'];
 const FF='"PingFang TC","Microsoft JhengHei","Noto Sans TC","Heiti TC","Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif';
 const DEF_DESC={single:'一發 ${dmg} 傷害，射程 ${range}，每秒 ${rate} 發',slow:'每 ${period} 秒噴霧，範圍 ${range} 內減速 ${slow}% 持續 ${slowDur} 秒，一次 ${dmg} 傷害（飛行免疫）',splash:'每 ${period} 秒拋一顆，爆炸半徑 ${splash} 內 ${dmg} 傷害（飛行免疫）',chain:'閃電 ${dmg} 傷害，連鎖跳 ${chain} 隻，射程 ${range}',sniper:'遠射 ${dmg} 傷害穿盾，射程 ${range}，每 ${period} 秒一發',income:'每 5 秒產 ${income} 魚乾，不攻擊'};
@@ -275,7 +277,7 @@ function startRun(mi){
     victory:false,starsGot:0,scoreAtClear:0,fixedCleared:0,prevBest:P.save.best[M.id]|0,
     enemies:[],towers:[],shots:[],puddles:[],lines:[],rings:[],hints:[],seenIntro:{},
     sel:G.towers.findIndex(t=>t.unlockWave===0),preSel:true,selT:3.5,panel:null,ghost:null,holding:false,hover:false,kb:false,
-    cursor:sug?{c:sug.c,r:sug.r}:{c:4,r:5},suggest:sug,spawnN:0,unlockFx:{},paused:false,
+    cursor:sug?{c:sug.c,r:sug.r}:{c:4,r:5},suggest:sug,spawnN:0,pawCd:0,unlockFx:{},paused:false,
     fishBump:0,lifeBump:0,redFlash:0,upFx:null,beatT:0,deny:null,over:null};
   scene='play';sceneT=0;particles.length=0;floats.length=0;banners.length=0;
   P.save.lastMap=M.id;
@@ -315,11 +317,31 @@ function startWave(n){
   R.mp.paths.forEach(p=>{if(p.from>1&&p.from===n+2)banner('第 '+p.from+' 波開第二入口！','⚠️',1800);if(p.from>1&&p.from===n){banner('第二入口開啟！','⚠️',1600);shake(200,4);}});
   if(n===2&&R.towers[0]){const t=R.towers[0];firstTime('upgrade',()=>hint(t.x,t.y,'點塔可升級',24));}
 }
-function canEarly(){return scene==='play'&&R.wave>=1&&R.queue.length===0&&R.nextWaveAt-R.t>0.5;}
+// 第 10 波還沒清完＝等通關：不自動、也不准提早開無限波
+function holdFinal(){return R.wave>=G.fixedN&&!R.victory;}
+function minCost(){let m=1e9;G.towers.forEach(T=>{if(R.wave>=T.unlockWave)m=Math.min(m,T.cost);});return m;}
+function canEarly(){
+  if(scene!=='play'||R.nextWaveAt-R.t<=0.5)return false;
+  if(R.wave===0)return R.towers.length>0&&R.fish<minCost();   // 開戰前：魚乾花到蓋不起才給「立即開戰」，其餘時間只教放塔
+  return R.queue.length===0&&!holdFinal();
+}
 function callEarly(){
   if(!canEarly()){sfx('deny');return;}
   const b=Math.floor(R.nextWaveAt-R.t)*2;R.fish+=b;R.score+=b;R.earlyCalls++;R.fishBump=0.4;
   floatText(358,490,'提早 +'+b+'🐟','#ffe680',15);sfx('early');shake(120,3);startWave(R.wave+1);
+}
+// 免費貓爪拍擊：每 PAW_CD 秒一次，拍最接近貓窟的那隻＋周圍 PAW_R 內的怪，地面怪減速
+function pawReady(){return scene==='play'&&R.wave>=1&&R.pawCd<=0;}
+function pawDmg(){return 6+2*Math.min(R.wave,G.fixedN);}
+function usePaw(){
+  if(!pawReady()){sfx('deny');floatText(357,492,R.wave<1?'開戰後可用':'拍擊冷卻中','#ff8080',12);return false;}
+  let tg=null,bv=-1e9;for(const e of R.enemies){if(e.dead)continue;const v=e.d-R.mp.paths[e.pi].len;if(v>bv){bv=v;tg=e;}}
+  if(!tg){sfx('deny');floatText(357,492,'場上沒有怪','#ff8080',12);return false;}
+  R.pawCd=PAW_CD;const x=tg.x,y=tg.y,dmg=pawDmg();
+  for(const e of R.enemies.slice()){if(e.dead||!inRange(x,y,PAW_R,e))continue;slow(e,PAW_SLOW,PAW_SLOW_DUR);damage(e,dmg,false);}
+  R.rings.push({x,y,r0:PAW_R,r1:PAW_R,life:0.5,max:0.5,color:'#ffb3d1'});burst(x,y,'#ffb3d1',16,170);   // 圈＝實際判定範圍
+  floatText(x,y-24,'🐾 拍擊！','#ffb3d1',16);sfx('boom');shake(140,4);
+  return true;
 }
 function onWaveCleared(n){
   const rw=waveDef(n).reward;R.fish+=rw;R.score+=CLEAR_SCORE*n;R.fishBump=0.45;
@@ -334,7 +356,8 @@ function onVictory(){
   R.scoreAtClear=R.score;R.starsGot=starsOf(R.M,R.score,true);
   const S=P.save,id=R.M.id;S.stars[id]=Math.max(S.stars[id]|0,R.starsGot);S.best[id]=Math.max(S.best[id]|0,R.score);
   const td=dayStr();if(S.streak.last!==td){S.streak.n=(S.streak.last===dayStr(-1)?S.streak.n:0)+1;S.streak.last=td;}
-  pSave();banner(starStr(R.starsGot)+' 通關已記錄！接著無限波','🏆',2400);sfx('record');confetti(110);
+  R.nextWaveAt=R.t+VICTORY_GAP;   // 第 10 波一清完就排第 11 波（不管原本倒數還剩多久）
+  pSave();banner(starStr(R.starsGot)+' 通關已記錄！'+VICTORY_GAP+' 秒後無限波','🏆',2400);sfx('record');confetti(110);
 }
 
 // ===== enemies =====
@@ -480,19 +503,20 @@ function update(dt){
   sceneT+=dt;fxUpdate(dt);
   if(scene!=='play'||!R||R.paused)return;
   R.t+=dt;
-  for(const k of ['fishBump','lifeBump','redFlash','selT'])if(R[k]>0)R[k]-=dt;
+  for(const k of ['fishBump','lifeBump','redFlash','selT','pawCd'])if(R[k]>0)R[k]-=dt;
   for(const k in R.unlockFx)R.unlockFx[k]-=dt;
   if(R.upFx&&(R.upFx.life-=dt)<=0)R.upFx=null;
   if(R.deny&&(R.deny.t-=dt)<=0)R.deny=null;
   for(const h of R.hints)h.life-=dt;R.hints=R.hints.filter(h=>h.life>0);
-  if(R.t>=R.nextWaveAt)startWave(R.wave+1);
+  if(R.t>=R.nextWaveAt&&!holdFinal())startWave(R.wave+1);
   for(let i=R.queue.length-1;i>=0;i--){const q=R.queue[i];if(R.t>=q.at){R.queue.splice(i,1);spawnQ(q);}}
   updEnemies(dt);if(scene!=='play')return;
   updTowers(dt);updShots(dt);
   R.enemies=R.enemies.filter(e=>!e.dead);
   for(const k in R.waves){const w=R.waves[k];if(!w.done&&w.left<=0&&w.alive<=0){w.done=true;onWaveCleared(+k);}}
   for(const key of ['puddles','lines','rings']){for(const o of R[key])o.life-=dt;R[key]=R[key].filter(o=>o.life>0);}
-  if(canEarly())firstTime('early',()=>hint(357,551,'提早開波＝剩餘秒×2🐟',42));
+  if(canEarly())firstTime('early',()=>hint(357,529,'提早開波＝剩餘秒×2🐟',30));
+  if(pawReady()&&R.enemies.length&&R.towers.length)firstTime('paw',()=>hint(357,573,'免費拍擊！每 '+PAW_CD+' 秒一次',30));
   if(R.lives<=2&&R.lives>0&&(R.beatT-=dt)<=0){R.beatT=0.9;sfx('beat');}
 }
 
@@ -515,17 +539,7 @@ function drawTitle(){
   txt('喵窟擋十波',W/2,158,40,'#ffd27a','center',true);
   txt('擋住 '+G.fixedN+' 波，別讓貓窟被攻破',W/2,202,17,'#fff','center',true);
   drawDiagram(W/2,262);
-  ['觸控：點下方塔卡 → 點路旁空格放塔','點已放好的塔：升級／賣出','鍵盤：1~6 選卡、方向鍵移格、Enter 放塔','U 升級、X 賣出、N 提早開波、P 暫停']
-    .forEach((s,i)=>txt(s,W/2,328+i*21,13,'#cbbfe6'));
-  const S=P.save;
-  if(S.runs>0){
-    const mi=Math.max(0,G.maps.findIndex(m=>m.id===S.lastMap)),m=G.maps[mi];
-    if(m)txt(m.name+' '+starStr(clamp(S.stars[m.id]|0,0,3))+' 最佳 '+comma(S.best[m.id]|0)+'｜無限波 '+(S.endless[m.id]||'—'),W/2,428,13,'#ffe9b0','center',true);
-    txt('連續 '+streakNow()+' 天｜總星數 ★'+totalStars()+'｜第 '+(S.runs+1)+' 局',W/2,450,12,'#9dffb0');
-    const lr=S.lastRun;
-    if(lr){const s=lr.victory?(lr.gap3>0?'上次差 '+comma(lr.gap3)+' 分就 ★★★':'上次拿了 ★★★，挑戰更遠的無限波'):'上次倒在第 '+lr.wave+' 波，這次撐過去！';
-      const kk=1+0.05*Math.sin(sceneT*5);ctx.save();ctx.translate(W/2,478);ctx.scale(kk,kk);txt(s,0,0,15,'#ff9a6a','center',true);ctx.restore();}
-  }else txt('第一次玩？跟著閃爍的提示放第一座塔！',W/2,440,13,'#9dffb0');
+  // 標題頁只留一句規則＋選卡示意（操作鍵移到暫停畫面；紀錄／連勝在選圖頁與結算頁）
   if(G.blocked)txt('內容資料錯誤，無法開始（見主控台）',W/2,548,13,'#ff7b7b','center',true);
   else if(Math.floor(sceneT*2.5)%2===0)txt('點一下開始',W/2,548,21,'#fff','center',true);
 }
@@ -641,7 +655,8 @@ function drawPlay(){
   ctx.restore();
   if(R.redFlash>0){ctx.fillStyle='rgba(255,40,40,'+(R.redFlash*0.5)+')';ctx.fillRect(0,0,W,H);}
   drawHUD();drawBottom();drawBanner();drawHints();
-  if(R.paused&&scene==='play'){ctx.fillStyle='rgba(0,0,0,0.55)';ctx.fillRect(0,MAP_Y,W,440);txt('暫停中',W/2,260,28,'#fff','center',true);txt('按 P 或點一下繼續',W/2,300,14,'#cbbfe6');}
+  if(R.paused&&scene==='play'){ctx.fillStyle='rgba(0,0,0,0.55)';ctx.fillRect(0,MAP_Y,W,440);txt('暫停中',W/2,240,28,'#fff','center',true);txt('按 P 或點一下繼續',W/2,280,14,'#cbbfe6');
+    ['鍵盤：1~6 選卡、方向鍵移格、Enter 放塔','U 升級、X 賣出、N 提早開波、C 拍擊'].forEach((s,i)=>txt(s,W/2,330+i*22,13,'#9a90b8'));}
 }
 function drawHints(){
   for(const h of R.hints){
@@ -660,10 +675,10 @@ function drawHUD(){
   const fb=1+Math.max(0,R.fishBump)*0.8;ctx.save();ctx.translate(180,42);ctx.scale(fb,fb);txt('🐟 '+R.fish,0,0,17,'#ffd76a','center',true);ctx.restore();
   const low=R.lives<=2,lb=1+Math.max(0,R.lifeBump)*0.6+(low?0.15*Math.abs(Math.sin(R.t*5)):0);
   ctx.save();ctx.translate(262,42);ctx.scale(lb,lb);txt('❤ '+R.lives,0,0,17,low&&Math.floor(R.t*4)%2?'#ff3030':'#ff7b9a','center',true);ctx.restore();
-  txt((R.wave<1?'開戰 ':'下一波 ')+String(Math.ceil(Math.max(0,R.nextWaveAt-R.t))).padStart(2,'0')+'s',W-10,42,12,'#cbbfe6','right');
+  txt(holdFinal()?'清光就通關':(R.wave<1?'開戰 ':'下一波 ')+String(Math.ceil(Math.max(0,R.nextWaveAt-R.t))).padStart(2,'0')+'s',W-10,42,12,holdFinal()?'#ffd27a':'#cbbfe6','right');
 }
 function cardRect(i){const n=G.towers.length,cw=Math.min(52,(310-2*(n-1))/n);return[4+i*(cw+2),508,cw,86];}
-const EARLY=[318,508,78,86],PB={up:[276,507,116,42],sell:[276,553,64,40],close:[344,553,48,40]},OB={again:[45,410,190,56],map:[245,410,110,56]};
+const EARLY=[318,508,78,42],PAW_BOX=[318,553,78,41],PB={up:[276,507,116,42],sell:[276,553,64,40],close:[344,553,48,40]},OB={again:[45,410,190,56],map:[245,410,110,56]};
 function drawDescStrip(){
   const T=G.towers[R.sel];if(!T)return;font(12);
   const s=T.emoji+T.name+' '+T.cost+'🐟｜'+(R.wave<T.unlockWave?'🔒第'+T.unlockWave+'波解鎖｜':'')+descOf(T,0);
@@ -682,12 +697,19 @@ function drawBottom(){
     if(!un){txt('🔒',cx,y+24,18);txt('第'+T.unlockWave+'波',cx,y+50,10,'#9a90b8');ctx.globalAlpha=0.4;txt(T.emoji,cx,y+70,14);ctx.globalAlpha=1;}
     else{ctx.globalAlpha=af?1:0.45;txt(T.emoji,cx,y+25,24);txt(T.name,cx,y+51,Math.min(11,b[2]/3.6),'#fff');ctx.globalAlpha=1;txt(T.cost+'🐟',cx,y+71,11,af?'#ffd76a':'#ff7b7b','center',true);}
   });
-  const b=EARLY;
-  if(canEarly()){const bon=Math.floor(R.nextWaveAt-R.t)*2,pl=1+0.05*Math.sin(R.t*8);ctx.save();ctx.translate(b[0]+b[2]/2,b[1]+b[3]/2);ctx.scale(pl,pl);
-    ctx.fillStyle='#e9653b';rr(-b[2]/2,-b[3]/2,b[2],b[3],10);ctx.fill();txt('提早',0,-24,15,'#fff','center',true);txt('開波',0,-6,15,'#fff','center',true);txt('+'+bon+'🐟',0,20,14,'#ffe680','center',true);ctx.restore();}
-  else{ctx.fillStyle='#2a2338';rr(b[0],b[1],b[2],b[3],10);ctx.fill();const cx=b[0]+b[2]/2;
-    txt(R.wave<1?'開戰':'下一波',cx,b[1]+15,11,'#9a90b8');txt(Math.ceil(Math.max(0,R.nextWaveAt-R.t))+'s',cx,b[1]+37,20,'#fff','center',true);
-    const nw=waveDef(R.wave+1);font(10);wrap(nw.note||nw.name,b[2]-6).slice(0,2).forEach((l,i)=>txt(l,cx,b[1]+60+i*12,10,'#cbbfe6'));}
+  const b=EARLY,cx=b[0]+b[2]/2;
+  if(canEarly()){const bon=Math.floor(R.nextWaveAt-R.t)*2,pl=1+0.05*Math.sin(R.t*8);ctx.save();ctx.translate(cx,b[1]+b[3]/2);ctx.scale(pl,pl);
+    ctx.fillStyle='#e9653b';rr(-b[2]/2,-b[3]/2,b[2],b[3],10);ctx.fill();txt(R.wave<1?'立即開戰':'提早開波',0,-8,13,'#fff','center',true);txt('+'+bon+'🐟',0,10,12,'#ffe680','center',true);ctx.restore();}
+  else{ctx.fillStyle='#2a2338';rr(b[0],b[1],b[2],b[3],10);ctx.fill();
+    if(holdFinal()){txt('清光第 '+G.fixedN+' 波',cx,b[1]+14,11,'#ffd27a','center',true);txt('就通關',cx,b[1]+30,10,'#cbbfe6');}
+    else{txt((R.wave<1?'開戰 ':'下一波 ')+Math.ceil(Math.max(0,R.nextWaveAt-R.t))+'s',cx,b[1]+14,12,'#fff','center',true);
+      const nw=waveDef(R.wave+1);font(10);txt(wrap(nw.note||nw.name,b[2]-6)[0]||'',cx,b[1]+30,10,'#cbbfe6');}}
+  // 拍擊鈕：冷卻中由下往上填滿
+  const pb=PAW_BOX,pc=pb[0]+pb[2]/2,rdy=pawReady();
+  ctx.fillStyle=rdy&&R.enemies.length?'#c2457a':'#2a2338';rr(pb[0],pb[1],pb[2],pb[3],10);ctx.fill();
+  if(!rdy&&R.wave>=1){const k=clamp(1-R.pawCd/PAW_CD,0,1);ctx.fillStyle='rgba(255,179,209,0.3)';ctx.fillRect(pb[0]+3,pb[1]+pb[3]*(1-k),pb[2]-6,pb[3]*k);}
+  txt('🐾 拍擊',pc,pb[1]+14,13,'#fff','center',true);
+  txt(R.wave<1?'開戰後可用':rdy?'免費':Math.ceil(R.pawCd)+'s',pc,pb[1]+30,10,rdy?'#ffe680':'#cbbfe6','center',rdy);
 }
 function drawPanel(){
   const t=R.panel,T=t.T,max=t.lv>=T.levels.length-1;
@@ -743,7 +765,7 @@ function chooseMap(i){if(!G.maps[i])return;if(!G.maps[i].ok||!unlocked(i)){sfx('
 function selectCard(i){
   const T=G.towers[i];if(!T)return;const b=cardRect(i);
   if(R.wave<T.unlockWave){floatText(b[0]+b[2]/2,494,'第 '+T.unlockWave+' 波解鎖','#ff8080',12);sfx('deny');return;}
-  R.panel=null;R.sel=R.sel===i&&!R.preSel?-1:i;R.preSel=false;R.selT=3.5;sfx('select');
+  R.panel=null;R.sel=i;R.preSel=false;R.selT=3.5;sfx('select');   // 冪等：點了就是選中（取消用 Esc 或點別張卡）
   if(R.sel>=0&&R.kb)R.ghost={c:R.cursor.c,r:R.cursor.r};
 }
 function showPanel(t){R.panel=t;R.ghost=null;sfx('select');}
@@ -756,7 +778,8 @@ function onDown(p){
   if(R.paused){R.paused=false;return;}
   if(p.y>=500){
     if(R.panel){if(inBox(p,PB.up))upgrade(R.panel);else if(inBox(p,PB.sell))sell(R.panel);else if(inBox(p,PB.close))hidePanel();return;}
-    if(inBox(p,EARLY)){if(canEarly())callEarly();else{sfx('deny');floatText(357,492,R.wave<1?'第 1 波準備中':'這波怪還沒出完','#ff8080',12);}return;}
+    if(inBox(p,EARLY)){if(canEarly())callEarly();else{sfx('deny');floatText(357,492,R.wave<1?'先放塔，第 1 波準備中':holdFinal()?'先清光第 '+G.fixedN+' 波':'這波怪還沒出完','#ff8080',12);}return;}
+    if(inBox(p,PAW_BOX)){usePaw();return;}
     for(let i=0;i<G.towers.length;i++)if(inBox(p,cardRect(i))){selectCard(i);return;}
     return;
   }
@@ -808,6 +831,7 @@ window.addEventListener('keydown',ev=>{
   if(k==='u'||k==='U'){upgrade(ct);return;}
   if(k==='x'||k==='X'){sell(ct);return;}
   if(k==='n'||k==='N'){callEarly();return;}
+  if(k==='c'||k==='C'){usePaw();return;}
   if(k==='Escape'){if(R.panel)hidePanel();else{R.sel=-1;R.ghost=null;}}
 });
 

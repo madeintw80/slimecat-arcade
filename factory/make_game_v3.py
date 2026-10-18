@@ -86,13 +86,17 @@ def active_skeleton_lock(today: datetime.date = None, path: Path = None) -> dict
 
 def skeleton_decon(lock: dict) -> dict:
     """把鎖定規格組成一份「解構筆記」交給 v3 生產線（不呼叫模型、不抓榜）。
-    locked_genre 讓 validate_contract 把合約 genre 強制成鎖定的類型。"""
+    locked_genre 讓 validate_contract 把合約 genre 強制成鎖定的類型。
+    core_loop／avoid／spec_source 三欄可選（2026-10-18 起；舊的塔防鎖定沒寫就用當時的預設字）。"""
     rules = "\n".join(f"- {r}" for r in lock.get("core_rules", []))
     spec = "\n".join(f"- {r}" for r in lock.get("spec", []))
+    core_loop = lock.get("core_loop") or "放塔擋波次"
+    avoid = lock.get("avoid") or "不可改成益智、消除、整理、技巧或放鬆類。"
+    spec_source = lock.get("spec_source") or "沿用 2026-10-04／10-11 檢討會版"
     doc = f"""# 骨架鎖定：{lock['skeleton']}（{lock['date']} 週更，Boss 拍板）
 
 這一場**不從排行榜挑靈感**，骨架已鎖定為「{lock['skeleton']}」，企劃書與引擎都必須照這個骨架做，
-不可改成益智、消除、整理、技巧或放鬆類。主題、美術、敵我角色自由發揮，但核心迴圈＝放塔擋波次。
+{avoid}主題、美術、角色自由發揮，但核心迴圈＝{core_loop}。
 
 ## 為什麼鎖定
 {lock.get('reason', '')}
@@ -100,7 +104,7 @@ def skeleton_decon(lock: dict) -> dict:
 ## 核心規則（三條都要做到，企劃書驗收條目要寫出可觀察的數字）
 {rules}
 
-## 規格（沿用 2026-10-04／10-11 檢討會版）
+## 規格（{spec_source}）
 {spec}
 """
     return {
