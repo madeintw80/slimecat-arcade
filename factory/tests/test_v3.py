@@ -616,6 +616,11 @@ try:
     _deep.mkdir(parents=True, exist_ok=True)
     shutil.copy(_fx, _deep / "engine_probe.html")
     ok, errs = validate_game.validate(_deep / "engine_probe.html")
+    if not ok:
+        # headless 軟體繪圖偶發 WebGL shader 錯誤（10/18～10/19 實測 4 跑 2 敗），只這條重跑一次；
+        # 第二次仍失敗＝真壞，照常判失敗
+        print("⚠️ 3D 煙霧測試第一次失敗，自動重跑一次：", str(errs)[:120])
+        ok, errs = validate_game.validate(_deep / "engine_probe.html")
     check("3D：引擎煙霧測試位置（runs/<run>/）載得到站內 three.js", ok, str(errs)[:120])
 finally:
     shutil.rmtree(_deep, ignore_errors=True)

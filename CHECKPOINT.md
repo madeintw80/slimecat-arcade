@@ -1,8 +1,15 @@
 # CHECKPOINT
 
-Updated: 2026-10-18 20:xx Asia/Taipei
+Updated: 2026-10-19 08:0x Asia/Taipei
 Task Lead: Batnini
-Status: complete（10/18 晚：10/24 週更骨架鎖定「經營＋班次」＋《喵窟擋十波》修 Echo 評審剩下四項，只做本機 commit 未 push，見下節；10/14 早：補驗排程直譯器＋骨架鎖定乾跑；10/13 晚：生產線開放 3D＋試產模式上線，3D 試產《喵穿層連落》完成待 Boss 試玩，見下節；10/13 早：10/17 週更骨架鎖定「塔防＋波次」）；Phase 3 旗艦化待 Boss 開工
+Status: complete（10/19 早：3D 煙霧測試失敗自動重跑一次，見下節；10/18 晚：10/24 週更骨架鎖定「經營＋班次」＋《喵窟擋十波》修 Echo 評審剩下四項，只做本機 commit 未 push，見下節；10/14 早：補驗排程直譯器＋骨架鎖定乾跑；10/13 晚：生產線開放 3D＋試產模式上線，3D 試產《喵穿層連落》完成待 Boss 試玩，見下節；10/13 早：10/17 週更骨架鎖定「塔防＋波次」）；Phase 3 旗艦化待 Boss 開工
+
+## 2026-10-19 早這輪（gateway job-20261019-075743-15b2，initiator=grokbot；Boss「修 SlimeCatArcade 的 3D 煙霧測試：失敗自動重試」）
+
+- 起因：10/18～10/19 補證 4 跑 2 敗，都是「3D：引擎煙霧測試位置（runs/<run>/）載得到站內 three.js」這條報 `THREE.WebGLProgram: Shader Error`（headless 軟體繪圖偶發），怕週更品管誤判。
+- 改了：只動 `factory/tests/test_v3.py` 那一條（10c 節 `validate_game.validate(_deep / "engine_probe.html")`）：第一次失敗印「⚠️ 3D 煙霧測試第一次失敗，自動重跑一次：<錯誤>」再跑一次，第二次仍失敗照常判 ❌。其他測試（含上面的 `qa.stress` 3D 樣本）沒加重試。
+- 驗證：`python factory/tests/test_v3.py` 連跑 3 次全部 exit 0、「🎉 全部通過」、每次 142 條 check ✅（另有 1 行品管 log 帶 ✅，合計 143 個 ✅，跟 10/18 記的 143 是同一種算法）、0 條 ❌；第 3 次實際觸發重試（第一次 Shader Error → 重跑通過）。
+- 沒動：`factory/knowledge/learnings.md` 的未提交 4 行（10/18 檢討會排程寫的）照舊未碰；沒 push、沒碰排程。
 
 ## 2026-10-18 晚這輪（gateway job-20261018-193641-5ae6，initiator=grokbot；Boss「允許寫入 SlimeCatArcade：10/24 鎖定經營＋班次，並修喵窟擋十波剩下四項」）
 
