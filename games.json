@@ -1401,6 +1401,27 @@
       "reviewer": "echo:gpt-6.1-sol",
       "howto": "選貓塔點路旁空格，升級火力守住十波。",
       "polished": "全新存檔通關第一圖後，第二圖及後續地圖永久無法解鎖：totalStars只加每圖；首次照示意點彈珠喵卡再點空格，無法放塔：startRun已令R.sel指向unl；地圖星等規則要求star2、star3分別高於最低通關分300、750，但固定敵"
+    },
+    {
+      "id": "2026-10-24-001",
+      "title": "喵湯屋七班",
+      "emoji": "♨️",
+      "genre": "經營",
+      "date": "2026-10-24",
+      "inspiration": "骨架鎖定：經營＋班次",
+      "desc": "點貓帶位、添柴控溫，撐過 7 班別讓喵湯屋倒閉！",
+      "pipeline": "v3",
+      "packs": {
+        "guests": 8,
+        "tubs": 5,
+        "upgrades": 12,
+        "branches": 4
+      },
+      "render": "2d",
+      "ai_score": 34,
+      "reviewer": "echo:gpt-6.1-sol",
+      "howto": "點貓配對池溫，添柴安撫，撐過七班。",
+      "polished": "開始任一分店後，normShift 會確定移除班表中不存在的客人 id 並清空相；抽到第一級連擊小鈴鐺時，describe 會顯示「累計多6.5秒」，但 calc；content 模組及驗收第8條要求參照錯誤、未排表客人 console.err"
     }
   ]
 }

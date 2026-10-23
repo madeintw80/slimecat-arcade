@@ -1,0 +1,807 @@
+<!--GAMEMETA {"title": "喵湯屋七班", "emoji": "♨️", "genre": "經營", "inspiration": "骨架鎖定：經營＋班次", "desc": "點貓帶位、添柴控溫，撐過 7 班別讓喵湯屋倒閉！"}-->
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>喵湯屋七班</title>
+<!--CONTENT-NOTES
+《喵湯屋七班》引擎實際讀取 window.SC_CONTENT 的四個內容包（值＝物件陣列）。
+缺欄位用預設值、數值超出範圍自動夾住；可自動修正的問題以 console.warn「[喵湯屋自檢]」回報；
+參照不存在的客人 id 會依序找替代（id 前綴相近 → id 關鍵字對應同類客人 → 尚未排班的客人），替代成功以 console.warn 回報；
+嚴重錯誤（沒有任何客人、沒有任何可用分店、客人參照找不到替代、有客人沒排進任何班表 weights／intro）
+以 console.error「[喵湯屋自檢・阻擋開始]」回報、在標題頁以紅字顯示並阻擋開始。筆數不限（1～數十筆都可）。
+
+[guests] 客人（建議 8 筆）
+ id 字串唯一（重複會自動加 _）｜name 繁中名｜emoji 一個 emoji（預設 🐱）
+ want：cool（<35°）/ warm（35–69°）/ hot（≥70°，含滾燙）/ boil（≥85°）/ any（任何溫度）；其他值→warm
+ patience 秒 5–40（建議 8–26；第 1 班客人 ≥20）｜bath 秒 2–15｜pay 整數 1–500
+ group 1 或 3（≥2 一律視為 3：一次進 3 位、需 3 個空候位，各自帶位；第一位入池後 8 秒內三位全到位給 pay×1.5 團體獎金）
+ leave_fx：none / dirty（離池後池子變髒，要點池子 clean_taps 下）/ splash（離池後池溫 −15°）
+ anger 整數 1–3（氣走扣口碑數）｜hint 字串（登場橫幅應對提示，建議 14 字內）
+[tubs] 池種（≥1 筆；空包時引擎自建一個預設木桶）
+ cool_rate 0–5（°/秒，再乘班表 cool_mult 與升級倍率）｜heat 1–50（每次添柴加溫）｜pay_mult 0.3–3｜clean_taps 整數 1–6｜color hex（#rgb 或 #rrggbb）
+[branches] 分店（筆數不限，選店頁每頁 4 張可翻頁）；班數＝shifts 陣列長度（建議 7）
+ need_stars 整數 ≥0（所有分店中最小的會被強制為 0）｜theme hex｜name / emoji / desc
+ star2 / star3 分數門檻（缺省依目標總和推算；star3 會被抬到 > star2）
+ tubs：最多 6 個 {type 池種 id（不存在→改用第一種池）, col 0–1, row 0–2（同格重複會順延到下一空格）, start_temp 0–100, open bool（預設 true）}
+   開放池少於 2 個時自動開放前面的池；open=false 的池位依陣列順序被 open_tub 升級開啟
+ shifts[]：n（引擎以陣列順序重編）｜dur 15–180 秒｜target 整數 ≥1｜first_spawn 0.5–30｜spawn_every 1.2–30（實際 ±15% 抖動）｜cool_mult 0–5
+   weights {guestId: 權重>0}（未知 id 改用替代客人、找不到替代即阻擋開始；全空時改用第一位 patience≥20 的單人客）
+   ops：seat / stoke / towel / clean 子集（seat 必定開放；某操作第一次出現的班會播「新操作」橫幅）
+   intro：客人 id 或 ""（該班第一位客人強制為此客人並播「新客人！名字：hint」橫幅）
+   event：none / cold_wind（6 秒內降溫 ×2.5）/ rush（10 秒內來客間隔 ×0.6 並立即多 2 位）/ hot_spring（全部開放池 +20°）
+   event_at 0–1（班長比例，實際夾在第 2 秒～結束前 3 秒；觸發前 2 秒預告）
+ inf_spawn_decay 0.8–0.99｜inf_target_grow 1.0–1.5（無限營業第 k 班：最後一班的間隔×decay^k、目標×grow^k、cool_mult+0.1k，權重與 ops 用最後一班，事件輪替）
+[upgrades] 升級卡（班間抽 3 張；有未開池位且有 open_tub 卡時必列一張）
+ effect：stoke_heat_add（+度）/ cool_mult（倍率，0.85＝降溫變 85%）/ patience_add（+秒）/ pay_mult（倍率 1.1＝收款×1.1；<0.5 視為 1+value）
+   / towel_cd_mult（倍率，基礎冷卻 8 秒）/ open_tub（開幾個池位）/ bath_mult（倍率）/ combo_window_add（+秒，基礎 5 秒）
+   / auto_stoke_every（秒 2–60；每 N 秒替最冷的溫／熱池自動添柴，每多一級間隔 ×0.8）/ clean_taps_sub（−下，至少留 1 下）
+   / heart_max_add（口碑上限 +N 並回同量，上限 8）/ heal_heart（立即回 N 顆）；其他值整張略過
+ value 數字（倍率型夾在 0.3–2；open_tub／heal_heart／heart_max_add 至少 1）｜cost 1–99999（第 L 級價格＝cost×1.6^L 四捨五入）
+ max_lv 1–5｜from_shift 1–99（打烊時「已完成班序 ≥ from_shift」才會抽到；無限營業全部可抽）
+ desc 樣板：{v}＝value（倍率型顯示成百分比，如 85%）；{total}＝買下這一級後的累計結果（添柴＝該店第一個開放池每次加溫度數；倍率型為百分比；其餘為累計數字）
+-->
+<style>
+html,body{margin:0;height:100%;background:#120c1c;overflow:hidden;font-family:"PingFang TC","Microsoft JhengHei","Noto Sans TC",system-ui,sans-serif}
+#bar{position:absolute;top:0;left:0;height:28px;display:flex;align-items:center;padding-left:8px;z-index:2}
+#bar a{color:#ffd9a0;text-decoration:none;font-size:14px;background:rgba(0,0,0,.4);padding:3px 8px;border-radius:6px}
+#wrap{position:absolute;top:28px;left:0;right:0;bottom:0;display:flex;align-items:center;justify-content:center}
+canvas{touch-action:none;display:block;border-radius:8px;box-shadow:0 0 24px rgba(0,0,0,.6);user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent}
+</style>
+</head>
+<body>
+<div id="bar"><a href="../../index.html">← 回遊戲區</a></div>
+<div id="wrap"><canvas id="cv"></canvas></div>
+<script id="sc-content">window.SC_CONTENT = {"guests": [{"id": "g_regular", "name": "常客喵", "emoji": "🐱", "want": "warm", "patience": 22, "bath": 6, "pay": 20, "group": 1, "leave_fx": "none", "anger": 1, "hint": "想泡溫的，帶去黃綠池"}, {"id": "g_hot", "name": "火辣辣喵", "emoji": "🥵", "want": "hot", "patience": 17, "bath": 6, "pay": 32, "group": 1, "leave_fx": "none", "anger": 1, "hint": "要泡燙的，先添柴到70度"}, {"id": "g_hasty", "name": "急躁喵", "emoji": "😾", "want": "any", "patience": 10, "bath": 4, "pay": 45, "group": 1, "leave_fx": "none", "anger": 1, "hint": "等不久，有空池就先帶他"}, {"id": "g_cool", "name": "怕燙喵", "emoji": "🥶", "want": "cool", "patience": 19, "bath": 7, "pay": 26, "group": 1, "leave_fx": "none", "anger": 1, "hint": "怕燙！帶去涼池別添柴"}, {"id": "g_mud", "name": "泥巴喵", "emoji": "🐾", "want": "warm", "patience": 16, "bath": 5, "pay": 24, "group": 1, "leave_fx": "dirty", "anger": 1, "hint": "走後池子變髒，記得刷"}, {"id": "g_splash", "name": "潑水喵", "emoji": "💦", "want": "hot", "patience": 14, "bath": 5, "pay": 30, "group": 1, "leave_fx": "splash", "anger": 1, "hint": "走時潑水，池溫掉15度"}, {"id": "g_group", "name": "旅行團喵喵喵", "emoji": "🧳", "want": "warm", "patience": 20, "bath": 6, "pay": 16, "group": 3, "leave_fx": "none", "anger": 1, "hint": "三位同檔，8秒內全帶位"}, {"id": "g_boss", "name": "大老板喵", "emoji": "🎩", "want": "boil", "patience": 23, "bath": 5, "pay": 85, "group": 1, "leave_fx": "none", "anger": 2, "hint": "要85度以上，氣走扣兩顆"}], "tubs": [{"id": "t_wood", "name": "檜木桶", "emoji": "🪵", "cool_rate": 1.5, "heat": 15, "pay_mult": 1, "clean_taps": 2, "color": "#8a5a2b"}, {"id": "t_bamboo", "name": "青竹筒湯", "emoji": "🎋", "cool_rate": 1.7, "heat": 18, "pay_mult": 1.05, "clean_taps": 1, "color": "#6f9a4f"}, {"id": "t_clay", "name": "陶甕悶湯", "emoji": "🏺", "cool_rate": 0.9, "heat": 12, "pay_mult": 0.85, "clean_taps": 3, "color": "#b5653a"}, {"id": "t_stone", "name": "青石池", "emoji": "🪨", "cool_rate": 2.6, "heat": 24, "pay_mult": 1.25, "clean_taps": 3, "color": "#5b6b7a"}, {"id": "t_gold", "name": "金箔御湯", "emoji": "✨", "cool_rate": 3, "heat": 30, "pay_mult": 1.5, "clean_taps": 4, "color": "#d4a62a"}], "upgrades": [{"id": "u_bellows", "name": "肉球風箱", "emoji": "🔥", "effect": "stoke_heat_add", "value": 7, "cost": 90, "max_lv": 3, "from_shift": 1, "desc": "每次添柴多加 {v}°（目前每次 +{total}°）"}, {"id": "u_newtub", "name": "擴店開池", "emoji": "🛁", "effect": "open_tub", "value": 1, "cost": 220, "max_lv": 3, "from_shift": 1, "desc": "開啟 {v} 個新池位（版面上鎖住的格子）"}, {"id": "u_catnip_tea", "name": "貓草安神茶", "emoji": "🍵", "effect": "patience_add", "value": 3, "cost": 80, "max_lv": 3, "from_shift": 1, "desc": "客人耐心環變長 {v} 秒（累計多 {total} 秒）"}, {"id": "u_heal_mochi", "name": "紅豆麻糬補給", "emoji": "🍡", "effect": "heal_heart", "value": 1, "cost": 80, "max_lv": 3, "from_shift": 1, "desc": "立即回復 {v} 顆口碑"}, {"id": "u_quilt", "name": "棉被保溫蓋", "emoji": "🛏️", "effect": "cool_mult", "value": 0.85, "cost": 140, "max_lv": 3, "from_shift": 2, "desc": "池水降溫速度變為 {v}（累計剩 {total}）"}, {"id": "u_tip_jar", "name": "招財小費罐", "emoji": "🫙", "effect": "pay_mult", "value": 1.1, "cost": 160, "max_lv": 3, "from_shift": 2, "desc": "魚乾幣收款變為 {v}（累計 {total}）"}, {"id": "u_fast_soak", "name": "舒筋快浴包", "emoji": "🧴", "effect": "bath_mult", "value": 0.85, "cost": 130, "max_lv": 3, "from_shift": 2, "desc": "泡湯時間變為 {v}，池子更快空出（累計 {total}）"}, {"id": "u_combo_bell", "name": "連擊小鈴鐺", "emoji": "🔔", "effect": "combo_window_add", "value": 1.5, "cost": 110, "max_lv": 3, "from_shift": 2, "desc": "連擊接續時間多 {v} 秒（累計多 {total} 秒）"}, {"id": "u_cold_towel", "name": "冰涼毛巾架", "emoji": "🧣", "effect": "towel_cd_mult", "value": 0.8, "cost": 100, "max_lv": 2, "from_shift": 3, "desc": "毛巾冷卻時間變為 {v}（累計 {total}）"}, {"id": "u_mud_brush", "name": "泥巴剋星刷", "emoji": "🧹", "effect": "clean_taps_sub", "value": 1, "cost": 100, "max_lv": 2, "from_shift": 4, "desc": "刷髒池少刷 {v} 下（累計少 {total} 下，至少留一下）"}, {"id": "u_auto_stove", "name": "自動添柴小鍋爐", "emoji": "♨️", "effect": "auto_stoke_every", "value": 20, "cost": 300, "max_lv": 3, "from_shift": 5, "desc": "每 {v} 秒自動替最冷的池添柴一次（目前每 {total} 秒）"}, {"id": "u_big_heart", "name": "招牌暖心匾額", "emoji": "💖", "effect": "heart_max_add", "value": 1, "cost": 350, "max_lv": 2, "from_shift": 4, "desc": "口碑上限增加 {v} 顆並回復同量（累計多 {total} 顆）"}], "branches": [{"id": "b_alley", "name": "巷口小湯屋", "emoji": "🏮", "desc": "兩池起家，學會帶位與添柴", "need_stars": 0, "theme": "#2b2140", "tubs": [{"type": "t_wood", "col": 0, "row": 0, "start_temp": 55, "open": true}, {"type": "t_wood", "col": 1, "row": 0, "start_temp": 82, "open": true}, {"type": "t_stone", "col": 0, "row": 1, "start_temp": 30, "open": false}, {"type": "t_clay", "col": 1, "row": 1, "start_temp": 60, "open": false}], "shifts": [{"n": 1, "dur": 50, "target": 120, "first_spawn": 3, "spawn_every": 5.5, "cool_mult": 0, "weights": {"g_regular": 3, "g_warmlover": 2}, "ops": ["seat"], "intro": "", "event": "none", "event_at": 0}, {"n": 2, "dur": 55, "target": 180, "first_spawn": 3, "spawn_every": 5.2, "cool_mult": 1, "weights": {"g_regular": 3, "g_warmlover": 3}, "ops": ["seat", "stoke"], "intro": "", "event": "hot_spring", "event_at": 0.4}, {"n": 3, "dur": 55, "target": 240, "first_spawn": 3, "spawn_every": 5, "cool_mult": 1, "weights": {"g_regular": 3, "g_warmlover": 3, "g_hasty": 2}, "ops": ["seat", "stoke", "towel"], "intro": "g_hasty", "event": "none", "event_at": 0}, {"n": 4, "dur": 55, "target": 300, "first_spawn": 3, "spawn_every": 4.8, "cool_mult": 1.1, "weights": {"g_regular": 2, "g_warmlover": 3, "g_hasty": 2, "g_icecube": 2}, "ops": ["seat", "stoke", "towel"], "intro": "g_icecube", "event": "none", "event_at": 0}, {"n": 5, "dur": 55, "target": 350, "first_spawn": 3, "spawn_every": 5, "cool_mult": 1.2, "weights": {"g_regular": 2, "g_warmlover": 3, "g_hasty": 2, "g_icecube": 2, "g_muddy": 2}, "ops": ["seat", "stoke", "towel", "clean"], "intro": "g_muddy", "event": "none", "event_at": 0}, {"n": 6, "dur": 55, "target": 430, "first_spawn": 3, "spawn_every": 4.4, "cool_mult": 1.3, "weights": {"g_regular": 2, "g_warmlover": 2, "g_hasty": 2, "g_icecube": 2, "g_muddy": 1, "g_party": 2}, "ops": ["seat", "stoke", "towel", "clean"], "intro": "g_party", "event": "none", "event_at": 0}, {"n": 7, "dur": 55, "target": 500, "first_spawn": 3, "spawn_every": 4.2, "cool_mult": 1.4, "weights": {"g_regular": 2, "g_warmlover": 2, "g_hasty": 2, "g_icecube": 2, "g_muddy": 1, "g_party": 1, "g_boss": 2}, "ops": ["seat", "stoke", "towel", "clean"], "intro": "g_boss", "event": "none", "event_at": 0}], "star2": 2400, "star3": 3400, "inf_spawn_decay": 0.92, "inf_target_grow": 1.15}, {"id": "b_cliff", "name": "崖頂露天湯", "emoji": "🌙", "desc": "寒風常吹，涼客與熱客輪番上門", "need_stars": 2, "theme": "#1b2a3a", "tubs": [{"type": "t_stone", "col": 0, "row": 0, "start_temp": 60, "open": true}, {"type": "t_wood", "col": 1, "row": 0, "start_temp": 78, "open": true}, {"type": "t_bamboo", "col": 0, "row": 1, "start_temp": 88, "open": true}, {"type": "t_clay", "col": 1, "row": 1, "start_temp": 50, "open": false}, {"type": "t_gold", "col": 0, "row": 2, "start_temp": 25, "open": false}], "shifts": [{"n": 1, "dur": 50, "target": 150, "first_spawn": 3, "spawn_every": 5, "cool_mult": 0, "weights": {"g_regular": 3, "g_warmlover": 3}, "ops": ["seat"], "intro": "", "event": "none", "event_at": 0}, {"n": 2, "dur": 55, "target": 220, "first_spawn": 3, "spawn_every": 4.8, "cool_mult": 1.2, "weights": {"g_regular": 3, "g_warmlover": 3, "g_icecube": 2}, "ops": ["seat", "stoke", "towel"], "intro": "g_icecube", "event": "none", "event_at": 0}, {"n": 3, "dur": 55, "target": 280, "first_spawn": 3, "spawn_every": 4.6, "cool_mult": 1.3, "weights": {"g_regular": 3, "g_warmlover": 3, "g_icecube": 2}, "ops": ["seat", "stoke", "towel"], "intro": "", "event": "cold_wind", "event_at": 0.5}, {"n": 4, "dur": 55, "target": 340, "first_spawn": 3, "spawn_every": 5, "cool_mult": 1.3, "weights": {"g_regular": 2, "g_warmlover": 3, "g_icecube": 2, "g_hasty": 2}, "ops": ["seat", "stoke", "towel"], "intro": "g_hasty", "event": "none", "event_at": 0}, {"n": 5, "dur": 55, "target": 410, "first_spawn": 3, "spawn_every": 4.2, "cool_mult": 1.5, "weights": {"g_regular": 2, "g_warmlover": 2, "g_icecube": 2, "g_hasty": 2, "g_muddy": 2}, "ops": ["seat", "stoke", "towel", "clean"], "intro": "g_muddy", "event": "none", "event_at": 0}, {"n": 6, "dur": 55, "target": 500, "first_spawn": 3, "spawn_every": 4, "cool_mult": 1.6, "weights": {"g_regular": 2, "g_warmlover": 2, "g_icecube": 2, "g_hasty": 2, "g_muddy": 1, "g_party": 2}, "ops": ["seat", "stoke", "towel", "clean"], "intro": "g_party", "event": "rush", "event_at": 0.6}, {"n": 7, "dur": 60, "target": 600, "first_spawn": 3, "spawn_every": 3.8, "cool_mult": 1.7, "weights": {"g_regular": 1, "g_warmlover": 2, "g_icecube": 2, "g_hasty": 2, "g_muddy": 1, "g_party": 1, "g_boss": 2}, "ops": ["seat", "stoke", "towel", "clean"], "intro": "g_boss", "event": "hot_spring", "event_at": 0.45}], "star2": 3000, "star3": 4200, "inf_spawn_decay": 0.91, "inf_target_grow": 1.16}, {"id": "b_bamboo", "name": "竹林藥草湯", "emoji": "🎋", "desc": "小奶貓亂入，髒池與團客交錯", "need_stars": 5, "theme": "#1f3a2b", "tubs": [{"type": "t_bamboo", "col": 0, "row": 0, "start_temp": 65, "open": true}, {"type": "t_bamboo", "col": 1, "row": 0, "start_temp": 45, "open": true}, {"type": "t_clay", "col": 0, "row": 1, "start_temp": 80, "open": true}, {"type": "t_gold", "col": 1, "row": 1, "start_temp": 35, "open": false}, {"type": "t_wood", "col": 0, "row": 2, "start_temp": 55, "open": false}, {"type": "t_stone", "col": 1, "row": 2, "start_temp": 70, "open": false}], "shifts": [{"n": 1, "dur": 50, "target": 170, "first_spawn": 3, "spawn_every": 5, "cool_mult": 0, "weights": {"g_regular": 3, "g_warmlover": 3}, "ops": ["seat"], "intro": "", "event": "none", "event_at": 0}, {"n": 2, "dur": 55, "target": 240, "first_spawn": 3, "spawn_every": 4.6, "cool_mult": 1.1, "weights": {"g_regular": 3, "g_warmlover": 3, "g_kitten": 2}, "ops": ["seat", "stoke", "towel"], "intro": "g_kitten", "event": "none", "event_at": 0}, {"n": 3, "dur": 55, "target": 310, "first_spawn": 3, "spawn_every": 4.5, "cool_mult": 1.2, "weights": {"g_regular": 2, "g_warmlover": 3, "g_kitten": 2, "g_hasty": 2}, "ops": ["seat", "stoke", "towel"], "intro": "g_hasty", "event": "none", "event_at": 0}, {"n": 4, "dur": 55, "target": 370, "first_spawn": 3, "spawn_every": 4.8, "cool_mult": 1.3, "weights": {"g_regular": 2, "g_warmlover": 3, "g_kitten": 2, "g_hasty": 2, "g_muddy": 2}, "ops": ["seat", "stoke", "towel", "clean"], "intro": "g_muddy", "event": "none", "event_at": 0}, {"n": 5, "dur": 55, "target": 450, "first_spawn": 3, "spawn_every": 4.2, "cool_mult": 1.5, "weights": {"g_regular": 2, "g_warmlover": 2, "g_kitten": 1, "g_hasty": 2, "g_muddy": 2, "g_icecube": 2}, "ops": ["seat", "stoke", "towel", "clean"], "intro": "g_icecube", "event": "cold_wind", "event_at": 0.55}, {"n": 6, "dur": 55, "target": 540, "first_spawn": 3, "spawn_every": 4, "cool_mult": 1.5, "weights": {"g_regular": 2, "g_warmlover": 2, "g_kitten": 1, "g_hasty": 2, "g_muddy": 1, "g_icecube": 2, "g_party": 2}, "ops": ["seat", "stoke", "towel", "clean"], "intro": "g_party", "event": "none", "event_at": 0}, {"n": 7, "dur": 60, "target": 660, "first_spawn": 3, "spawn_every": 3.7, "cool_mult": 1.7, "weights": {"g_regular": 1, "g_warmlover": 2, "g_kitten": 1, "g_hasty": 2, "g_muddy": 1, "g_icecube": 2, "g_party": 1, "g_boss": 2}, "ops": ["seat", "stoke", "towel", "clean"], "intro": "g_boss", "event": "rush", "event_at": 0.5}], "star2": 3400, "star3": 4700, "inf_spawn_decay": 0.9, "inf_target_grow": 1.17}, {"id": "b_gold", "name": "金鱗天守閣", "emoji": "🏯", "desc": "金池高賠率，一步失誤全盤皆輸", "need_stars": 8, "theme": "#3a2a14", "tubs": [{"type": "t_gold", "col": 0, "row": 0, "start_temp": 75, "open": true}, {"type": "t_gold", "col": 1, "row": 0, "start_temp": 40, "open": true}, {"type": "t_clay", "col": 0, "row": 1, "start_temp": 85, "open": true}, {"type": "t_stone", "col": 1, "row": 1, "start_temp": 55, "open": false}, {"type": "t_bamboo", "col": 0, "row": 2, "start_temp": 65, "open": false}, {"type": "t_wood", "col": 1, "row": 2, "start_temp": 30, "open": false}], "shifts": [{"n": 1, "dur": 50, "target": 190, "first_spawn": 3, "spawn_every": 4.8, "cool_mult": 0, "weights": {"g_regular": 3, "g_warmlover": 3}, "ops": ["seat"], "intro": "", "event": "none", "event_at": 0}, {"n": 2, "dur": 55, "target": 270, "first_spawn": 3, "spawn_every": 4.5, "cool_mult": 1.3, "weights": {"g_regular": 3, "g_warmlover": 3, "g_hasty": 2}, "ops": ["seat", "stoke", "towel"], "intro": "g_hasty", "event": "none", "event_at": 0}, {"n": 3, "dur": 55, "target": 350, "first_spawn": 3, "spawn_every": 4.3, "cool_mult": 1.4, "weights": {"g_regular": 2, "g_warmlover": 3, "g_hasty": 2, "g_kitten": 2}, "ops": ["seat", "stoke", "towel"], "intro": "g_kitten", "event": "none", "event_at": 0}, {"n": 4, "dur": 55, "target": 420, "first_spawn": 3, "spawn_every": 4.6, "cool_mult": 1.5, "weights": {"g_regular": 2, "g_warmlover": 2, "g_hasty": 2, "g_kitten": 1, "g_icecube": 2}, "ops": ["seat", "stoke", "towel"], "intro": "g_icecube", "event": "cold_wind", "event_at": 0.5}, {"n": 5, "dur": 55, "target": 500, "first_spawn": 3, "spawn_every": 4, "cool_mult": 1.6, "weights": {"g_regular": 2, "g_warmlover": 2, "g_hasty": 2, "g_kitten": 1, "g_icecube": 2, "g_muddy": 2}, "ops": ["seat", "stoke", "towel", "clean"], "intro": "g_muddy", "event": "none", "event_at": 0}, {"n": 6, "dur": 55, "target": 600, "first_spawn": 3, "spawn_every": 3.8, "cool_mult": 1.7, "weights": {"g_regular": 1, "g_warmlover": 2, "g_hasty": 2, "g_kitten": 1, "g_icecube": 2, "g_muddy": 1, "g_party": 2}, "ops": ["seat", "stoke", "towel", "clean"], "intro": "g_party", "event": "rush", "event_at": 0.6}, {"n": 7, "dur": 60, "target": 720, "first_spawn": 3, "spawn_every": 3.5, "cool_mult": 1.8, "weights": {"g_regular": 1, "g_warmlover": 2, "g_hasty": 2, "g_kitten": 1, "g_icecube": 2, "g_muddy": 1, "g_party": 1, "g_boss": 3}, "ops": ["seat", "stoke", "towel", "clean"], "intro": "g_boss", "event": "hot_spring", "event_at": 0.4}], "star2": 4000, "star3": 5500, "inf_spawn_decay": 0.89, "inf_target_grow": 1.18}]};</script>
+<script>
+(()=>{
+'use strict';
+const W=400,H=600,STEP=1/60;
+const cv=document.getElementById('cv'),ctx=cv.getContext('2d'),wrap=document.getElementById('wrap');
+let S=1,DPR=1;
+// 等比縮放畫布並依 DPR 建立高解析緩衝
+function resize(){S=Math.max(0.2,Math.min(wrap.clientWidth/W,wrap.clientHeight/H));DPR=Math.min(3,window.devicePixelRatio||1);cv.style.width=W*S+'px';cv.style.height=H*S+'px';cv.width=Math.round(W*S*DPR);cv.height=Math.round(H*S*DPR);}
+addEventListener('resize',resize);resize();
+
+// ===== 工具 =====
+const clamp=(v,a,b)=>v<a?a:v>b?b:v;
+const num=(v,d,a,b)=>{v=Number(v);return clamp(isFinite(v)?v:d,a,b);};
+const str=(v,d)=>typeof v==='string'&&v.trim()?v:d;
+const hex=(v,d)=>typeof v==='string'&&/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(v)?v:d;
+const rnd=(a,b)=>a+Math.random()*(b-a);
+const pick=a=>a[Math.floor(Math.random()*a.length)];
+const shuffle=a=>{a=a.slice();for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];}return a;};
+const fmt=v=>String(Math.round(v*10)/10);
+const pct=v=>Math.round(v*100)+'%';
+
+// ===== content：讀取、正規化、自檢 =====
+const WANTS=['cool','warm','hot','any','boil'],LFX=['none','dirty','splash'],OPS=['seat','stoke','towel','clean'],EVS=['none','cold_wind','rush','hot_spring'];
+const EFFS=['stoke_heat_add','cool_mult','patience_add','pay_mult','towel_cd_mult','open_tub','bath_mult','combo_window_add','auto_stoke_every','clean_taps_sub','heart_max_add','heal_heart'];
+const MULTS=['cool_mult','pay_mult','towel_cd_mult','bath_mult'];
+const CT={guests:[],tubs:[],branches:[],upgrades:[],byId:{guests:{},tubs:{}},errors:[],warns:[]};
+const cwarn=m=>CT.warns.push(m),cerr=m=>CT.errors.push(m);
+function rawPack(k){const c=window.SC_CONTENT;const a=c&&typeof c==='object'?c[k]:null;return Array.isArray(a)?a.filter(o=>o&&typeof o==='object'):[];}
+function uniqIds(list,pre){const seen={};list.forEach((o,i)=>{let id=str(o.id,pre+i);while(seen[id])id+='_';seen[id]=1;o.id=id;});return list;}
+function index(list){const m={};list.forEach(o=>m[o.id]=o);return m;}
+// 不存在的客人 id 找替代：前綴相近 → id 關鍵字對應同類客人 → 尚未排班的客人；找不到就由 normShift 報錯
+const ALIAS={};
+const KW=[[/ice|cold|cool|frost|snow|chill/i,g=>g.want==='cool'],[/boss|vip|rich|king/i,g=>g.want==='boil'],[/hot|fire|warm|heat|spicy/i,g=>g.want==='hot'||g.want==='boil'],[/mud|dirt|dust/i,g=>g.leave_fx==='dirty'],[/splash|water|wet/i,g=>g.leave_fx==='splash'],[/party|group|tour|team|family/i,g=>g.group>1],[/hast|rush|quick|fast/i,g=>g.want==='any']];
+function buildAlias(raw){
+  const refs=[],used={},G0=CT.guests;
+  const add=k=>{if(typeof k!=='string'||!k)return;if(CT.byId.guests[k])used[k]=1;else if(!refs.includes(k))refs.push(k);};
+  raw.forEach(b=>(Array.isArray(b.shifts)?b.shifts:[]).forEach(s=>{if(!s||typeof s!=='object')return;if(s.weights&&typeof s.weights==='object')Object.keys(s.weights).forEach(add);add(s.intro);}));
+  const free=G0.filter(g=>!used[g.id]);
+  const set=(k,g)=>{ALIAS[k]=g.id;const j=free.indexOf(g);if(j>=0)free.splice(j,1);cwarn(`參照不存在的客人 ${k}，改用 ${g.id}（${g.name}）`);};
+  const kwFind=(k,list)=>{for(const [re,f] of KW)if(re.test(k)){const g=list.find(f);if(g)return g;}return null;};
+  let left=refs.filter(k=>{const g=G0.find(g=>Math.min(k.length,g.id.length)>=4&&(k.startsWith(g.id)||g.id.startsWith(k)));if(g)set(k,g);return !g;});
+  left=left.filter(k=>{const g=kwFind(k,free);if(g)set(k,g);return !g;});
+  left.forEach(k=>{const g=free[0]||kwFind(k,G0);if(g)set(k,g);});
+}
+// 正規化一個班次
+function normShift(s,i,bid){
+  const weights={};let wsum=0;
+  if(s.weights&&typeof s.weights==='object')for(const k in s.weights){const w=num(s.weights[k],0,0,1000);const id=CT.byId.guests[k]?k:ALIAS[k];if(!id){cerr(`分店 ${bid} 第 ${i+1} 班參照不存在的客人 ${k}，且找不到替代客人`);continue;}if(w>0){weights[id]=(weights[id]||0)+w;wsum+=w;}}
+  if(!wsum){const g=CT.guests.find(g=>g.patience>=20&&g.group===1)||CT.guests[0];weights[g.id]=1;cwarn(`分店 ${bid} 第 ${i+1} 班沒有可用客人權重，改用 ${g.id}`);}
+  const ops=Array.isArray(s.ops)?s.ops.filter(o=>OPS.includes(o)):[];if(!ops.includes('seat'))ops.unshift('seat');
+  let intro=typeof s.intro==='string'?s.intro:'';if(intro&&!CT.byId.guests[intro]){if(ALIAS[intro])intro=ALIAS[intro];else{cerr(`分店 ${bid} 第 ${i+1} 班 intro ${intro} 不存在，且找不到替代客人`);intro='';}}
+  return {n:i+1,dur:num(s.dur,55,15,180),target:Math.round(num(s.target,100,1,1e7)),first:num(s.first_spawn,3,0.5,30),every:num(s.spawn_every,5,1.2,30),cool:num(s.cool_mult,1,0,5),weights,ops,intro,event:EVS.includes(s.event)?s.event:'none',eventAt:num(s.event_at,0.5,0,1)};
+}
+// 正規化一間分店
+function normBranch(b){
+  const used={},tubs=[];
+  (Array.isArray(b.tubs)?b.tubs:[]).forEach(t=>{
+    if(!t||typeof t!=='object'||tubs.length>=6)return;
+    let type=t.type;if(!CT.byId.tubs[type]){cwarn(`分店 ${b.id} 參照不存在的池種 ${type}，改用 ${CT.tubs[0].id}`);type=CT.tubs[0].id;}
+    let slot=Math.round(num(t.row,0,0,2))*2+Math.round(num(t.col,0,0,1));while(used[slot])slot=(slot+1)%6;used[slot]=1;
+    tubs.push({type,slot,start:num(t.start_temp,50,0,100),open:t.open!==false});
+  });
+  for(let s=0;tubs.length<2&&s<6;s++)if(!used[s]){used[s]=1;tubs.push({type:CT.tubs[0].id,slot:s,start:tubs.length?82:55,open:true});}
+  let open=tubs.filter(t=>t.open).length;for(const t of tubs)if(open<2&&!t.open){t.open=true;open++;}
+  const shifts=(Array.isArray(b.shifts)?b.shifts:[]).filter(s=>s&&typeof s==='object').map((s,i)=>normShift(s,i,b.id));
+  if(!shifts.length){cwarn(`分店 ${b.id} 沒有班表，已略過`);return null;}
+  const sum=shifts.reduce((a,s)=>a+s.target,0)+shifts.length*100;
+  const star2=Math.round(num(b.star2,sum*1.4,1,1e9)),star3=Math.max(star2+1,Math.round(num(b.star3,sum*1.9,1,1e9)));
+  return {id:b.id,name:str(b.name,'湯屋'),emoji:str(b.emoji,'🏮'),desc:str(b.desc,''),need:Math.round(num(b.need_stars,0,0,999)),theme:hex(b.theme,'#2b2140'),tubs,shifts,star2,star3,decay:num(b.inf_spawn_decay,0.92,0.8,0.99),grow:num(b.inf_target_grow,1.15,1,1.5)};
+}
+// 載入四包
+function loadContent(){
+  CT.guests=uniqIds(rawPack('guests').map(g=>({id:g.id,name:str(g.name,'客人喵'),emoji:str(g.emoji,'🐱'),want:WANTS.includes(g.want)?g.want:'warm',patience:num(g.patience,20,5,40),bath:num(g.bath,6,2,15),pay:Math.round(num(g.pay,20,1,500)),group:num(g.group,1,1,3)>=2?3:1,leave_fx:LFX.includes(g.leave_fx)?g.leave_fx:'none',anger:Math.round(num(g.anger,1,1,3)),hint:str(g.hint,'')})),'g');
+  CT.byId.guests=index(CT.guests);
+  CT.tubs=uniqIds(rawPack('tubs').map(t=>({id:t.id,name:str(t.name,'湯池'),emoji:str(t.emoji,'♨️'),cool_rate:num(t.cool_rate,1.5,0,5),heat:num(t.heat,15,1,50),pay_mult:num(t.pay_mult,1,0.3,3),clean_taps:Math.round(num(t.clean_taps,2,1,6)),color:hex(t.color,'#8a5a2b')})),'t');
+  if(!CT.tubs.length){CT.tubs.push({id:'t_default',name:'木桶',emoji:'🪵',cool_rate:1.5,heat:15,pay_mult:1,clean_taps:2,color:'#8a5a2b'});cwarn('tubs 包為空，改用預設木桶');}
+  CT.byId.tubs=index(CT.tubs);
+  if(!CT.guests.length)CT.errors.push('guests 包沒有任何客人');
+  else{const rb=rawPack('branches');buildAlias(rb);CT.branches=uniqIds(rb.map(b=>normBranch(b)).filter(Boolean),'b');}
+  if(!CT.branches.length&&!CT.errors.length)CT.errors.push('branches 包沒有可用分店（至少需要 1 個班次）');
+  CT.upgrades=uniqIds(rawPack('upgrades').filter(u=>{if(EFFS.includes(u.effect))return true;cwarn(`升級 ${u.id} 的 effect「${u.effect}」不支援，已略過`);return false;}).map(u=>{
+    let v=num(u.value,1,-999,999);
+    if(MULTS.includes(u.effect)){if(u.effect==='pay_mult'&&v<0.5)v=1+v;v=clamp(v,0.3,2);}
+    else if(u.effect==='auto_stoke_every')v=clamp(v,2,60);
+    else if(['open_tub','heal_heart','heart_max_add'].includes(u.effect))v=Math.max(1,Math.round(v));
+    else v=clamp(v,0,999);
+    return {id:u.id,name:str(u.name,'升級'),emoji:str(u.emoji,'✨'),effect:u.effect,value:v,cost:Math.round(num(u.cost,100,1,99999)),max:Math.round(num(u.max_lv,1,1,5)),from:Math.round(num(u.from_shift,1,1,99)),desc:str(u.desc,'效果 {v}')};
+  }),'u');
+  validate();
+  CT.warns.forEach(w=>console.warn('[喵湯屋自檢]',w));
+  CT.errors.forEach(w=>console.error('[喵湯屋自檢・阻擋開始]',w));
+}
+// 交叉參照自檢
+function validate(){
+  const inW={};CT.branches.forEach(b=>b.shifts.forEach(s=>{Object.keys(s.weights).forEach(k=>inW[k]=1);if(s.intro)inW[s.intro]=1;}));
+  if(CT.branches.length)CT.guests.forEach(g=>{if(!inW[g.id])cerr(`客人 ${g.id} 沒有排進任何分店班表 weights 或 intro`);});
+  const maxN=Math.max(1,...CT.branches.map(b=>b.shifts.length));
+  CT.upgrades.forEach(u=>{if(u.from>maxN)cwarn(`升級 ${u.id} 的 from_shift ${u.from} 超過班數，只會在無限營業出現`);});
+  const sorted=CT.branches.slice().sort((a,b)=>a.need-b.need);
+  if(sorted.length&&sorted[0].need>0){cwarn('沒有 need_stars=0 的分店，最低門檻那間改為免費');sorted[0].need=0;}
+  sorted.forEach((b,i)=>{if(b.need>i*3)cwarn(`分店 ${b.id} 需要 ${b.need} 星，但前面分店最多只有 ${i*3} 星`);});
+}
+
+// ===== progress：本機存檔 =====
+const KEY='sc_nekoyu_shifts_v1';
+const P={stars:{},best:{},infBest:{},seen:[],muted:false};
+function pLoad(){try{const d=JSON.parse(localStorage.getItem(KEY)||'null');if(d&&typeof d==='object'){['stars','best','infBest'].forEach(k=>{if(d[k]&&typeof d[k]==='object')P[k]=d[k];});if(Array.isArray(d.seen))P.seen=d.seen.filter(x=>typeof x==='string');P.muted=!!d.muted;}}catch(e){}}
+function pSave(){try{localStorage.setItem(KEY,JSON.stringify(P));}catch(e){}}
+function totalStars(){let s=0;for(const k in P.stars)s+=clamp(Number(P.stars[k])||0,0,3);return s;}
+const isUnlocked=b=>totalStars()>=b.need;
+const seenCount=()=>CT.guests.filter(g=>P.seen.includes(g.id)).length;
+const unlockedCount=()=>CT.branches.filter(isUnlocked).length;
+
+// ===== audio：WebAudio 合成音效 =====
+let AC=null,NB=null;
+function ac(){if(!AC){try{const A=window.AudioContext||window.webkitAudioContext;if(A)AC=new A();}catch(e){AC=null;}}if(AC&&AC.state==='suspended')AC.resume().catch(()=>{});return AC;}
+function tone(f,d,type,vol,f2,delay){const a=AC;if(!a||P.muted)return;try{const t=a.currentTime+(delay||0),o=a.createOscillator(),g=a.createGain();o.type=type||'sine';o.frequency.setValueAtTime(f,t);if(f2)o.frequency.exponentialRampToValueAtTime(f2,t+d);g.gain.setValueAtTime(0.0001,t);g.gain.exponentialRampToValueAtTime(vol||0.2,t+0.01);g.gain.exponentialRampToValueAtTime(0.0001,t+d);o.connect(g);g.connect(a.destination);o.start(t);o.stop(t+d+0.05);}catch(e){}}
+function noise(d,vol,freq,delay){const a=AC;if(!a||P.muted)return;try{if(!NB){NB=a.createBuffer(1,a.sampleRate,a.sampleRate);const c=NB.getChannelData(0);for(let i=0;i<c.length;i++)c[i]=Math.random()*2-1;}const t=a.currentTime+(delay||0),s=a.createBufferSource(),f=a.createBiquadFilter(),g=a.createGain();s.buffer=NB;f.type='bandpass';f.frequency.value=freq||1000;g.gain.setValueAtTime(vol||0.2,t);g.gain.exponentialRampToValueAtTime(0.0001,t+d);s.connect(f);f.connect(g);g.connect(a.destination);s.start(t);s.stop(t+d+0.05);}catch(e){}}
+const SFX={
+  select:()=>{tone(620,0.09,'triangle',0.14,1050);tone(1150,0.08,'sine',0.07,800,0.07);},
+  seat:()=>{noise(0.32,0.28,520);tone(320,0.22,'sine',0.25,110);},
+  wrong:()=>{tone(220,0.14,'square',0.1,160);tone(170,0.2,'square',0.1,110,0.1);},
+  stoke:()=>{noise(0.45,0.22,1600);tone(180,0.3,'sawtooth',0.05,480);},
+  pay:()=>{tone(1250,0.07,'square',0.07);tone(1870,0.16,'square',0.07,null,0.06);},
+  combo:n=>{tone(480+n*70,0.12,'triangle',0.15,760+n*90);},
+  angry:()=>{tone(170,0.38,'sawtooth',0.16,65);},
+  goal:()=>{[523,659,784,1047].forEach((f,i)=>tone(f,0.18,'triangle',0.16,null,i*0.08));},
+  bankrupt:()=>{[392,330,262,196].forEach((f,i)=>tone(f,0.32,'sawtooth',0.11,null,i*0.17));},
+  upgrade:()=>{tone(400,0.25,'triangle',0.17,1200);tone(800,0.22,'sine',0.11,1600,0.12);},
+  newguest:()=>{tone(880,0.09,'sine',0.1);tone(1320,0.13,'sine',0.1,null,0.08);},
+  record:()=>{[523,659,784,1047,1319].forEach((f,i)=>tone(f,0.24,'square',0.08,null,i*0.1));noise(0.6,0.14,3000,0.5);},
+  towel:()=>{noise(0.25,0.18,2400);tone(700,0.15,'sine',0.08,1000);},
+  scrub:()=>{noise(0.12,0.2,3200);}
+};
+const play=(n,a)=>{try{if(SFX[n])SFX[n](a);}catch(e){}};
+function toggleMute(){P.muted=!P.muted;pSave();}
+
+// ===== fx：粒子、浮字、橫幅、震動 =====
+const FX={parts:[],texts:[],banners:[],shake:0,flash:0};
+const PCOL={splash:['#8fd8ff','#ffffff'],fire:['#ffb040','#ff5a20','#ffe070'],coin:['#ffd040','#fff1a0'],heart:['#ff3b5c','#ff8095'],star:['#ff5a8a','#ffd040','#5ad1ff','#9aff6a','#c08aff'],bubble:['#ffffff','#cfe9ff'],steam:['rgba(255,255,255,0.35)'],dust:['#8a6a40','#b08850']};
+function pop(x,y,k,n){const cs=PCOL[k]||['#fff'];n=n||10;for(let i=0;i<n&&FX.parts.length<500;i++){const a=rnd(0,Math.PI*2),sp=k==='star'?rnd(60,200):k==='steam'?rnd(4,14):rnd(40,160);FX.parts.push({x,y,vx:Math.cos(a)*sp,vy:k==='steam'?-rnd(15,35):Math.sin(a)*sp-(k==='coin'||k==='splash'||k==='fire'?80:0),g:k==='steam'?-5:k==='fire'?-60:k==='star'?40:300,life:0,max:k==='steam'?rnd(1,2):rnd(0.4,0.9),c:pick(cs),r:k==='steam'?rnd(4,8):rnd(2,4.5),k});}}
+function ftext(x,y,s,c,size,life){FX.texts.push({x,y,s,c:c||'#fff',size:size||16,life:0,max:life||1.1});if(FX.texts.length>40)FX.texts.shift();}
+function banner(s,ms,c){FX.banners.push({s,t:0,max:(ms||1100)/1000,c:c||'#ffcf5a'});if(FX.banners.length>4)FX.banners.splice(1,1);}
+const shake=ms=>{FX.shake=Math.max(FX.shake,ms/1000);};
+function updFx(dt){
+  for(const p of FX.parts){p.life+=dt;p.vy+=p.g*dt;p.x+=p.vx*dt;p.y+=p.vy*dt;if(p.k==='steam')p.r+=dt*6;}
+  FX.parts=FX.parts.filter(p=>p.life<p.max);
+  for(const t of FX.texts){t.life+=dt;t.y-=26*dt;}
+  FX.texts=FX.texts.filter(t=>t.life<t.max);
+  if(FX.banners.length){const b=FX.banners[0];b.t+=dt;if(b.t>=b.max)FX.banners.shift();}
+  FX.shake=Math.max(0,FX.shake-dt);FX.flash=Math.max(0,FX.flash-dt*1.5);
+}
+
+// ===== 遊戲狀態 =====
+const G={phase:'title',t:0,elapsed:0,br:null,si:0,inf:false,infK:0,spec:null,timeLeft:0,shiftT:0,revenue:0,target:0,spawnT:0,ops:['seat'],ev:null,windT:0,rushT:0,evIcon:null,introPending:'',
+  guests:[],sel:0,tubs:[],wallet:0,score:0,fixedScore:0,combo:0,comboT:0,comboPulse:0,hearts:5,heartsMax:5,served:0,angry:0,angryShift:0,
+  lv:{},mods:null,towelCd:0,autoT:0,reported:false,phaseT:0,result:null,offered:[],upSel:0,upT:0,compare:null,
+  paused:false,uid:0,groups:{},lastOps:['seat'],hints:{},hintTxt:{},tutSeat:false,tutStoke:false,tutPoint:null,selPage:0,selIdx:0,metShown:false,prevBest:0,bestBroken:false,info:null,fwT:0};
+const BANDN={cool:'涼',warm:'溫',hot:'熱',boil:'滾燙',any:'都可'};
+const BANDC={cool:'#8ccaff',warm:'#c8f070',hot:'#ffb07a',boil:'#ff7a8a'};
+const CHIPC={cool:'#2f86e0',warm:'#6fae2a',hot:'#e2662a',boil:'#b0102a'};
+const RANK={cool:0,warm:1,hot:2,boil:3};
+const bandOf=t=>t<35?'cool':t<70?'warm':t<85?'hot':'boil';
+// 客人需求與池溫是否吻合
+const fits=(w,t)=>w==='any'||(w==='cool'?t<35:w==='warm'?t>=35&&t<70:w==='hot'?t>=70:w==='boil'?t>=85:false);
+const TS=[[0,30,90,200],[34,95,185,240],[35,150,205,80],[69,230,210,70],[70,255,150,60],[84,250,85,40],[85,215,30,55],[100,140,10,40]];
+// 溫度→水色（檔內連續漸變、跨檔分明）
+function tcol(t){t=clamp(t,0,100);for(let i=1;i<TS.length;i++){const a=TS[i-1],b=TS[i];if(t<=b[0]){const k=b[0]>a[0]?(t-a[0])/(b[0]-a[0]):0;return `rgb(${Math.round(a[1]+(b[1]-a[1])*k)},${Math.round(a[2]+(b[2]-a[2])*k)},${Math.round(a[3]+(b[3]-a[3])*k)})`;}}return 'rgb(140,10,40)';}
+const slotX=i=>6+i*65,QY=62;
+const cellXY=s=>({x:10+(s%2)*190,y:150+Math.floor(s/2)*120});
+const tubBody=s=>{const c=cellXY(s);return {x:c.x+10,y:c.y+4,w:170,h:86};};
+const fireBtn=s=>{const c=cellXY(s);return {x:c.x+120,y:c.y+92,w:60,h:24};};
+const tubAt=s=>G.tubs.find(t=>t.slot===s);
+const opOk=o=>G.ops.includes(o);
+const selGuest=()=>G.guests.find(g=>g.uid===G.sel)||null;
+const heartX=i=>392-(G.heartsMax-1-i)*17-4;
+const comboMult=()=>1+0.25*Math.min(Math.max(G.combo,1)-1,8);
+const costOf=u=>Math.round(u.cost*Math.pow(1.6,G.lv[u.id]||0));
+
+// ===== upgrades：效果彙總、說明、預覽 =====
+function calcMods(lv){
+  const m={heatAdd:0,coolMul:1,patAdd:0,payMul:1,towelMul:1,bathMul:1,comboAdd:0,autoEvery:0,cleanSub:0};
+  for(const u of CT.upgrades){const L=lv[u.id]||0;if(!L)continue;const v=u.value;
+    switch(u.effect){
+      case 'stoke_heat_add':m.heatAdd+=v*L;break;case 'cool_mult':m.coolMul*=Math.pow(v,L);break;
+      case 'patience_add':m.patAdd+=v*L;break;case 'pay_mult':m.payMul*=Math.pow(v,L);break;
+      case 'towel_cd_mult':m.towelMul*=Math.pow(v,L);break;case 'bath_mult':m.bathMul*=Math.pow(v,L);break;
+      case 'combo_window_add':m.comboAdd+=v*L;break;case 'clean_taps_sub':m.cleanSub+=v*L;break;
+      case 'auto_stoke_every':{const e=v*Math.pow(0.8,L-1);m.autoEvery=m.autoEvery?Math.min(m.autoEvery,e):e;break;}
+    }}
+  m.coolMul=clamp(m.coolMul,0.15,3);m.payMul=clamp(m.payMul,0.3,5);m.towelMul=clamp(m.towelMul,0.15,3);m.bathMul=clamp(m.bathMul,0.25,3);
+  return m;
+}
+// 回傳 [標籤, 購買前, 購買後, {total}代入值]
+function preview(u){
+  const lv2=Object.assign({},G.lv);lv2[u.id]=(lv2[u.id]||0)+1;
+  const a=G.mods,b=calcMods(lv2),v=u.value,ref=(G.tubs.find(t=>t.open)||G.tubs[0]||{type:CT.tubs[0]}).type.heat;
+  switch(u.effect){
+    case 'stoke_heat_add':{const x=Math.round(ref+b.heatAdd);return ['每次添柴',`+${Math.round(ref+a.heatAdd)}°`,`+${x}°`,x];}
+    case 'cool_mult':return ['降溫速度',pct(a.coolMul),pct(b.coolMul),pct(b.coolMul)];
+    case 'patience_add':return ['客人耐心',`+${fmt(a.patAdd)}秒`,`+${fmt(b.patAdd)}秒`,fmt(b.patAdd)];
+    case 'pay_mult':return ['收款倍率',pct(a.payMul),pct(b.payMul),pct(b.payMul)];
+    case 'towel_cd_mult':return ['毛巾冷卻',`${fmt(8*a.towelMul)}秒`,`${fmt(8*b.towelMul)}秒`,fmt(8*b.towelMul)];
+    case 'bath_mult':return ['泡湯時間',pct(a.bathMul),pct(b.bathMul),pct(b.bathMul)];
+    case 'combo_window_add':return ['連擊視窗',`${fmt(5+a.comboAdd)}秒`,`${fmt(5+b.comboAdd)}秒`,fmt(b.comboAdd)];
+    case 'auto_stoke_every':return ['自動添柴',a.autoEvery?`每${fmt(a.autoEvery)}秒`:'無',`每${fmt(b.autoEvery)}秒`,fmt(b.autoEvery)];
+    case 'clean_taps_sub':return ['刷池次數',`−${fmt(a.cleanSub)}下`,`−${fmt(b.cleanSub)}下`,fmt(b.cleanSub)];
+    case 'heart_max_add':{const x=Math.min(8,G.heartsMax+v);return ['口碑上限',`${G.heartsMax}♥`,`${x}♥`,Math.max(0,x-5)];}
+    case 'heal_heart':{const x=Math.min(G.heartsMax,G.hearts+v);return ['口碑',`${G.hearts}♥`,`${x}♥`,x];}
+    case 'open_tub':{const n=G.tubs.filter(t=>t.open).length,x=n+Math.min(G.tubs.length-n,v);return ['營業池數',`${n}池`,`${x}池`,x];}
+  }
+  return ['效果','—','—','—'];
+}
+// 以 value 代入說明樣板
+function describe(u){const p=preview(u);const v=MULTS.includes(u.effect)?pct(u.value):fmt(u.value);return u.desc.replace(/\{v\}/g,v).replace(/\{total\}/g,String(p[3]));}
+// 抽三張（有鎖池位時必含擴店卡）
+function drawCards(n){
+  const locked=G.tubs.some(t=>!t.open);
+  const pool=CT.upgrades.filter(u=>u.from<=n&&(G.lv[u.id]||0)<u.max&&(u.effect!=='open_tub'||locked)&&!(u.effect==='heal_heart'&&G.hearts>=G.heartsMax)&&!(u.effect==='heart_max_add'&&G.heartsMax>=8));
+  const opens=pool.filter(u=>u.effect==='open_tub'),out=[];
+  if(opens.length)out.push(pick(opens));
+  for(const u of shuffle(pool.filter(u=>u.effect!=='open_tub'))){if(out.length>=3)break;out.push(u);}
+  return shuffle(out);
+}
+// 升級生效當下再提示一次
+function hint(eff,x,y){if(G.hints[eff]){delete G.hints[eff];ftext(x,y,`✨升級生效：${G.hintTxt[eff]}`,'#ffe066',14,1.8);}}
+function buy(u){
+  if(G.compare)return;const c=costOf(u);
+  if(G.wallet<c){ftext(200,130,`魚乾不夠（還差 ${c-G.wallet}）`,'#ff8080',16);play('wrong');return;}
+  const p=preview(u);G.wallet-=c;G.lv[u.id]=(G.lv[u.id]||0)+1;
+  if(u.effect==='open_tub'){let k=u.value;for(const t of G.tubs){if(k<=0)break;if(!t.open){t.open=true;t.flashT=1.5;k--;}}}
+  else if(u.effect==='heal_heart')G.hearts=Math.min(G.heartsMax,G.hearts+u.value);
+  else if(u.effect==='heart_max_add'){G.heartsMax=Math.min(8,G.heartsMax+u.value);G.hearts=Math.min(G.heartsMax,G.hearts+u.value);}
+  G.mods=calcMods(G.lv);
+  G.compare={e:u.emoji,name:u.name,label:p[0],b:p[1],a:p[2],t:1.3};
+  G.hints[u.effect]=true;G.hintTxt[u.effect]=`${p[0]} ${p[2]}`;
+  play('upgrade');pop(200,300,'star',30);
+}
+function saveMoney(){ftext(200,540,'存錢！🐟 留到下次','#ffe066',16);nextShift();}
+
+// ===== core / shift：一局流程 =====
+function startRun(b){
+  if(!b||CT.errors.length)return;ac();
+  Object.assign(G,{br:b,si:0,inf:false,infK:0,wallet:0,score:0,fixedScore:0,combo:0,comboT:0,hearts:5,heartsMax:5,served:0,angry:0,lv:{},reported:false,elapsed:0,paused:false,hints:{},hintTxt:{},groups:{},lastOps:['seat'],tutSeat:true,tutStoke:false,tutPoint:null,compare:null,info:null,bestBroken:false,autoT:0});
+  G.prevBest=Number(P.best[b.id])||0;G.mods=calcMods(G.lv);
+  G.tubs=b.tubs.map(t=>({type:CT.byId.tubs[t.type]||CT.tubs[0],slot:t.slot,temp:t.start,occ:null,prog:0,dirty:0,open:t.open,shakeT:0,flashT:0,steamT:0}));
+  FX.parts=[];FX.texts=[];FX.banners=[];
+  startShift();
+}
+// 取得本班參數（無限模式依第 k 班縮放）
+function specFor(){
+  const sh=G.br.shifts;if(!G.inf)return sh[G.si];
+  const L=sh[sh.length-1],k=G.infK,b=G.br;
+  return Object.assign({},L,{n:sh.length+k,target:Math.round(L.target*Math.pow(b.grow,k)),every:Math.max(0.8,L.every*Math.pow(b.decay,k)),cool:L.cool+0.1*k,intro:'',event:EVS[1+k%3],eventAt:0.5});
+}
+function startShift(){
+  const s=G.spec=specFor();
+  Object.assign(G,{phase:'shift',timeLeft:s.dur,shiftT:0,revenue:0,target:s.target,spawnT:s.first,ops:s.ops,guests:[],sel:0,angryShift:0,windT:0,rushT:0,evIcon:null,introPending:s.intro,towelCd:0,metShown:false,groups:{},comboT:0,combo:0,paused:false});
+  G.ev={type:s.event,at:s.event==='none'?-1:clamp(s.eventAt*s.dur,2,Math.max(2,s.dur-3)),warned:false,fired:false};
+  banner(G.inf?`♾ 無限營業 第 ${G.infK} 班`:`第 ${s.n}／${G.br.shifts.length} 班 開門營業！`,1100,'#ffe9b0');
+  const names={stoke:'新操作：添柴 🔥（點池子下方火焰）',towel:'新操作：毛巾安撫 🧺（最急的客人 +6 秒）',clean:'新操作：刷池 🧽（點髒掉的池子）'};
+  s.ops.forEach(o=>{if(o!=='seat'&&!G.lastOps.includes(o)){banner(names[o],1300,'#ffb070');if(o==='stoke')G.tutStoke=true;}});
+  G.lastOps=s.ops.slice();
+  ['cool_mult','heart_max_add','heal_heart','open_tub'].forEach((e,i)=>hint(e,200,330+i*18));
+}
+function nextShift(){if(G.inf)G.infK++;else G.si++;startShift();}
+function wpick(w){const ks=Object.keys(w);let r=Math.random()*ks.reduce((a,k)=>a+w[k],0);for(const k of ks){r-=w[k];if(r<=0)return k;}return ks[ks.length-1];}
+// 生成客人；候位不夠時回傳 false（延後進場）
+function spawn(){
+  const id=G.introPending||wpick(G.spec.weights),gt=CT.byId.guests[id];if(!gt)return true;
+  if(G.guests.length+gt.group>6)return false;
+  const gid=gt.group>1?++G.uid:0;
+  for(let i=0;i<gt.group;i++){const pat=gt.patience+G.mods.patAdd;G.guests.push({uid:++G.uid,gt,pat,max:pat,x:W+10+i*30,gid,bounce:0.6,flash:0});}
+  if(gid)G.groups[gid]={n:gt.group,seated:0,first:-1,done:false};
+  if(G.introPending===id){G.introPending='';banner(`新客人！${gt.emoji}${gt.name}：${gt.hint||'看清楚他要的溫度'}`,1800,'#ffcf5a');}
+  play('newguest');hint('patience_add',slotX(Math.min(5,G.guests.length-1))+31,QY+70);
+  return true;
+}
+function removeGuest(g){const i=G.guests.indexOf(g);if(i>=0)G.guests.splice(i,1);if(G.sel===g.uid)G.sel=0;}
+// queue：冪等選取
+function select(g){if(G.sel===g.uid){g.bounce=0.5;return;}G.sel=g.uid;g.bounce=1;play('select');}
+function guestLeave(g){
+  const x=g.x+31;removeGuest(g);G.angry++;G.angryShift++;
+  ftext(x,QY+30,'✖','#ff3030',38,0.8);ftext(x,QY+72,'等太久','#ff7070',16,1.4);play('angry');
+  loseHeart(g.gt.anger,'等太久');
+}
+// tubs：點池子（帶位／刷池／提示）
+function tapTub(t){
+  const b=tubBody(t.slot),cx=b.x+b.w/2;
+  if(!t.open){ftext(cx,b.y+40,'升級「擴店」才能開','#ccc',13);return;}
+  const g=selGuest();
+  if(t.dirty>0){if(g)ftext(cx,b.y+18,'要先刷池','#ffd27a',15);scrub(t);return;}
+  if(!g){ftext(cx,b.y+40,t.occ?'有人在泡':'先點客人，再點池','#ddd',13,0.8);return;}
+  if(t.occ){ftext(cx,b.y+40,'有人在泡','#fff',15);return;}
+  if(!fits(g.gt.want,t.temp)){t.shakeT=0.4;g.pat-=3;g.flash=0.8;G.sel=0;ftext(cx,b.y+30,'不是這池！','#ff6060',19);ftext(g.x+31,QY+8,'−3 秒','#ff6060',14);play('wrong');return;}
+  seat(t,g);
+}
+function seat(t,g){
+  removeGuest(g);
+  const b=tubBody(t.slot),cx=b.x+b.w/2,tip=g.pat/g.max>=0.6?1.5:1;
+  comboHit();
+  t.occ={gt:g.gt,tip,cm:comboMult(),bathT:g.gt.bath*G.mods.bathMul};t.prog=0;t.flashT=0.5;
+  pop(cx,b.y+40,'splash',18);play('seat');ftext(cx,b.y+20,G.tutSeat?'撲通！歡迎泡湯！':'歡迎泡湯！','#bfefff',15);
+  if(tip>1)ftext(cx,b.y+44,'等得不久 小費 ×1.5','#ffe066',13,1.3);
+  G.tutSeat=false;
+  const gr=g.gid&&G.groups[g.gid];
+  if(gr&&!gr.done){if(gr.first<0)gr.first=G.shiftT;gr.seated++;if(gr.seated>=gr.n){gr.done=true;if(G.shiftT-gr.first<=8){const bonus=Math.round(g.gt.pay*1.5);addMoney(bonus,cx,b.y+10,false);banner(`團體到齊！獎金 +${bonus}`,1100,'#ffd040');}}}
+}
+function stoke(t){
+  if(!opOk('stoke')||!t.open)return;
+  const b=tubBody(t.slot),h=Math.round(t.type.heat+G.mods.heatAdd);
+  t.temp=clamp(t.temp+h,0,100);t.flashT=0.3;
+  ftext(b.x+b.w-39,b.y+8,`+${h}°`,'#ffb040',20);pop(b.x+b.w/2,b.y+b.h,'fire',12);play('stoke');
+  hint('stoke_heat_add',b.x+b.w/2,b.y+30);
+  if(G.tutPoint)G.tutPoint=null;
+}
+function autoStoke(){
+  const c=G.tubs.filter(t=>t.open&&t.temp>=35&&t.temp<100).sort((a,b)=>a.temp-b.temp)[0];if(!c)return;
+  const b=tubBody(c.slot),h=Math.round(c.type.heat+G.mods.heatAdd);c.temp=clamp(c.temp+h,0,100);
+  ftext(b.x+b.w-39,b.y+8,`自動 +${h}°`,'#ffb070',14);pop(b.x+b.w/2,b.y+b.h,'fire',8);hint('auto_stoke_every',b.x+b.w/2,b.y+30);
+}
+function towel(){
+  if(!opOk('towel'))return;
+  if(G.towelCd>0){ftext(68,512,`毛巾還要 ${Math.ceil(G.towelCd)} 秒`,'#ccc',13);return;}
+  if(!G.guests.length){ftext(68,512,'沒有人在等','#ccc',13);return;}
+  const g=G.guests.reduce((a,b)=>b.pat<a.pat?b:a);g.pat=Math.min(g.max,g.pat+6);g.bounce=1;G.towelCd=8*G.mods.towelMul;
+  pop(g.x+31,QY+30,'bubble',14);ftext(g.x+31,QY+18,'+6 秒 🧺','#9fe0c8',15);play('towel');hint('towel_cd_mult',68,500);
+}
+function scrub(t){
+  t.dirty--;const b=tubBody(t.slot);pop(b.x+rnd(30,140),b.y+rnd(20,70),'bubble',10);play('scrub');
+  if(t.dirty<=0){t.dirty=0;t.flashT=0.4;ftext(b.x+85,b.y+40,'✨ 乾淨了！','#bff',16);}else ftext(b.x+85,b.y+40,`再 ${t.dirty} 下`,'#fff',14,0.6);
+}
+// 首次降檔時的因果演示
+function onBandDrop(t){
+  const b=tubBody(t.slot),nb=bandOf(t.temp);ftext(b.x+b.w-39,b.y+38,`↓${BANDN[nb]}`,BANDC[nb],13,0.9);
+  if(G.tutStoke&&opOk('stoke')){G.tutStoke=false;t.flashT=2.5;G.tutPoint={slot:t.slot,t:5};ftext(b.x+85,b.y+55,'變涼了！點下方 🔥 加熱','#ffe066',16,2.2);play('select');}
+}
+// economy
+function scoreUp(n){G.score+=n;if(!G.inf&&G.prevBest>0&&!G.bestBroken&&G.score>G.prevBest){G.bestBroken=true;banner('🏆 突破本店最高分！',1200,'#ffd040');play('record');pop(200,200,'star',30);}}
+function addMoney(n,x,y,tip){
+  G.wallet+=n;G.revenue+=n;scoreUp(n);pop(x,y,'coin',10);ftext(x,y-10,`+${n}${tip?' 小費！':''}`,'#ffe066',tip?20:17);play('pay');
+  if(!G.metShown&&G.revenue>=G.target&&G.phase==='shift'){G.metShown=true;banner('✨ 本班營收達標！',1000,'#ffd040');play('goal');}
+}
+function finishBath(t,end){
+  const o=t.occ;if(!o)return;const b=tubBody(t.slot),cx=b.x+b.w/2;
+  const amt=Math.max(1,Math.round(o.gt.pay*t.type.pay_mult*o.cm*o.tip*G.mods.payMul));
+  t.occ=null;t.prog=0;G.served++;
+  if(!P.seen.includes(o.gt.id)){P.seen.push(o.gt.id);ftext(cx,b.y-4,`📖 圖鑑登錄：${o.gt.name}`,'#bfe',13,1.6);}
+  addMoney(amt,cx,b.y+30,o.tip>1);hint('pay_mult',cx,b.y+60);hint('bath_mult',cx,b.y+76);
+  if(end)return;
+  if(o.gt.leave_fx==='dirty'){t.dirty=Math.max(1,Math.round(t.type.clean_taps-G.mods.cleanSub));ftext(cx,b.y+62,`池子髒了！點 ${t.dirty} 下刷乾淨`,'#e0c090',13,1.6);pop(cx,b.y+50,'dust',14);hint('clean_taps_sub',cx,b.y+80);}
+  else if(o.gt.leave_fx==='splash'){t.temp=clamp(t.temp-15,0,100);ftext(cx,b.y+62,'嘩啦！−15°','#8fd8ff',15);pop(cx,b.y+40,'splash',16);play('seat');}
+}
+function comboHit(){
+  G.combo=G.comboT>0?G.combo+1:1;G.comboT=5+G.mods.comboAdd;
+  if(G.combo>=2){play('combo',Math.min(G.combo,10));G.comboPulse=1;}
+  hint('combo_window_add',232,520);
+}
+function comboBreak(){if(G.combo>=2){ftext(232,548,'連擊中斷','#ff9090',16);pop(232,550,'dust',10);}G.combo=0;G.comboT=0;}
+function loseHeart(n,reason){
+  for(let i=0;i<n&&G.hearts>0;i++){G.hearts--;pop(heartX(G.hearts),16,'heart',16);}
+  shake(250);FX.flash=0.3;
+  if(G.hearts<=0)gameOver(reason==='未達標'?'本班沒達標，口碑歸零':'客人等太久，口碑歸零');
+}
+function gainHeart(){if(G.hearts<G.heartsMax){G.hearts++;pop(heartX(G.hearts-1),16,'heart',10);ftext(heartX(G.hearts-1),36,'+1♥','#ff8095',14);}}
+// 事件：預告與觸發
+const EVTXT={cold_wind:['🌬️','寒風將至！2 秒後池水降溫加快'],rush:['📣','客潮將至！候位要爆滿了'],hot_spring:['♨️','源泉要湧出！2 秒後全部池 +20°']};
+function eventWarn(type){const e=EVTXT[type];if(!e)return;G.evIcon={e:e[0],t:2};banner(e[1],1400,'#9fd8ff');play('newguest');}
+function eventFire(type){
+  G.evIcon=null;
+  if(type==='cold_wind'){G.windT=6;banner('🌬️ 寒風來襲！6 秒內降溫 ×2.5',1100,'#9fd8ff');noise(1.2,0.15,700);}
+  else if(type==='rush'){G.rushT=10;spawn();spawn();banner('📣 客潮來了！',1000,'#ffcf5a');}
+  else if(type==='hot_spring'){G.tubs.forEach(t=>{if(!t.open)return;t.temp=clamp(t.temp+20,0,100);const b=tubBody(t.slot);pop(b.x+85,b.y+40,'steam',12);ftext(b.x+85,b.y+10,'+20°','#ffb070',18);});banner('♨️ 源泉湧出！全部池 +20°',1100,'#ffb070');play('stoke');}
+}
+// 班內每步更新
+function updShift(dt){
+  const s=G.spec,m=G.mods;
+  G.elapsed+=dt;G.shiftT+=dt;G.timeLeft-=dt;
+  const ev=G.ev;
+  if(ev.at>=0){if(!ev.warned&&G.shiftT>=ev.at-2){ev.warned=true;eventWarn(ev.type);}if(!ev.fired&&G.shiftT>=ev.at){ev.fired=true;eventFire(ev.type);}}
+  if(G.evIcon)G.evIcon.t=Math.max(0,G.evIcon.t-dt);
+  G.windT=Math.max(0,G.windT-dt);G.rushT=Math.max(0,G.rushT-dt);
+  G.spawnT-=dt;
+  if(G.spawnT<=0&&G.timeLeft>2)G.spawnT=spawn()?s.every*(G.rushT>0?0.6:1)*rnd(0.85,1.15):0.5;
+  G.guests.forEach((g,i)=>{g.x+=(slotX(i)-g.x)*Math.min(1,dt*12);g.bounce=Math.max(0,g.bounce-dt*3);g.flash=Math.max(0,g.flash-dt);});
+  for(const g of G.guests.slice()){g.pat-=dt;if(g.pat<=0){guestLeave(g);if(G.phase!=='shift')return;}}
+  const coolEff=(G.windT>0?Math.max(s.cool,1)*2.5:s.cool)*m.coolMul;
+  for(const t of G.tubs){
+    t.shakeT=Math.max(0,t.shakeT-dt);t.flashT=Math.max(0,t.flashT-dt);
+    if(!t.open)continue;
+    const prev=RANK[bandOf(t.temp)];
+    t.temp=clamp(t.temp-t.type.cool_rate*coolEff*dt,0,100);
+    if(RANK[bandOf(t.temp)]<prev)onBandDrop(t);
+    t.steamT+=dt*Math.max(0,t.temp-30)/70*5;
+    while(t.steamT>1){t.steamT--;const b=tubBody(t.slot);pop(b.x+rnd(20,150),b.y+rnd(15,45),'steam',1);}
+    if(t.occ){t.prog+=dt;if(t.prog>=t.occ.bathT)finishBath(t);}
+  }
+  if(m.autoEvery>0){G.autoT+=dt;if(G.autoT>=m.autoEvery){G.autoT=0;autoStoke();}}
+  if(G.comboT>0){G.comboT-=dt;if(G.comboT<=0)comboBreak();}
+  G.comboPulse=Math.max(0,G.comboPulse-dt*3);
+  if(G.towelCd>0)G.towelCd-=dt;
+  if(G.tutPoint){G.tutPoint.t-=dt;if(G.tutPoint.t<=0)G.tutPoint=null;}
+  if(G.timeLeft<=0)endShift();
+}
+// 打烊結算
+function endShift(){
+  for(const t of G.tubs)if(t.occ)finishBath(t,true);
+  G.guests=[];G.sel=0;G.tutPoint=null;G.windT=0;G.rushT=0;G.evIcon=null;G.combo=0;G.comboT=0;
+  const met=G.revenue>=G.target,zero=G.angryShift===0,bonus=(met?100:0)+(zero?80:0);
+  if(bonus)scoreUp(bonus);
+  G.result={n:G.spec.n,met,zero,rev:G.revenue,target:G.target,angry:G.angryShift};
+  G.phase='settle';G.phaseT=0;pSave();
+  if(met){gainHeart();play('goal');}else loseHeart(1,'未達標');
+}
+function afterSettle(){if(G.phase!=='settle')return;if(!G.inf&&G.si>=G.br.shifts.length-1)victory();else openUpgrade();}
+function openUpgrade(){G.offered=drawCards(G.inf?99:G.si+1);G.upSel=0;G.upT=10;G.compare=null;G.phase='upgrade';G.phaseT=0;if(!G.offered.length)nextShift();}
+function victory(){
+  const b=G.br,before=unlockedCount();G.fixedScore=G.score;
+  let st=1;if(G.score>=b.star2)st=2;if(G.score>=b.star3&&G.angry<=2)st=3;
+  const prevSt=clamp(Number(P.stars[b.id])||0,0,3),newBest=G.score>G.prevBest;
+  if(st>prevSt)P.stars[b.id]=st;if(newBest)P.best[b.id]=G.score;
+  let near;
+  if(st<2)near=`差 ${b.star2-G.score} 分拿 ★★`;
+  else if(st<3)near=G.score<b.star3?`差 ${b.star3-G.score} 分拿 ★★★`:`氣走 ≤2 人才拿 ★★★（這局 ${G.angry} 人）`;
+  else near='★★★ 完美營業！';
+  pSave();
+  G.info={stars:st,score:G.score,prev:G.prevBest,newBest,angry:G.angry,near,unlock:unlockedCount()>before};
+  G.phase='victory';G.phaseT=0;G.fwT=0;play('goal');if(newBest)play('record');
+}
+function gameOver(reason){
+  if(G.phase==='over')return;
+  const b=G.br,I={reason,inf:G.inf,newBest:false,left:0,reached:0,infPrev:Number(P.infBest[b.id])||0,prev:G.prevBest};
+  if(G.inf){I.reached=b.shifts.length+G.infK;I.newBest=I.reached>I.infPrev;if(I.newBest)P.infBest[b.id]=I.reached;}
+  else{I.left=b.shifts.length-G.si;I.newBest=G.score>G.prevBest;if(I.newBest)P.best[b.id]=G.score;}
+  G.info=I;G.phase='over';G.phaseT=0;G.paused=false;G.fwT=0;pSave();
+  play('bankrupt');shake(500);if(I.newBest)play('record');
+  finish(G.score);
+}
+// 回報分數（每局只一次）
+function finish(score){if(G.reported)return;G.reported=true;try{if (window.SC) SC.over(score);}catch(e){}}
+function restart(){finish(G.score);startRun(G.br);}
+function goSelect(){G.phase='select';G.paused=false;}
+function goInfinite(){G.inf=true;G.infK=0;openUpgrade();}
+function tryTitle(){if(!CT.errors.length){ac();goSelect();}}
+
+// ===== 主更新 =====
+function update(dt){
+  G.t+=dt;updFx(dt);
+  const p=G.phase;
+  if(p==='shift'){if(!G.paused)updShift(dt);}
+  else if(p==='settle'){G.phaseT+=dt;if(G.phaseT>=2.4)afterSettle();}
+  else if(p==='upgrade'){G.phaseT+=dt;if(G.compare){G.compare.t-=dt;if(G.compare.t<=0){G.compare=null;nextShift();}}else{G.upT-=dt;if(G.upT<=0)saveMoney();}}
+  else if(p==='victory'||p==='over'){G.phaseT+=dt;if(G.info&&G.info.newBest&&G.phaseT<3.5){G.fwT+=dt;if(G.fwT>0.35){G.fwT=0;pop(rnd(60,340),rnd(80,260),'star',26);}}}
+}
+
+// ===== 繪圖工具 =====
+let REG=[];
+const reg=(x,y,w,h,fn)=>REG.push({x,y,w,h,fn});
+const FONT='"PingFang TC","Microsoft JhengHei","Noto Sans TC",system-ui,sans-serif';
+function rr(x,y,w,h,r){r=Math.min(r,w/2,h/2);ctx.beginPath();ctx.moveTo(x+r,y);ctx.arcTo(x+w,y,x+w,y+h,r);ctx.arcTo(x+w,y+h,x,y+h,r);ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);ctx.closePath();}
+function box(x,y,w,h,r,fill,stroke,lw){if(w<=0||h<=0)return;rr(x,y,w,h,r);if(fill){ctx.fillStyle=fill;ctx.fill();}if(stroke){ctx.strokeStyle=stroke;ctx.lineWidth=lw||2;ctx.stroke();}}
+function txt(s,x,y,size,c,al,bold,outline){ctx.font=`${bold?'bold ':''}${size}px ${FONT}`;ctx.textAlign=al||'left';ctx.textBaseline='middle';if(outline){ctx.lineWidth=outline;ctx.strokeStyle='rgba(0,0,0,0.7)';ctx.lineJoin='round';ctx.strokeText(s,x,y);}ctx.fillStyle=c||'#fff';ctx.fillText(s,x,y);}
+function emo(e,x,y,size){ctx.font=`${size}px ${FONT}`;ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillStyle='#000';ctx.fillText(e,x,y);}
+function wrapTxt(s,x,y,maxW,lh,size,c,maxL){ctx.font=`${size}px ${FONT}`;const lines=[];let cur='';for(const ch of String(s)){if(ctx.measureText(cur+ch).width>maxW&&cur){lines.push(cur);cur=ch;}else cur+=ch;}if(cur)lines.push(cur);lines.slice(0,maxL||3).forEach((l,i)=>txt(l,x,y+i*lh,size,c,'left'));}
+function button(x,y,w,h,label,fill,fn,size){box(x,y,w,h,12,fill,'rgba(255,255,255,0.5)',2);txt(label,x+w/2,y+h/2+1,size||16,'#fff','center',true,3);if(fn)reg(x,y,w,h,fn);}
+function chip(x,y,w,h,want){
+  if(want==='any'){const g=ctx.createLinearGradient(x,0,x+w,0);['#2f86e0','#6fae2a','#e0b020','#e2662a'].forEach((c,i)=>g.addColorStop(i/3,c));box(x,y,w,h,5,g);}
+  else box(x,y,w,h,5,CHIPC[want]);
+  txt(want==='boil'?'🔥滾燙':BANDN[want],x+w/2,y+h/2+1,10,'#fff','center',true,2.5);
+}
+function drawBG(theme){
+  const g=ctx.createLinearGradient(0,0,0,H);g.addColorStop(0,theme||'#2b2140');g.addColorStop(1,'#0d0a14');ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
+  ctx.strokeStyle='rgba(255,255,255,0.04)';ctx.lineWidth=1;for(let y=150;y<H;y+=24){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke();}
+}
+function lanterns(y0){for(let i=0;i<5;i++){const x=40+i*80,y=y0+Math.sin(G.t*1.6+i)*3;ctx.save();ctx.shadowColor='#ff7040';ctx.shadowBlur=18;box(x-13,y-17,26,34,12,'#d8402a');ctx.restore();box(x-8,y-21,16,5,2,'#3a2a20');txt('湯',x,y+1,12,'#ffe0b0','center',true);}}
+
+// ===== ui：遊戲畫面 =====
+function drawHUD(){
+  box(0,0,W,56,0,'rgba(10,6,18,0.75)');
+  txt(G.inf?`♾ 無限 第 ${G.infK} 班`:`第 ${G.spec.n}／${G.br.shifts.length} 班`,8,16,15,'#ffe9b0','left',true);
+  const tl=Math.max(0,Math.ceil(G.timeLeft));txt(`⏱ ${tl}`,112,16,15,tl<=10&&G.phase==='shift'&&Math.floor(G.t*4)%2?'#ff6060':'#fff','left',true);
+  txt(`分數 ${G.score}`,168,16,14,'#fff','left',true);
+  for(let i=0;i<G.heartsMax;i++)txt('♥',heartX(i),16,19,i<G.hearts?'#ff4060':'rgba(255,255,255,0.18)','center',true);
+  const p=clamp(G.revenue/Math.max(1,G.target),0,1);box(8,30,270,20,8,'rgba(255,255,255,0.12)');
+  const col=p>=1?'#ffd040':p>=0.9?(Math.floor(G.t*6)%2?'#ffd040':'#fff3a8'):'#4cc070';
+  if(p>0)box(8,30,Math.max(16,270*p),20,8,col);
+  txt(`營收 ${G.revenue} / ${G.target}${p>=1?' ✓達標':''}`,143,41,12,'#fff','center',true,3);
+  txt(`🐟 ${G.wallet}`,392,41,15,'#ffe066','right',true);
+}
+function drawGuest(g,i,live){
+  const x=g.x,cx=x+31,cy=QY+30,r=clamp(g.pat/g.max,0,1);
+  if(g.uid===G.sel){ctx.save();ctx.shadowColor='#ffe066';ctx.shadowBlur=14;box(x+1,QY+1,60,74,9,'rgba(255,230,100,0.25)','#ffe066',3);ctx.restore();}
+  ctx.lineWidth=5;ctx.strokeStyle='rgba(255,255,255,0.15)';ctx.beginPath();ctx.arc(cx,cy,24,0,Math.PI*2);ctx.stroke();
+  ctx.strokeStyle=g.flash>0&&Math.floor(G.t*12)%2?'#ff2020':`hsl(${Math.round(r*120)},85%,55%)`;ctx.beginPath();ctx.arc(cx,cy,24,-Math.PI/2,-Math.PI/2+Math.PI*2*r);ctx.stroke();
+  const wob=r<0.3?Math.sin(G.t*30)*1.5:0;
+  emo(g.gt.emoji,cx+wob,cy+1-Math.sin(g.bounce*Math.PI)*5,28*(1+g.bounce*0.15));
+  chip(x+6,QY+59,50,14,g.gt.want);
+  txt(String(i+1),x+6,QY+8,10,'rgba(255,255,255,0.55)');
+  if(g.gid)txt('團',x+55,QY+8,10,'#ffd27a','center',true);
+  if(live)reg(x,QY,62,76,()=>select(g));
+}
+function drawTub(t,sel,live){
+  const bd=tubBody(t.slot);
+  if(!t.open){box(bd.x,bd.y,bd.w,bd.h,14,'rgba(255,255,255,0.04)','rgba(255,255,255,0.2)',2);txt('🔒 擴店',bd.x+bd.w/2,bd.y+bd.h/2,16,'rgba(255,255,255,0.45)','center',true);if(live)reg(bd.x,bd.y,bd.w,bd.h,()=>tapTub(t));return;}
+  const sx=t.shakeT>0?Math.sin(t.shakeT*60)*6*(t.shakeT/0.4):0;
+  ctx.save();ctx.translate(sx,0);
+  const usable=!t.occ&&!t.dirty,match=sel&&usable&&fits(sel.gt.want,t.temp);
+  box(bd.x-3,bd.y-3,bd.w+6,bd.h+6,16,t.type.color,'rgba(0,0,0,0.4)',2);
+  box(bd.x+5,bd.y+5,bd.w-10,bd.h-10,11,tcol(t.temp));
+  ctx.strokeStyle='rgba(255,255,255,0.25)';ctx.lineWidth=1.5;
+  for(let k=0;k<3;k++){ctx.beginPath();const yy=bd.y+24+k*20;for(let xx=bd.x+14;xx<=bd.x+bd.w-14;xx+=6){const w=Math.sin(xx*0.08+G.t*2+k)*2;if(xx===bd.x+14)ctx.moveTo(xx,yy+w);else ctx.lineTo(xx,yy+w);}ctx.stroke();}
+  if(t.dirty>0){ctx.fillStyle='rgba(90,60,20,0.7)';[[30,30,14],[90,52,18],[140,30,12],[60,64,10]].forEach(([a,b,r])=>{ctx.beginPath();ctx.arc(bd.x+a,bd.y+b,r,0,7);ctx.fill();});txt(`🧽 點我刷 ${t.dirty} 下`,bd.x+bd.w/2,bd.y+bd.h/2+6,14,'#fff','center',true,3);}
+  if(t.occ){const o=t.occ;emo(o.gt.emoji,bd.x+bd.w/2,bd.y+bd.h/2-2+Math.sin(G.t*3)*2,32);const p=clamp(t.prog/o.bathT,0,1);box(bd.x+20,bd.y+bd.h-15,bd.w-40,7,3,'rgba(0,0,0,0.4)');box(bd.x+20,bd.y+bd.h-15,Math.max(6,(bd.w-40)*p),7,3,'#ffe066');}
+  const band=bandOf(t.temp);box(bd.x+bd.w-72,bd.y+6,64,22,8,'rgba(0,0,0,0.5)');txt(`${Math.round(t.temp)}° ${BANDN[band]}`,bd.x+bd.w-40,bd.y+17,14,BANDC[band],'center',true);
+  txt(`${t.type.emoji}${t.type.name}`,bd.x+10,bd.y+16,11,'rgba(255,255,255,0.9)','left',true,3);
+  txt('QWEASD'[t.slot],bd.x+12,bd.y+bd.h-12,10,'rgba(255,255,255,0.55)','left',true,2);
+  if(match){const a=0.5+0.5*Math.sin(G.t*8);ctx.save();ctx.shadowColor='#7dff7d';ctx.shadowBlur=16;box(bd.x-6,bd.y-6,bd.w+12,bd.h+12,18,null,`rgba(125,255,125,${0.6+0.4*a})`,4);ctx.restore();if(!t.occ)txt('✓ 帶來這池',bd.x+bd.w/2,bd.y+bd.h/2+4,15,'#d8ffd8','center',true,3);}
+  else if(sel&&usable)box(bd.x-3,bd.y-3,bd.w+6,bd.h+6,16,'rgba(0,0,0,0.35)');
+  if(t.flashT>0)box(bd.x-3,bd.y-3,bd.w+6,bd.h+6,16,`rgba(255,255,255,${Math.min(0.55,t.flashT)*(Math.floor(G.t*10)%2?1:0.4)})`);
+  ctx.restore();
+  if(live)reg(bd.x,bd.y,bd.w,bd.h,()=>tapTub(t));
+  if(opOk('stoke')){const f=fireBtn(t.slot),h=Math.round(t.type.heat+G.mods.heatAdd);box(f.x,f.y,f.w,f.h,8,'#c8501e','#ffb070',1.5);txt(`🔥+${h}°`,f.x+f.w/2,f.y+f.h/2+1,13,'#fff','center',true);txt('ZXCVBN'[t.slot],f.x-9,f.y+f.h/2,9,'rgba(255,255,255,0.5)','center');if(live)reg(f.x-8,f.y-3,f.w+12,f.h+6,()=>stoke(t));}
+}
+function drawBottom(live){
+  box(0,514,W,86,0,'rgba(10,6,18,0.55)');
+  if(opOk('towel')){const cd=G.towelCd>0;box(8,528,120,56,12,cd?'#444':'#2e7d6b','#9fe0c8',2);txt(cd?`🧺 ${Math.ceil(G.towelCd)} 秒`:'🧺 毛巾安撫',68,550,15,'#fff','center',true);txt('T 鍵｜最急者 +6 秒',68,571,9,'rgba(255,255,255,0.65)','center');if(cd)box(14,578,108*(1-G.towelCd/(8*G.mods.towelMul)),3,1,'#9fe0c8');if(live)reg(8,528,120,56,towel);}
+  else if(!G.inf&&G.spec.n===1)txt('點客人 → 點同色的池',68,556,12,'rgba(255,255,255,0.75)','center',true);
+  if(G.combo>=2){const m=comboMult(),sc=1+G.comboPulse*0.4;ctx.save();ctx.translate(232,546);ctx.scale(sc,sc);txt(`連擊 ${G.combo}`,0,-11,13,'#ffd27a','center',true,3);txt(`×${m.toFixed(2)}`,0,9,22,m>=3?'#ff6a3a':'#ffe066','center',true,3);ctx.restore();box(182,578,100*clamp(G.comboT/(5+G.mods.comboAdd),0,1),5,2,'#ffe066');}
+  else txt('連擊 ×1.00',232,550,13,'rgba(255,255,255,0.35)','center',true);
+  box(340,532,52,48,10,'rgba(255,255,255,0.12)','rgba(255,255,255,0.4)',2);txt('⏸',366,557,22,'#fff','center',true);
+  if(live)reg(340,532,52,48,()=>{G.paused=true;});
+}
+function drawPointer(sel){
+  let tg=null;
+  if(G.tutSeat&&!G.inf&&G.spec.n===1&&G.phase==='shift'){
+    if(!sel){const g=G.guests[0];if(g)tg={x:g.x+31,y:QY+38};}
+    else{const t=G.tubs.find(t=>t.open&&!t.occ&&!t.dirty&&fits(sel.gt.want,t.temp));if(t){const b=tubBody(t.slot);tg={x:b.x+b.w/2,y:b.y+b.h/2};}}
+  }else if(G.tutPoint){const f=fireBtn(G.tutPoint.slot);tg={x:f.x+f.w/2,y:f.y+f.h/2};}
+  if(!tg)return;
+  ctx.strokeStyle='rgba(255,255,255,0.75)';ctx.lineWidth=3;ctx.beginPath();ctx.arc(tg.x,tg.y,12+(G.t*30)%16,0,7);ctx.stroke();
+  emo('👆',tg.x+8,tg.y+26+Math.sin(G.t*6)*6,30);
+}
+function drawGame(live){
+  drawBG(G.br.theme);
+  if(live)reg(0,0,W,H,()=>{G.sel=0;});
+  drawHUD();
+  box(2,58,396,86,10,'rgba(0,0,0,0.25)');
+  for(let i=0;i<6;i++)box(slotX(i)+2,QY+2,58,72,8,null,'rgba(255,255,255,0.1)',1.5);
+  if(!G.guests.length&&G.phase==='shift')txt('候位區：客人會從右邊進來',200,QY+38,13,'rgba(255,255,255,0.35)','center');
+  const sel=selGuest();
+  G.guests.forEach((g,i)=>drawGuest(g,i,live));
+  for(const t of G.tubs)drawTub(t,sel,live);
+  if(G.windT>0){ctx.strokeStyle='rgba(220,240,255,0.35)';ctx.lineWidth=2;for(let i=0;i<12;i++){const y=160+(i*53)%340,x=(G.t*420+i*97)%480-40;ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(x+40,y-4);ctx.stroke();}}
+  const tag=G.evIcon?`${G.evIcon.e} ${Math.ceil(G.evIcon.t)} 秒後`:G.windT>0?`🌬️ 寒風 ${Math.ceil(G.windT)}`:G.rushT>0?`📣 客潮 ${Math.ceil(G.rushT)}`:'';
+  if(tag){box(140,137,120,20,8,'rgba(0,0,0,0.6)','#9fd8ff',1.5);txt(tag,200,147,12,'#dff','center',true);}
+  drawBottom(live);
+  drawPointer(sel);
+}
+function drawPause(){
+  REG=[];box(0,0,W,H,0,'rgba(0,0,0,0.8)');reg(0,0,W,H,()=>{G.paused=false;});
+  txt('⏸ 暫停中',200,80,30,'#fff','center',true);
+  ['手機：點客人 → 點同溫度的池子帶位','　　　點池子下方 🔥 添柴、🧺 毛巾安撫','鍵盤：1–6 選候位客人','　　　Q W E / A S D 帶到對應池','　　　Z X C / V B N 替對應池添柴','　　　T 毛巾　P / Esc 暫停　M 靜音','池溫：涼 <35°｜溫 35–69°｜熱 ≥70°｜滾燙 ≥85°','帶錯池：客人耐心 −3 秒'].forEach((l,i)=>txt(l,36,135+i*27,14,'#eee'));
+  button(100,370,200,52,'▶ 繼續營業','#2e7d6b',()=>{G.paused=false;},18);
+  button(100,436,200,44,P.muted?'🔇 音效：關':'🔊 音效：開','#55506a',toggleMute);
+  button(100,494,200,44,'🏠 結束並回分店','#7a3040',()=>{finish(G.score);goSelect();});
+}
+function drawSettle(){
+  REG=[];const r=G.result;box(30,170,340,260,18,'rgba(20,12,30,0.94)',r.met?'#ffd040':'#ff6060',3);
+  txt(`第 ${r.n} 班 打烊`,200,205,22,'#fff','center',true);
+  txt(r.met?'🎉 本班達標！':'😿 沒達標…',200,245,22,r.met?'#ffd040':'#ff8080','center',true);
+  txt(`營收 ${r.rev} / ${r.target}`,200,282,16,'#fff','center');
+  txt(r.met?'達標獎勵 +100 分、口碑 +1 ♥':`差 ${r.target-r.rev} 幣就達標｜口碑 −1 ♥`,200,310,14,r.met?'#bfffb0':'#ffb0b0','center',true);
+  txt(r.zero?'零氣走獎勵 +80 分':`本班氣走 ${r.angry} 人`,200,336,14,r.zero?'#bfffb0':'#ffd0a0','center',true);
+  txt('點一下繼續',200,398,14,'rgba(255,255,255,0.6)','center');
+  reg(0,0,W,H,()=>{if(G.phaseT>0.5)afterSettle();});
+}
+function drawUpgrade(){
+  REG=[];box(0,0,W,H,0,'rgba(8,5,14,0.9)');
+  txt('班間升級（三選一）',200,36,22,'#ffe9b0','center',true);
+  txt(`🐟 ${G.wallet}`,200,68,18,'#ffe066','center',true);
+  if(G.compare){const c=G.compare,k=1-clamp(c.t/1.3,0,1);box(30,190,340,210,18,'rgba(40,25,60,0.97)','#ffe066',3);emo(c.e,200,232,40);txt(c.name,200,274,18,'#fff','center',true);txt(c.label,200,304,14,'#ccc','center');txt(c.b,110,350,20,'rgba(255,255,255,0.6)','center',true);txt('→',200,350,22,'#ffe066','center',true);txt(c.a,290,350,22*(1+Math.max(0,0.3-k)*2),'#7dff9d','center',true,3);return;}
+  const tr=clamp(G.upT/10,0,1);box(40,88,320,10,5,'rgba(255,255,255,0.15)');box(40,88,320*tr,10,5,tr<0.3?'#ff6060':'#5ad17a');
+  txt(`${Math.ceil(G.upT)} 秒後自動存錢`,200,112,12,'rgba(255,255,255,0.7)','center');
+  G.offered.forEach((u,i)=>{
+    const y=134+i*112,lv=G.lv[u.id]||0,c=costOf(u),ok=G.wallet>=c,p=preview(u),on=G.upSel===i;
+    box(20,y,360,100,14,ok?'rgba(60,40,85,0.97)':'rgba(40,35,45,0.97)',on?'#ffe066':'rgba(255,255,255,0.25)',on?3:1.5);
+    emo(u.emoji,50,y+40,30);txt(String(i+1),28,y+12,10,'rgba(255,255,255,0.5)');
+    txt(`${u.name}  Lv${lv}→${lv+1}`,80,y+18,16,'#fff','left',true);
+    wrapTxt(describe(u),80,y+42,288,16,12,'#ddd',2);
+    txt(`${p[0]}：${p[1]} → ${p[2]}`,80,y+82,14,'#7dff9d','left',true);
+    txt(`🐟${c}`,370,y+18,15,ok?'#ffe066':'#ff7070','right',true);
+    reg(20,y,360,100,()=>{G.upSel=i;buy(u);});
+  });
+  const n=G.offered.length,sy=134+n*112+6;
+  button(110,sy,180,46,'💰 存錢（不買）',G.upSel===n?'#7a6a30':'#55506a',saveMoney);
+  txt('←→ 選卡　Enter 確認',200,sy+64,11,'rgba(255,255,255,0.45)','center');
+}
+function drawVictory(){
+  REG=[];const I=G.info,b=G.br;box(0,0,W,H,0,'rgba(8,5,14,0.85)');
+  txt(`🎉 ${b.shifts.length} 班全撐過！`,200,62,26,'#ffe066','center',true,4);
+  txt(`${b.emoji} ${b.name}`,200,96,14,'#ddd','center');
+  for(let i=0;i<3;i++){const ap=clamp(G.phaseT*2.2-i*0.5,0,1),on=i<I.stars&&ap>0;txt('★',130+i*70,150,on?50*(1+(1-ap)*0.6):44,on?'#ffd040':'rgba(255,255,255,0.18)','center',true,3);}
+  txt(`分數 ${I.score}`,200,210,26,'#fff','center',true,3);
+  txt(I.near,200,244,16,'#ffd27a','center',true);
+  txt(I.newBest?'🏆 新紀錄！':`差 ${Math.max(1,I.prev-I.score)} 分破紀錄（最高 ${I.prev}）`,200,272,15,I.newBest?'#ffd040':'#ffb0b0','center',true);
+  const ib=P.infBest[b.id];txt(`氣走 ${I.angry} 人｜圖鑑 ${seenCount()}/${CT.guests.length}｜無限最佳 ${ib?'第 '+ib+' 班':'—'}`,200,300,12,'#cde','center');
+  if(I.unlock)txt('🔓 新分店解鎖！',200,324,15,'#9fffb0','center',true);
+  if(G.phaseT>0.6){button(60,344,280,56,'🔁 再開一局','#c8501e',restart,19);button(60,410,280,44,'🏠 選分店','#55506a',()=>{finish(G.score);goSelect();});}
+  if(G.phaseT>=2)button(60,466,280,58,'♾ 無限營業：能撐到第幾班？','#2e6db0',goInfinite,17);
+  else txt('結算中…',200,494,14,'#888','center');
+}
+function drawOver(){
+  REG=[];const I=G.info||{};box(0,0,W,H,0,'rgba(8,5,14,0.86)');
+  emo('😿',200,76,52);
+  txt('倒店了…',200,134,30,'#ff8080','center',true,4);
+  txt(I.reason||'',200,168,14,'#ddd','center');
+  txt(`分數 ${G.score}`,200,206,28,'#fff','center',true,3);
+  if(I.inf){
+    txt(`無限營業撐到第 ${I.reached} 班（7 班 ${G.fixedScore}＋無限 ${G.score-G.fixedScore}）`,200,244,13,'#ffd27a','center',true);
+    txt(I.newBest?'🏆 無限營業新紀錄！':`差 ${Math.max(1,I.infPrev-I.reached+1)} 班破紀錄（最佳第 ${I.infPrev} 班）`,200,272,16,I.newBest?'#ffd040':'#ffb0b0','center',true);
+  }else{
+    txt(`差 ${I.left} 班就通關！`,200,244,20,'#ffd27a','center',true);
+    txt(I.newBest?'🏆 新紀錄！':I.prev>0?`差 ${Math.max(1,I.prev-G.score)} 分破紀錄（最高 ${I.prev}）`:'先帶一位客人入池試試！',200,274,16,I.newBest?'#ffd040':'#ffb0b0','center',true);
+  }
+  txt(`客人圖鑑 ${seenCount()}/${CT.guests.length}`,200,302,13,'#bfe','center');
+  if(G.phaseT>0.4){button(60,334,280,64,'🔁 再開一間（Enter）','#c8501e',restart,20);button(60,412,280,46,'🏠 選分店','#55506a',goSelect);}
+}
+function drawTitle(){
+  drawBG('#3a2350');lanterns(36);
+  emo('♨️',200,104,56);
+  txt('喵湯屋七班',200,166,38,'#ffe9b0','center',true,5);
+  txt('點客人，再點同溫度的池子；池水會變涼，記得添柴！',200,206,13,'#fff','center',true,3);
+  const p=(G.t%3.2)/3.2,y0=244,inTub=p>0.62;
+  box(50,y0,62,76,8,'rgba(0,0,0,0.25)','rgba(255,255,255,0.3)',1.5);
+  if(p>0.3&&!inTub)box(51,y0+1,60,74,9,'rgba(255,230,100,0.25)','#ffe066',3);
+  if(!inTub)emo('🐱',81,y0+30,28);
+  chip(56,y0+59,50,14,'warm');
+  box(170,y0-6,180,92,16,'#8a5a2b');box(176,y0,168,80,11,tcol(55));txt('55° 溫',304,y0+14,13,BANDC.warm,'center',true,2);
+  if(inTub){emo('🐱',260,y0+42+Math.sin(G.t*4)*2,30);if(p<0.82)txt('撲通！',260,y0-14,16,'#8fd8ff','center',true,3);}
+  let fx=260,fy=y0+50;if(p<0.3){const k=p/0.3;fx=330-250*k;fy=y0+110-80*k;}else if(p<0.55){const k=(p-0.3)/0.25;fx=81+179*k;fy=y0+30+20*k;}
+  emo('👆',fx+8,fy+22,30);
+  txt('① 點貓',81,y0+102,13,'#fff','center',true);txt('② 點同色的池',260,y0+102,13,'#fff','center',true);
+  txt('手機：點貓 → 點池；池下 🔥 加熱、🧺 安撫',200,382,13,'#ddd','center');
+  txt('鍵盤：1–6 選客、QWE/ASD 帶位、ZXC/VBN 添柴、P 暫停',200,404,12,'#ddd','center');
+  txt('撐過每班營收目標，客人氣走口碑會掉，♥ 歸零就倒店',200,426,12,'#ffd0a0','center');
+  if(CT.errors.length){txt('內容自檢失敗，無法開始：',200,470,14,'#ff7070','center',true);CT.errors.slice(0,3).forEach((e,i)=>txt(e,200,494+i*20,12,'#ff9090','center'));return;}
+  txt('點一下開始',200,482,22,`rgba(255,240,200,${0.6+0.4*Math.sin(G.t*4)})`,'center',true,3);
+  txt(`總星數 ★${totalStars()}｜客人圖鑑 ${seenCount()}/${CT.guests.length}｜分店 ${unlockedCount()}/${CT.branches.length}`,200,548,12,'rgba(255,255,255,0.7)','center');
+  reg(0,0,W,H,tryTitle);
+}
+function drawSelect(){
+  drawBG('#241a34');
+  txt('選擇分店',200,28,24,'#ffe9b0','center',true);
+  txt(`總星數 ★${totalStars()}　客人圖鑑 ${seenCount()}/${CT.guests.length}`,200,56,13,'#ddd','center');
+  const per=4,pages=Math.max(1,Math.ceil(CT.branches.length/per));G.selPage=clamp(G.selPage,0,pages-1);
+  CT.branches.slice(G.selPage*per,G.selPage*per+per).forEach((b,j)=>{
+    const i=G.selPage*per+j,y=78+j*104,un=isUnlocked(b),st=clamp(Number(P.stars[b.id])||0,0,3),kb=G.selIdx===i;
+    box(16,y,368,94,14,un?b.theme:'#2a2a2a',kb?'#ffe066':'rgba(255,255,255,0.3)',kb?3:1.5);
+    emo(un?b.emoji:'🔒',48,y+36,30);
+    txt(b.name,80,y+22,18,'#fff','left',true,3);
+    txt(un?b.desc:`需要 ★${b.need}（目前 ★${totalStars()}）`,80,y+46,12,un?'#ddd':'#ff9f9f');
+    txt('★'.repeat(st)+'☆'.repeat(3-st),372,y+22,18,'#ffd040','right',true);
+    const ib=P.infBest[b.id];txt(`最高 ${Number(P.best[b.id])||0} 分｜無限最佳 ${ib?'第 '+ib+' 班':'—'}｜${b.shifts.length} 班`,80,y+72,11,'rgba(255,255,255,0.75)');
+    reg(16,y,368,94,()=>{G.selIdx=i;if(un)startRun(b);else{ftext(200,y+47,`還差 ${b.need-totalStars()} 顆星`,'#ff9090',16);play('wrong');}});
+  });
+  if(pages>1){button(16,496,80,36,'◀',G.selPage>0?'#55506a':'#333',()=>{G.selPage=Math.max(0,G.selPage-1);});button(304,496,80,36,'▶',G.selPage<pages-1?'#55506a':'#333',()=>{G.selPage=Math.min(pages-1,G.selPage+1);});txt(`${G.selPage+1}／${pages}`,200,514,13,'#ccc','center');}
+  txt('客人圖鑑（服務過才會登錄）',200,548,12,'rgba(255,255,255,0.6)','center');
+  const gs=CT.guests.slice(0,14),gw=Math.min(26,380/Math.max(1,gs.length));
+  gs.forEach((g,i)=>{if(P.seen.includes(g.id))emo(g.emoji,200+(i-(gs.length-1)/2)*gw,576,20);else txt('❔',200+(i-(gs.length-1)/2)*gw,576,16,'rgba(255,255,255,0.35)','center');});
+}
+function drawFx(){
+  for(const p of FX.parts){ctx.globalAlpha=Math.max(0,1-p.life/p.max);ctx.fillStyle=p.c;ctx.beginPath();ctx.arc(p.x,p.y,p.r,0,7);ctx.fill();}
+  for(const t of FX.texts){const k=t.life/t.max;ctx.globalAlpha=k>0.7?(1-k)/0.3:1;const sc=t.life<0.15?0.6+t.life/0.15*0.6:1.2-Math.min(0.2,(t.life-0.15)*2);txt(t.s,t.x,t.y,Math.round(t.size*sc),t.c,'center',true,3);}
+  ctx.globalAlpha=1;
+  const b=FX.banners[0];
+  if(b){const k=b.t/b.max;ctx.globalAlpha=k>0.85?(1-k)/0.15:1;const s=k<0.1?k/0.1:1;ctx.save();ctx.translate(200,205);ctx.scale(1,Math.max(0.05,s));box(-188,-26,376,52,14,'rgba(20,10,30,0.92)',b.c,3);let sz=16;ctx.font=`bold ${sz}px ${FONT}`;while(sz>11&&ctx.measureText(b.s).width>356){sz--;ctx.font=`bold ${sz}px ${FONT}`;}txt(b.s,0,1,sz,b.c,'center',true);ctx.restore();ctx.globalAlpha=1;}
+  if(FX.flash>0){ctx.fillStyle=`rgba(255,0,40,${FX.flash*0.6})`;ctx.fillRect(0,0,W,H);}
+}
+function draw(){
+  ctx.setTransform(S*DPR,0,0,S*DPR,0,0);REG=[];
+  ctx.save();if(FX.shake>0)ctx.translate(rnd(-4,4),rnd(-4,4));
+  const p=G.phase;
+  if(p==='title')drawTitle();
+  else if(p==='select')drawSelect();
+  else{
+    drawGame(p==='shift'&&!G.paused);
+    if(p==='shift'&&G.paused)drawPause();else if(p==='settle')drawSettle();else if(p==='upgrade')drawUpgrade();else if(p==='victory')drawVictory();else if(p==='over')drawOver();
+  }
+  drawFx();ctx.restore();
+}
+
+// ===== input：指標與鍵盤 =====
+function onPointer(x,y){for(let i=REG.length-1;i>=0;i--){const r=REG[i];if(x>=r.x&&x<r.x+r.w&&y>=r.y&&y<r.y+r.h){r.fn();return;}}}
+let held=false;
+cv.addEventListener('pointerdown',e=>{e.preventDefault();ac();held=true;const r=cv.getBoundingClientRect();if(!r.width||!r.height)return;try{onPointer((e.clientX-r.left)/r.width*W,(e.clientY-r.top)/r.height*H);}catch(err){console.warn(err);}});
+cv.addEventListener('pointerup',()=>{held=false;});
+cv.addEventListener('pointercancel',()=>{held=false;});
+cv.addEventListener('contextmenu',e=>e.preventDefault());
+const pauseIfPlaying=()=>{held=false;if(G.phase==='shift')G.paused=true;};
+addEventListener('blur',pauseIfPlaying);
+document.addEventListener('visibilitychange',()=>{if(document.hidden)pauseIfPlaying();});
+const SEATK=['KeyQ','KeyW','KeyE','KeyA','KeyS','KeyD'],STOKEK=['KeyZ','KeyX','KeyC','KeyV','KeyB','KeyN'];
+function onKey(c){
+  const p=G.phase,ok=c==='Enter'||c==='Space'||c==='NumpadEnter';
+  if(p==='title'){if(ok)tryTitle();return;}
+  if(p==='select'){const n=CT.branches.length;if(!n)return;if(c==='ArrowDown'||c==='ArrowRight')G.selIdx=(G.selIdx+1)%n;else if(c==='ArrowUp'||c==='ArrowLeft')G.selIdx=(G.selIdx-1+n)%n;else if(ok){const b=CT.branches[G.selIdx];if(b&&isUnlocked(b))startRun(b);}G.selPage=Math.floor(G.selIdx/4);return;}
+  if(p==='shift'){
+    if(G.paused){if(ok||c==='Escape'||c==='KeyP')G.paused=false;else if(c==='KeyM')toggleMute();return;}
+    if(c==='Escape'||c==='KeyP'){G.paused=true;return;}
+    if(c==='KeyM'){toggleMute();return;}
+    const d=/^(Digit|Numpad)([1-6])$/.exec(c);if(d){const g=G.guests[+d[2]-1];if(g)select(g);return;}
+    let i=SEATK.indexOf(c);if(i>=0){const t=tubAt(i);if(t)tapTub(t);return;}
+    i=STOKEK.indexOf(c);if(i>=0){const t=tubAt(i);if(t&&t.open)stoke(t);return;}
+    if(c==='KeyT')towel();return;
+  }
+  if(p==='settle'){if(ok&&G.phaseT>0.5)afterSettle();return;}
+  if(p==='upgrade'){if(G.compare)return;const n=G.offered.length;
+    if(c==='ArrowRight'||c==='ArrowDown')G.upSel=(G.upSel+1)%(n+1);else if(c==='ArrowLeft'||c==='ArrowUp')G.upSel=(G.upSel+n)%(n+1);
+    else if(ok){if(G.upSel<n)buy(G.offered[G.upSel]);else saveMoney();}
+    else{const d=/^(Digit|Numpad)([1-3])$/.exec(c);if(d&&G.offered[+d[2]-1])buy(G.offered[+d[2]-1]);}return;}
+  if(p==='victory'){if(G.phaseT<0.6)return;if(ok||c==='KeyR')restart();else if(c==='KeyI'&&G.phaseT>=2)goInfinite();else if(c==='Escape'){finish(G.score);goSelect();}return;}
+  if(p==='over'&&G.phaseT>0.4){if(ok||c==='KeyR')restart();else if(c==='Escape')goSelect();}
+}
+addEventListener('keydown',e=>{if(['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Enter'].includes(e.code))e.preventDefault();ac();try{onKey(e.code);}catch(err){console.warn(err);}});
+
+// ===== 主迴圈（固定步長） =====
+let last=performance.now(),acc=0,warned=false;
+function frame(now){
+  let d=(now-last)/1000;last=now;if(!(d>=0))d=0;if(d>0.25)d=0.25;acc+=d;
+  try{let n=0;while(acc>=STEP&&n<8){update(STEP);acc-=STEP;n++;}if(n>=8)acc=0;draw();}
+  catch(err){if(!warned){warned=true;console.warn('[喵湯屋]',err);}}
+  requestAnimationFrame(frame);
+}
+
+// ===== 品管掛勾 =====
+window.SC_HOOKS={
+  start(){const b=CT.branches.find(isUnlocked)||CT.branches[0];if(b&&!CT.errors.length)startRun(b);},
+  snapshot(){return {scene:G.phase,score:G.score,level:G.br?(G.inf?G.br.shifts.length+G.infK:G.si+1):0,elapsed:Math.round(G.elapsed*100)/100,
+    branch:G.br?G.br.id:'',inf:G.inf,paused:G.paused,hearts:G.hearts,heartsMax:G.heartsMax,wallet:G.wallet,revenue:G.revenue,target:G.target,
+    timeLeft:Math.max(0,Math.round(G.timeLeft*10)/10),queue:G.guests.map(g=>({id:g.gt.id,want:g.gt.want,patience:Math.round(g.pat*10)/10})),
+    selected:G.guests.findIndex(g=>g.uid===G.sel),tubs:G.tubs.map(t=>({slot:t.slot,temp:Math.round(t.temp),band:bandOf(t.temp),open:t.open,occupied:!!t.occ,dirty:t.dirty})),
+    ops:G.ops.slice(),combo:G.combo,angry:G.angry,served:G.served,reported:G.reported,errors:CT.errors.slice()};}
+};
+
+pLoad();loadContent();requestAnimationFrame(frame);
+})();
+</script>
+<script src="../../sc_config.js"></script>
+<script src="../../stats.js"></script>
+</body>
+</html>
