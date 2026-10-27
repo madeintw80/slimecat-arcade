@@ -1849,6 +1849,13 @@ const GAMES = [
     "ai_score": 34,
     "reviewer": "echo:gpt-6.1-sol",
     "howto": "點貓配對池溫，添柴安撫，撐過七班。",
-    "polished": "開始任一分店後，normShift 會確定移除班表中不存在的客人 id 並清空相；抽到第一級連擊小鈴鐺時，describe 會顯示「累計多6.5秒」，但 calc；content 模組及驗收第8條要求參照錯誤、未排表客人 console.err"
+    "polished": "開始任一分店後，normShift 會確定移除班表中不存在的客人 id 並清空相；抽到第一級連擊小鈴鐺時，describe 會顯示「累計多6.5秒」，但 calc；content 模組及驗收第8條要求參照錯誤、未排表客人 console.err",
+    "stats": {
+      "opens": 1,
+      "devices": 1,
+      "med_session_sec": 220.0,
+      "return_rate": 1.0,
+      "plays_reported": 0
+    }
   }
 ];
